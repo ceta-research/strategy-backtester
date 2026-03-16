@@ -1,0 +1,39 @@
+# Intraday strategy template
+#
+# strategy_type: must be "intraday" to route to the intraday pipeline
+# strategy_name: maps to a SQL builder (e.g. "orb" -> build_orb_sql)
+#
+# Sections: scanner, entry, exit control SQL query parameters.
+# Wrap values in lists for parameter sweeps (Cartesian product).
+# simulation params only affect portfolio simulation (reuse same SQL results).
+
+static:
+  initial_capital: 500000       # Starting capital in local currency
+  start_date: "2020-01-06"     # Backtest start (minute data availability)
+  end_date: "2026-03-09"       # Backtest end
+  strategy_type: intraday
+  strategy_name: orb            # SQL builder to use
+  exchange: NSE                 # Target exchange
+  risk_free_rate: 0.065         # Annual risk-free rate (India 10Y Gsec)
+
+# Scanner: EOD-level pre-filter for liquid/volatile stocks
+scanner:
+  min_volume: [5000000]         # Min daily volume
+  min_price: [100]              # Min stock price
+  min_range_pct: [0.01]         # Min daily range (high-low)/low
+
+# Entry: breakout detection parameters
+entry:
+  or_window: [15]               # Opening range = first N bars (minutes)
+  max_entry_bar: [120]          # Must break out within first N bars
+
+# Exit: take-profit / stop-loss / time-based
+exit:
+  target_pct: [0.015]           # Take-profit threshold (1.5%)
+  stop_pct: [0.01]              # Stop-loss threshold (1%)
+  max_hold_bars: [60]           # Max bars to hold after entry
+
+# Simulation: portfolio-level parameters (don't affect SQL)
+simulation:
+  max_positions: [5]            # Max concurrent positions per day
+  order_value: [50000]          # Capital per position
