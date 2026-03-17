@@ -140,8 +140,11 @@ def _run_pipeline(config_path, raw, sql_builders, sql_keys, sim_keys,
 
         try:
             if version_label == "v2":
+                exchange = static.get("exchange", "NSE")
+                # US markets have 5-10x more liquid stocks; use smaller chunks
+                months = 3 if exchange in ("NASDAQ", "NYSE", "AMEX") else 12
                 query_data = _query_chunked(client, build_sql, full_sql_cfg,
-                                            chunk_months=12)
+                                            chunk_months=months)
             else:
                 sql = build_sql(full_sql_cfg)
                 query_data = client.query(sql, memory_mb=16384, threads=6,
