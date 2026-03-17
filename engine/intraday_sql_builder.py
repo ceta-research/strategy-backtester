@@ -71,13 +71,15 @@ opening_range AS (
 ),
 
 -- Entry: first bar closing above OR high (breakout)
+-- Join filtered_eod to get EOD open for split-adjustment check
 entry_candidates AS (
     SELECT
         b.symbol, b.trade_date, b.bar_num, b.close AS entry_price,
-        o.or_high, o.or_low, o.or_range,
+        o.or_high, o.or_low, o.or_range, f.open AS eod_open,
         ROW_NUMBER() OVER (PARTITION BY b.symbol, b.trade_date ORDER BY b.bar_num) AS rn
     FROM bars b
     JOIN opening_range o USING (symbol, trade_date)
+    JOIN filtered_eod f USING (symbol, trade_date)
     WHERE b.bar_num > {cfg["or_window"]}
       AND b.bar_num <= {cfg["max_entry_bar"]}
       AND b.close > o.or_high
@@ -86,7 +88,10 @@ entry_candidates AS (
 first_entry AS (
     SELECT symbol, trade_date, bar_num AS entry_bar, entry_price,
            or_high, or_low, or_range
-    FROM entry_candidates WHERE rn = 1
+    FROM entry_candidates
+    WHERE rn = 1
+      -- FMP minute data is NOT split-adjusted; EOD IS. Skip mismatches.
+      AND entry_price BETWEEN eod_open * 0.8 AND eod_open * 1.2
 )"""
 
 
