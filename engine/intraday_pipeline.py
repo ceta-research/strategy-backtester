@@ -143,19 +143,25 @@ def _run_pipeline(config_path, raw, sql_builders, sql_keys, sim_keys,
                 exchange = static.get("exchange", "NSE")
                 # US markets have 5-10x more liquid stocks; use smaller chunks
                 months = 3 if exchange in ("NASDAQ", "NYSE", "AMEX") else 12
-                query_data = _query_chunked(client, build_sql, full_sql_cfg,
-                                            chunk_months=months)
+                query_data, row_count = _query_and_build_entries(
+                    client, build_sql, full_sql_cfg, chunk_months=months)
+                # query_data is now a pre-built entries_by_date dict
             else:
                 sql = build_sql(full_sql_cfg)
                 query_data = client.query(sql, memory_mb=16384, threads=6,
                                           timeout=600)
+                row_count = len(query_data)
         except Exception as e:
             print(f"    Query failed: {e}")
             config_num += len(sim_combos)
             continue
 
         query_elapsed = round(time.time() - query_start, 1)
-        print(f"    {len(query_data)} rows returned ({query_elapsed}s)")
+        if version_label == "v2":
+            n_entries = sum(len(v) for v in query_data.values())
+            print(f"    {row_count} rows -> {n_entries} entries across {len(query_data)} days ({query_elapsed}s)")
+        else:
+            print(f"    {len(query_data)} rows returned ({query_elapsed}s)")
 
         if not query_data:
             config_num += len(sim_combos)
@@ -291,6 +297,47 @@ def _query_chunked(client, build_sql, full_sql_cfg, chunk_months=12):
         except Exception as e:
             print(f" -> failed: {e}")
     return all_rows
+
+
+def _query_and_build_entries(client, build_sql, full_sql_cfg, chunk_months=12):
+    """Query signal matrix in chunks and build entry signals incrementally.
+
+    Instead of accumulating all rows (~8M+) into a flat list, builds the
+    structured entries_by_date dict chunk by chunk. Each chunk's raw rows
+    are freed immediately after processing, keeping peak memory to ~1 chunk
+    + the growing entries dict.
+
+    Returns:
+        (entries_by_date, total_rows) where entries_by_date is a dict
+        keyed by trade_date string, ready for simulate_intraday_v2.
+    """
+    from engine.intraday_simulator_v2 import _build_entry_signals
+
+    start_date = full_sql_cfg["start_date"]
+    end_date = full_sql_cfg["end_date"]
+    chunks = _date_chunks(start_date, end_date, chunk_months)
+
+    all_entries = {}
+    total_rows = 0
+
+    for i, (cs, ce) in enumerate(chunks):
+        chunk_cfg = {**full_sql_cfg, "start_date": cs, "end_date": ce}
+        sql = build_sql(chunk_cfg)
+        print(f"      chunk {i+1}/{len(chunks)}: {cs} to {ce}", end="", flush=True)
+        try:
+            rows = client.query(sql, memory_mb=16384, threads=6, timeout=600)
+            total_rows += len(rows)
+            print(f" -> {len(rows)} rows")
+
+            # Build entry signals from this chunk and merge
+            chunk_entries = _build_entry_signals(rows)
+            for date, entries in chunk_entries.items():
+                all_entries.setdefault(date, []).extend(entries)
+            del rows, chunk_entries  # free chunk memory
+        except Exception as e:
+            print(f" -> failed: {e}")
+
+    return all_entries, total_rows
 
 
 def _cartesian(params: dict) -> list:

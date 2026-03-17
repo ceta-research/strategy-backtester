@@ -81,7 +81,11 @@ def simulate_intraday_v2(signal_matrix: list, config: dict) -> dict:
         interval = payout_cfg.get("interval_days", 30)
         next_payout_day = max(lockup, interval)
 
-    entries_by_date = _build_entry_signals(signal_matrix)
+    # Accept pre-built entries (dict) or raw signal matrix (list)
+    if isinstance(signal_matrix, dict):
+        entries_by_date = signal_matrix
+    else:
+        entries_by_date = _build_entry_signals(signal_matrix)
 
     daily_returns = []
     bench_returns = []
