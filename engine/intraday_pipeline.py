@@ -10,6 +10,7 @@ simulation-only params reuse the same query results.
 import os
 import sys
 import time
+from datetime import datetime, timedelta
 from itertools import product
 
 import yaml
@@ -134,12 +135,17 @@ def _run_pipeline(config_path, raw, sql_builders, sql_keys, sim_keys,
             **sql_cfg,
         }
 
-        sql = build_sql(full_sql_cfg)
         query_start = time.time()
         print(f"\n  SQL config {sql_idx + 1}/{len(sql_combos)}: {sql_cfg}")
 
         try:
-            query_data = client.query(sql, memory_mb=16384, threads=6, timeout=600)
+            if version_label == "v2":
+                query_data = _query_chunked(client, build_sql, full_sql_cfg,
+                                            chunk_months=12)
+            else:
+                sql = build_sql(full_sql_cfg)
+                query_data = client.query(sql, memory_mb=16384, threads=6,
+                                          timeout=600)
         except Exception as e:
             print(f"    Query failed: {e}")
             config_num += len(sim_combos)
@@ -240,6 +246,48 @@ def _run_pipeline(config_path, raw, sql_builders, sql_keys, sim_keys,
         print(f"  Calmar: {best.get('calmar_ratio', 'N/A')}")
 
     return all_results
+
+
+def _date_chunks(start_date: str, end_date: str, months: int = 12) -> list:
+    """Split a date range into chunks of approximately `months` months."""
+    start = datetime.strptime(start_date, "%Y-%m-%d")
+    end = datetime.strptime(end_date, "%Y-%m-%d")
+    chunks = []
+    chunk_start = start
+    while chunk_start < end:
+        chunk_end = min(chunk_start + timedelta(days=months * 30), end)
+        chunks.append((chunk_start.strftime("%Y-%m-%d"), chunk_end.strftime("%Y-%m-%d")))
+        chunk_start = chunk_end + timedelta(days=1)
+    return chunks
+
+
+def _query_chunked(client, build_sql, full_sql_cfg, chunk_months=12):
+    """Run SQL in date-range chunks, merging results.
+
+    v2 signal matrix queries return all bars from entry onward (~200K rows
+    per month). For multi-year ranges this exceeds memory. Chunking by year
+    keeps each query under ~2.5M rows.
+    """
+    start_date = full_sql_cfg["start_date"]
+    end_date = full_sql_cfg["end_date"]
+    chunks = _date_chunks(start_date, end_date, chunk_months)
+
+    if len(chunks) <= 1:
+        return client.query(build_sql(full_sql_cfg),
+                            memory_mb=16384, threads=6, timeout=600)
+
+    all_rows = []
+    for i, (cs, ce) in enumerate(chunks):
+        chunk_cfg = {**full_sql_cfg, "start_date": cs, "end_date": ce}
+        sql = build_sql(chunk_cfg)
+        print(f"      chunk {i+1}/{len(chunks)}: {cs} to {ce}", end="", flush=True)
+        try:
+            rows = client.query(sql, memory_mb=16384, threads=6, timeout=600)
+            all_rows.extend(rows)
+            print(f" -> {len(rows)} rows")
+        except Exception as e:
+            print(f" -> failed: {e}")
+    return all_rows
 
 
 def _cartesian(params: dict) -> list:

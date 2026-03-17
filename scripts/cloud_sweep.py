@@ -298,14 +298,16 @@ def main():
                         help="Max SQL configs per batch (default: 48)")
     parser.add_argument("--parallel", type=int, default=1,
                         help="Max concurrent batches (default: 1, max depends on tier)")
+    parser.add_argument("--strategy", type=str, default="orb",
+                        help="Strategy directory name (default: orb)")
     args = parser.parse_args()
 
     output_path = args.output or os.path.join(
-        ROOT, "results", f"orb_sweep_{datetime.now().strftime('%Y-%m-%d')}.json"
+        ROOT, "results", f"{args.strategy}_sweep_{datetime.now().strftime('%Y-%m-%d')}.json"
     )
 
     # Load and split config
-    config_path = os.path.join(ROOT, "strategies", "orb", "config.yaml")
+    config_path = os.path.join(ROOT, "strategies", args.strategy, "config.yaml")
     with open(config_path) as f:
         raw_config = yaml.safe_load(f)
 
