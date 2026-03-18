@@ -29,6 +29,7 @@ from lib.metrics import compute_metrics
 # Import signal generators to trigger registration
 import engine.signals.eod_technical  # noqa: F401
 import engine.signals.connors_rsi  # noqa: F401
+import engine.signals.ibs_reversion  # noqa: F401
 from engine.signals.base import get_signal_generator
 
 

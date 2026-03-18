@@ -1,0 +1,35 @@
+static:
+  strategy_type: connors_rsi
+  start_margin: 1000000
+  start_epoch: 1577836800      # 2020-01-01
+  end_epoch: 1735689600        # 2025-01-01
+  prefetch_days: 400
+  data_granularity: day
+
+scanner:
+  instruments:
+    - [{exchange: US, symbols: []}]
+  price_threshold: [20]
+  avg_day_transaction_threshold:
+    - {period: 50, threshold: 50000000}
+  n_day_gain_threshold:
+    - {n: 360, threshold: 0}
+
+entry:
+  rsi_period: [2]
+  rsi_entry_threshold: [5, 10]
+  sma_trend_period: [200]
+
+exit:
+  exit_sma_period: [5]
+  max_hold_days: [10]
+
+simulation:
+  default_sorting_type: [top_gainer]
+  order_sorting_type: [top_gainer]
+  order_ranking_window_days: [30]
+  max_positions: [5, 10]
+  max_positions_per_instrument: [1]
+  order_value_multiplier: [1]
+  max_order_value:
+    - {type: fixed, value: 200000}

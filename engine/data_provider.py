@@ -31,9 +31,13 @@ def _parse_fmp_symbols_polars(df: pl.DataFrame, exchange_suffix: dict) -> pl.Dat
 
     Vectorized Polars implementation replacing pandas .apply() + list comprehension.
     """
-    exchange_expr = pl.lit("UNKNOWN")
+    # Build expression chain for suffix-based exchanges (NSE, BSE)
+    # US exchanges have no suffix - symbols without dots default to "US"
+    exchange_expr = pl.lit("US")
     bare_symbol_expr = pl.col("symbol")
     for exchange, suffix in exchange_suffix.items():
+        if not suffix:
+            continue  # skip US exchanges (no suffix to match on)
         exchange_expr = (
             pl.when(pl.col("symbol").str.ends_with(suffix))
             .then(pl.lit(exchange))
@@ -69,11 +73,18 @@ class CRDataProvider:
         self.client = CetaResearch(api_key=api_key)
         self._format = format
 
-    # FMP symbol suffix per exchange
+    # FMP symbol suffix per exchange (empty string = no suffix, uses profile join)
     EXCHANGE_SUFFIX = {
         "NSE": ".NS",
         "BSE": ".BO",
+        "NASDAQ": "",
+        "NYSE": "",
+        "AMEX": "",
     }
+
+    # US exchanges need profile join (no suffix to distinguish from crypto/OTC)
+    # "US" is a macro exchange that expands to NASDAQ+NYSE+AMEX
+    US_EXCHANGES = {"NASDAQ", "NYSE", "AMEX", "US"}
 
     def fetch_ohlcv(self, exchanges, symbols=None, start_epoch=None, end_epoch=None, prefetch_days=400):
         """Fetch OHLCV data from fmp.stock_eod.
@@ -118,13 +129,17 @@ class CRDataProvider:
             f"CAST(dateEpoch AS BIGINT) <= {end_epoch}",
         ]
 
+        # Determine if we need a profile join for US exchanges
+        us_exchanges = [e for e in exchanges if e in self.US_EXCHANGES]
+        non_us_exchanges = [e for e in exchanges if e not in self.US_EXCHANGES]
+
         if fmp_symbols:
             symbol_list = ", ".join(f"'{s}'" for s in fmp_symbols)
             where_clauses.append(f"symbol IN ({symbol_list})")
-        else:
-            # Filter by suffix patterns for each exchange
+        elif non_us_exchanges:
+            # Non-US: filter by suffix patterns
             suffix_clauses = []
-            for exchange in exchanges:
+            for exchange in non_us_exchanges:
                 suffix = self.EXCHANGE_SUFFIX.get(exchange, "")
                 if suffix:
                     suffix_clauses.append(f"symbol LIKE '%{suffix}'")
@@ -133,17 +148,68 @@ class CRDataProvider:
 
         where = " AND ".join(where_clauses)
 
-        sql = f"""
-            SELECT
-                CAST(dateEpoch AS BIGINT) AS date_epoch,
-                open, high, low, close,
-                (high + low + close) / 3.0 AS average_price,
-                volume,
-                symbol
-            FROM fmp.stock_eod
-            WHERE {where}
-            ORDER BY symbol, date_epoch
-        """
+        if us_exchanges and not fmp_symbols:
+            # US exchanges: join with profile to filter by exchange (excludes crypto/OTC)
+            # Expand "US" macro to actual exchange names for the profile join
+            actual_us_exchanges = set()
+            for e in us_exchanges:
+                if e == "US":
+                    actual_us_exchanges.update(["NASDAQ", "NYSE", "AMEX"])
+                else:
+                    actual_us_exchanges.add(e)
+            us_exchange_list = ", ".join(f"'{e}'" for e in sorted(actual_us_exchanges))
+            us_where = where
+            if non_us_exchanges:
+                # Mixed US + non-US: need UNION
+                non_us_sql = f"""
+                    SELECT
+                        CAST(dateEpoch AS BIGINT) AS date_epoch,
+                        open, high, low, close,
+                        (high + low + close) / 3.0 AS average_price,
+                        volume, symbol
+                    FROM fmp.stock_eod
+                    WHERE {where}
+                """
+                sql = f"""
+                    SELECT
+                        CAST(e.dateEpoch AS BIGINT) AS date_epoch,
+                        e.open, e.high, e.low, e.close,
+                        (e.high + e.low + e.close) / 3.0 AS average_price,
+                        e.volume, e.symbol
+                    FROM fmp.stock_eod e
+                    JOIN fmp.profile p ON e.symbol = p.symbol
+                    WHERE CAST(e.dateEpoch AS BIGINT) >= {fetch_start}
+                      AND CAST(e.dateEpoch AS BIGINT) <= {end_epoch}
+                      AND p.exchange IN ({us_exchange_list})
+                    UNION ALL
+                    {non_us_sql}
+                    ORDER BY symbol, date_epoch
+                """
+            else:
+                sql = f"""
+                    SELECT
+                        CAST(e.dateEpoch AS BIGINT) AS date_epoch,
+                        e.open, e.high, e.low, e.close,
+                        (e.high + e.low + e.close) / 3.0 AS average_price,
+                        e.volume, e.symbol
+                    FROM fmp.stock_eod e
+                    JOIN fmp.profile p ON e.symbol = p.symbol
+                    WHERE CAST(e.dateEpoch AS BIGINT) >= {fetch_start}
+                      AND CAST(e.dateEpoch AS BIGINT) <= {end_epoch}
+                      AND p.exchange IN ({us_exchange_list})
+                    ORDER BY e.symbol, date_epoch
+                """
+        else:
+            sql = f"""
+                SELECT
+                    CAST(dateEpoch AS BIGINT) AS date_epoch,
+                    open, high, low, close,
+                    (high + low + close) / 3.0 AS average_price,
+                    volume, symbol
+                FROM fmp.stock_eod
+                WHERE {where}
+                ORDER BY symbol, date_epoch
+            """
 
         print(f"  Fetching data: {len(exchanges)} exchanges, "
               f"prefetch={prefetch_days}d, "
