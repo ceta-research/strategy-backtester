@@ -61,10 +61,14 @@ def simulate_intraday_v2(signal_matrix: list, config: dict) -> dict:
     exit_config = {
         "target_pct": config["target_pct"],
         "stop_pct": config["stop_pct"],
-        "max_hold_bars": config["max_hold_bars"],
         "trailing_stop_pct": config.get("trailing_stop_pct", 0),
         "min_hold_bars": config.get("min_hold_bars", 0),
         "use_bar_hilo": config.get("use_bar_hilo", False),
+        "eod_buffer_bars": config.get("eod_buffer_bars", 30),
+        "time_stop_bars": config.get("time_stop_bars", 0),
+        "use_atr_stop": config.get("use_atr_stop", False),
+        "atr_multiplier": config.get("atr_multiplier", 1.0),
+        "exit_reentry_range": config.get("exit_reentry_range", False),
     }
 
     # Ranking config
@@ -143,9 +147,7 @@ def simulate_intraday_v2(signal_matrix: list, config: dict) -> dict:
 
             margin_used += ov
 
-            exit_result = _resolve_exit(
-                entry["bars"], entry_price, entry["or_low"], exit_config
-            )
+            exit_result = _resolve_exit(entry, exit_config)
             exit_price = exit_result["exit_price"]
 
             pnl = (exit_price - entry_price) / entry_price * ov - charges
@@ -247,6 +249,8 @@ def _rank_entries(entries: list, ranking_type: str, symbol_scores: dict) -> list
             -symbol_scores.get(e.get("symbol"), 0),
             -(e.get("signal_strength") or 0),
         ))
+    if ranking_type == "rvol":
+        return sorted(entries, key=lambda e: -(e.get("rvol") or 0))
     # Default: signal_strength
     return sorted(entries, key=lambda e: -(e.get("signal_strength") or 0))
 
@@ -296,6 +300,8 @@ def _build_entry_signals(signal_matrix: list) -> dict:
             "or_range": first.get("or_range"),
             "signal_strength": first.get("signal_strength"),
             "bench_ret": first.get("bench_ret"),
+            "rvol": first.get("rvol"),
+            "atr_14": first.get("atr_14"),
             "bars": [
                 {
                     "bar_num": r["bar_num"],
@@ -312,44 +318,77 @@ def _build_entry_signals(signal_matrix: list) -> dict:
     return dict(by_date)
 
 
-def _resolve_exit(bars: list, entry_price: float, or_low: float, config: dict) -> dict:
+def _resolve_exit(entry: dict, config: dict) -> dict:
     """Determine exit point from a bar sequence.
 
+    Checks target/stop on EVERY bar from entry until eod_buffer_bars before
+    session close. If no signal exit fires, force-exits at the cutoff bar.
+
     Supports:
-    - Fixed target/stop (v1-equivalent when other features disabled)
+    - Fixed target/stop (stop_pct based, OR low no longer used as floor)
+    - ATR-based stop: entry_price - atr_multiplier * atr_14
     - Trailing stop: stop ratchets up as price makes new highs
     - Min hold: skip exit checks for first N bars after entry
     - Bar hi/lo: use bar high for target check, bar low for stop check
-
-    All new features default to off, preserving v1 equivalence.
+    - EOD buffer: force-exit N bars before session close (default 30)
+    - Time stop: force-exit after N bars from entry
+    - Re-entry range: exit if close drops back below or_high
+    - Trail-only: target_pct=0 disables target (infinite target)
 
     Args:
-        bars: list of bar dicts ordered by bar_num. First bar is the entry bar.
-        entry_price: price at entry
-        or_low: opening range low (stop floor)
-        config: {target_pct, stop_pct, max_hold_bars,
+        entry: dict with keys: bars, entry_price, or_low, or_high,
+               and optionally atr_14, rvol
+        config: {target_pct, stop_pct,
                  trailing_stop_pct (opt, default 0),
                  min_hold_bars (opt, default 0),
-                 use_bar_hilo (opt, default False)}
+                 use_bar_hilo (opt, default False),
+                 eod_buffer_bars (opt, default 30),
+                 time_stop_bars (opt, default 0),
+                 use_atr_stop (opt, default False),
+                 atr_multiplier (opt, default 1.0),
+                 exit_reentry_range (opt, default False)}
 
     Returns:
         {"exit_bar": int, "exit_price": float, "exit_type": str}
     """
-    target_price = entry_price * (1 + config["target_pct"])
-    fixed_stop = min(entry_price * (1 - config["stop_pct"]), or_low)
-    max_hold = config["max_hold_bars"]
+    bars = entry["bars"]
+    entry_price = entry["entry_price"]
+
+    # Target: 0 means disabled (trail-only mode)
+    target_pct = config["target_pct"]
+    target_price = entry_price * (1 + target_pct) if target_pct > 0 else float("inf")
+
+    # Stop: ATR-based or fixed percentage (OR low no longer used as floor)
+    if config.get("use_atr_stop") and entry.get("atr_14"):
+        fixed_stop = entry_price - config.get("atr_multiplier", 1.0) * entry["atr_14"]
+    else:
+        fixed_stop = entry_price * (1 - config["stop_pct"])
+
     trailing_pct = config.get("trailing_stop_pct", 0)
     min_hold = config.get("min_hold_bars", 0)
     use_hilo = config.get("use_bar_hilo", False)
+    eod_buffer = config.get("eod_buffer_bars", 30)
+    time_stop_bars = config.get("time_stop_bars", 0)
+    exit_reentry = config.get("exit_reentry_range", False)
+    or_high = entry.get("or_high", float("inf"))
 
     entry_bar = bars[0]["bar_num"]
+    last_bar_num = bars[-1]["bar_num"]
+    cutoff_bar = last_bar_num - eod_buffer
     highest = entry_price
+    last_checked = bars[0]
 
-    # Check bars AFTER entry (skip entry bar itself, matching v1: bar_num > entry_bar)
+    # Check bars AFTER entry (skip entry bar itself)
     for bar in bars[1:]:
-        # Only check within max_hold_bars window (v1: bar_num <= entry_bar + max_hold_bars)
-        if bar["bar_num"] > entry_bar + max_hold:
+        # Past the cutoff: force exit at the cutoff bar
+        if bar["bar_num"] > cutoff_bar:
             break
+
+        last_checked = bar
+
+        # Time stop: exit after N bars from entry
+        if time_stop_bars > 0 and (bar["bar_num"] - entry_bar) >= time_stop_bars:
+            return {"exit_bar": bar["bar_num"], "exit_price": bar["close"], "exit_type": "time_stop"}
 
         # Price references: bar high/low when use_hilo, else bar close
         price_high = bar["high"] if use_hilo else bar["close"]
@@ -382,9 +421,12 @@ def _resolve_exit(bars: list, entry_price: float, or_low: float, config: dict) -
                 exit_price = bar["close"]
             return {"exit_bar": bar["bar_num"], "exit_price": exit_price, "exit_type": "signal"}
 
-    # EOD fallback: last bar of the day
-    last_bar = bars[-1]
-    return {"exit_bar": last_bar["bar_num"], "exit_price": last_bar["close"], "exit_type": "eod"}
+        # Re-entry into range: close drops back below OR high
+        if exit_reentry and bar["close"] < or_high:
+            return {"exit_bar": bar["bar_num"], "exit_price": bar["close"], "exit_type": "reentry"}
+
+    # Force exit at cutoff bar (eod_buffer bars before session close)
+    return {"exit_bar": last_checked["bar_num"], "exit_price": last_checked["close"], "exit_type": "eod"}
 
 
 # ------------------------------------------------------------------ #

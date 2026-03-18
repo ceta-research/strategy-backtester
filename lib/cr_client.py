@@ -95,7 +95,7 @@ class CetaResearch:
     # ------------------------------------------------------------------ #
 
     def query(self, sql, timeout=DEFAULT_TIMEOUT, limit=100000, format="json",
-              verbose=False, memory_mb=None, threads=None):
+              verbose=False, memory_mb=None, threads=None, disk_mb=None):
         """Execute SQL and return results.
 
         Args:
@@ -108,6 +108,8 @@ class CetaResearch:
                        Use 16384 for large backtests, None for simple queries.
             threads: Server-side thread count (default: server decides).
                      Use 6 for large backtests, None for simple queries.
+            disk_mb: Server-side disk allocation in MB (default: server decides).
+                     Use 40960 for large backtests, None for simple queries.
 
         Returns:
             List of dicts (one per row) for JSON format.
@@ -115,7 +117,7 @@ class CetaResearch:
             Raw bytes for parquet format.
         """
         task_id = self._submit(sql, timeout=timeout, limit=limit, format=format,
-                               memory_mb=memory_mb, threads=threads)
+                               memory_mb=memory_mb, threads=threads, disk_mb=disk_mb)
         if verbose:
             print(f"  Query submitted (task: {task_id[:8]}...)")
 
@@ -130,7 +132,7 @@ class CetaResearch:
             raise QueryTimeoutError(f"Query timed out after {timeout}s (status: {task['status']})")
 
     def _submit(self, sql, timeout=300, limit=100000, format="json",
-                memory_mb=None, threads=None):
+                memory_mb=None, threads=None, disk_mb=None):
         """Submit a query and return the task ID."""
         body = {
             "query": sql,
@@ -140,12 +142,14 @@ class CetaResearch:
                 "format": format,
             },
         }
-        if memory_mb is not None or threads is not None:
+        if memory_mb is not None or threads is not None or disk_mb is not None:
             resources = {}
             if memory_mb is not None:
                 resources["memoryMb"] = memory_mb
             if threads is not None:
                 resources["threads"] = threads
+            if disk_mb is not None:
+                resources["diskMb"] = disk_mb
             body["resources"] = resources
         resp = self.session.post(f"{self.base_url}/data-explorer/execute", json=body)
         if resp.status_code == 429:

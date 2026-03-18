@@ -222,12 +222,15 @@ class TestV2KeyClassification(unittest.TestCase):
         self.assertGreater(len(SIM_KEYS_V2), len(SIM_KEYS))
 
     def test_v2_sql_keys_content(self):
-        expected = {"min_volume", "min_price", "min_range_pct", "or_window", "max_entry_bar"}
+        expected = {"min_volume", "min_price", "min_range_pct", "or_window", "max_entry_bar",
+                    "min_rvol"}
         self.assertEqual(SQL_KEYS_V2, expected)
 
     def test_v2_sim_keys_content(self):
         expected = {"max_positions", "order_value", "target_pct", "stop_pct", "max_hold_bars",
                     "trailing_stop_pct", "min_hold_bars", "use_bar_hilo",
+                    "eod_buffer_bars",
+                    "time_stop_bars", "use_atr_stop", "atr_multiplier", "exit_reentry_range",
                     "sizing_type", "sizing_pct", "max_order_value",
                     "max_positions_per_instrument",
                     "ranking_type", "ranking_window_days"}

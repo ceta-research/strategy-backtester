@@ -63,7 +63,7 @@ def run_pipeline(config_path, data_provider=None):
     # Fetch data
     print("\n--- Fetching Data ---")
     if data_provider is None:
-        data_provider = CRDataProvider()
+        data_provider = CRDataProvider(format="parquet")
 
     # Extract exchanges from scanner config
     exchanges = set()

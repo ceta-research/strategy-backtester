@@ -22,12 +22,14 @@ DEFAULT_CONFIG = {
     "target_pct": 0.015,
     "stop_pct": 0.01,
     "max_hold_bars": 60,
+    "eod_buffer_bars": 0,
 }
 
 EXIT_CONFIG = {
     "target_pct": 0.015,
     "stop_pct": 0.01,
     "max_hold_bars": 60,
+    "eod_buffer_bars": 0,
 }
 
 
@@ -45,6 +47,26 @@ def make_bars(entry_bar, closes, start_open=None):
             "close": close,
         })
     return bars
+
+
+def make_entry(entry_bar, entry_price, bars, or_high=None, or_low=90.0,
+               or_range=None, signal_strength=0.05, atr_14=None, rvol=None):
+    """Build an entry dict suitable for _resolve_exit (new signature)."""
+    or_high = or_high if or_high is not None else entry_price + 5
+    or_range = or_range if or_range is not None else (or_high - or_low)
+    return {
+        "symbol": "TEST",
+        "entry_bar": entry_bar,
+        "entry_price": entry_price,
+        "or_high": or_high,
+        "or_low": or_low,
+        "or_range": or_range,
+        "signal_strength": signal_strength,
+        "bench_ret": 0.001,
+        "atr_14": atr_14,
+        "rvol": rvol,
+        "bars": bars,
+    }
 
 
 def make_signal_row(symbol, trade_date, entry_bar, entry_price,
@@ -103,40 +125,34 @@ class TestResolveExit(unittest.TestCase):
         entry_price = 100.0
         target = entry_price * 1.015  # 101.5
         bars = make_bars(16, [100, 100.5, 101, 101.5, 102])
-        result = _resolve_exit(bars, entry_price, 90.0, EXIT_CONFIG)
+        entry = make_entry(16, entry_price, bars)
+        result = _resolve_exit(entry, EXIT_CONFIG)
         self.assertEqual(result["exit_type"], "signal")
         self.assertGreaterEqual(result["exit_price"], target)
         self.assertEqual(result["exit_bar"], 19)  # bar with close=101.5
 
     def test_stop_hit(self):
-        """Stop hit when close <= stop_price = min(entry*(1-stop), or_low)."""
+        """Stop hit when close <= stop_price = entry*(1-stop_pct)."""
         entry_price = 100.0
-        # stop = min(100*0.99, 95) = 95. Close of 94 triggers stop.
-        bars = make_bars(16, [100, 98, 96, 94])
-        result = _resolve_exit(bars, entry_price, 95.0, EXIT_CONFIG)
+        # stop = 100*0.99 = 99. Close of 98 triggers stop.
+        bars = make_bars(16, [100, 98])
+        entry = make_entry(16, entry_price, bars, or_low=95.0)
+        result = _resolve_exit(entry, EXIT_CONFIG)
         self.assertEqual(result["exit_type"], "signal")
-        self.assertLessEqual(result["exit_price"], 95.0)
+        self.assertLessEqual(result["exit_price"], 99.0)
 
-    def test_or_low_floor(self):
-        """stop_price = min(entry*(1-stop), or_low). or_low > computed stop."""
-        # entry=105, stop=1% -> 103.95. or_low=106 -> stop=min(103.95, 106)=103.95
-        entry_price = 105.0
-        or_low = 106.0  # or_low is ABOVE the computed stop
-        bars = make_bars(16, [105, 104, 103.5])  # 103.5 <= 103.95
-        result = _resolve_exit(bars, entry_price, or_low, EXIT_CONFIG)
-        self.assertEqual(result["exit_type"], "signal")
-        self.assertEqual(result["exit_price"], 103.5)
-
-    def test_or_low_below_stop(self):
-        """or_low < computed stop -> stop_price = or_low (wider stop, more loss allowed)."""
-        # entry=100, stop=1% -> 99. or_low=95 -> stop=min(99, 95)=95
-        # 98 and 96 don't trigger (above 95), only 95 does
+    def test_stop_no_or_low_floor(self):
+        """Stop is pure pct-based: or_low no longer widens the stop."""
+        # entry=100, stop=1% -> 99. Previously or_low=95 would widen to 95.
+        # Now stop stays at 99 regardless of or_low.
         entry_price = 100.0
-        or_low = 95.0
         bars = make_bars(16, [100, 98, 96, 95])
-        result = _resolve_exit(bars, entry_price, or_low, EXIT_CONFIG)
+        entry = make_entry(16, entry_price, bars, or_low=95.0)
+        result = _resolve_exit(entry, EXIT_CONFIG)
         self.assertEqual(result["exit_type"], "signal")
-        self.assertEqual(result["exit_price"], 95)
+        # Should trigger at bar 17 (close=98 <= 99), not bar 19 (close=95)
+        self.assertEqual(result["exit_bar"], 17)
+        self.assertEqual(result["exit_price"], 98)
 
     def test_max_hold_timeout(self):
         """No target/stop within max_hold bars -> exit at LAST bar (EOD)."""
@@ -145,7 +161,8 @@ class TestResolveExit(unittest.TestCase):
         # 5 bars total: entry + 4 post-entry. max_hold=3 means check bars 17,18,19 only.
         # No target/stop within those bars, so EOD at last bar (bar 20).
         bars = make_bars(16, [100, 100.2, 100.1, 100.3, 100.2])
-        result = _resolve_exit(bars, entry_price, 90.0, config)
+        entry = make_entry(16, entry_price, bars)
+        result = _resolve_exit(entry, config)
         self.assertEqual(result["exit_type"], "eod")
         self.assertEqual(result["exit_bar"], 20)
         self.assertEqual(result["exit_price"], 100.2)
@@ -155,7 +172,8 @@ class TestResolveExit(unittest.TestCase):
         entry_price = 100.0
         config = {**EXIT_CONFIG, "max_hold_bars": 200}
         bars = make_bars(16, [100, 100.2, 100.1, 100.3, 100.2])
-        result = _resolve_exit(bars, entry_price, 90.0, config)
+        entry = make_entry(16, entry_price, bars)
+        result = _resolve_exit(entry, config)
         self.assertEqual(result["exit_type"], "eod")
         self.assertEqual(result["exit_price"], 100.2)
 
@@ -164,14 +182,16 @@ class TestResolveExit(unittest.TestCase):
         entry_price = 100.0
         # Entry bar close = 102 (above target 101.5), but should be skipped
         bars = make_bars(16, [102, 100.5, 100.3])
-        result = _resolve_exit(bars, entry_price, 90.0, EXIT_CONFIG)
+        entry = make_entry(16, entry_price, bars)
+        result = _resolve_exit(entry, EXIT_CONFIG)
         # Should NOT trigger on entry bar, should be EOD
         self.assertEqual(result["exit_type"], "eod")
 
     def test_single_bar_only(self):
         """Only entry bar, no subsequent bars -> exit at entry bar close."""
         bars = make_bars(16, [100])
-        result = _resolve_exit(bars, 100.0, 90.0, EXIT_CONFIG)
+        entry = make_entry(16, 100.0, bars)
+        result = _resolve_exit(entry, EXIT_CONFIG)
         self.assertEqual(result["exit_type"], "eod")
         self.assertEqual(result["exit_price"], 100)
         self.assertEqual(result["exit_bar"], 16)
@@ -439,8 +459,7 @@ class TestV1V2Equivalence(unittest.TestCase):
         v1_trades = []
         for e in entries:
             exit_result = _resolve_exit(
-                e["bars"], e["entry_price"], e["or_low"],
-                {"target_pct": 0.015, "stop_pct": 0.01, "max_hold_bars": 60}
+                e, {"target_pct": 0.015, "stop_pct": 0.01, "max_hold_bars": 60, "eod_buffer_bars": 0}
             )
             v1_trades.append({
                 "symbol": e["symbol"],
@@ -492,12 +511,13 @@ class TestTrailingStop(unittest.TestCase):
         entry_price = 100.0
         # High target (110) so target doesn't trigger before trailing stop
         config = {"target_pct": 0.10, "stop_pct": 0.01, "max_hold_bars": 60,
-                  "trailing_stop_pct": 0.02}
+                  "trailing_stop_pct": 0.02, "eod_buffer_bars": 0}
         # Highest: 100, 103, 105, 105, 105
         # Trail:    98, 100.94, 102.9, 102.9, 102.9
         # Bar 20 (102): 102 <= 102.9 -> TRIGGERED
         bars = make_bars(16, [100, 103, 105, 104, 102])
-        result = _resolve_exit(bars, entry_price, 90.0, config)
+        entry = make_entry(16, entry_price, bars)
+        result = _resolve_exit(entry, config)
         self.assertEqual(result["exit_type"], "signal")
         self.assertEqual(result["exit_bar"], 20)
         self.assertEqual(result["exit_price"], 102)
@@ -506,13 +526,14 @@ class TestTrailingStop(unittest.TestCase):
         """Trailing stop follows highest price, never moves down."""
         entry_price = 100.0
         config = {"target_pct": 0.10, "stop_pct": 0.01, "max_hold_bars": 60,
-                  "trailing_stop_pct": 0.03}
+                  "trailing_stop_pct": 0.03, "eod_buffer_bars": 0}
         # Closes: 100(entry), 103, 101, 106, 104, 102
         # Highest: 100, 103, 103, 106, 106, 106
         # Trail:   97, 99.91, 99.91, 102.82, 102.82, 102.82
         # Bar 21 (102): 102 <= 102.82 -> TRIGGERED
         bars = make_bars(16, [100, 103, 101, 106, 104, 102])
-        result = _resolve_exit(bars, entry_price, 85.0, config)
+        entry = make_entry(16, entry_price, bars, or_low=85.0)
+        result = _resolve_exit(entry, config)
         self.assertEqual(result["exit_type"], "signal")
         self.assertEqual(result["exit_bar"], 21)
         self.assertEqual(result["exit_price"], 102)
@@ -520,22 +541,23 @@ class TestTrailingStop(unittest.TestCase):
     def test_trailing_stop_never_below_fixed(self):
         """Trailing stop can't widen below fixed stop; fixed stop takes precedence."""
         entry_price = 100.0
-        or_low = 95.0  # fixed_stop = min(99, 95) = 95
+        # fixed_stop = 100*0.99 = 99 (or_low no longer used as floor)
         config = {**EXIT_CONFIG, "trailing_stop_pct": 0.20}  # trail = 80
-        # Trail (80) is far below fixed stop (95), so fixed governs.
-        # Bar 18 (94): 94 <= 95 -> TRIGGERED by fixed stop
-        # Without max(fixed, trail), trail=80, and 94 > 80 wouldn't trigger.
-        bars = make_bars(16, [100, 99, 94])
-        result = _resolve_exit(bars, entry_price, or_low, config)
+        # Trail (80) is far below fixed stop (99), so fixed governs.
+        # Bar 18 (94): 94 <= 99 -> TRIGGERED by fixed stop
+        bars = make_bars(16, [100, 99.5, 94])
+        entry = make_entry(16, entry_price, bars, or_low=95.0)
+        result = _resolve_exit(entry, config)
         self.assertEqual(result["exit_type"], "signal")
         self.assertEqual(result["exit_bar"], 18)
 
     def test_trailing_stop_disabled_by_default(self):
-        """trailing_stop_pct=0 (default) behaves same as v1."""
+        """trailing_stop_pct=0 (default) behaves same as without."""
         entry_price = 100.0
         bars = make_bars(16, [100, 103, 105, 104, 102])
-        result_with = _resolve_exit(bars, entry_price, 90.0, {**EXIT_CONFIG, "trailing_stop_pct": 0})
-        result_without = _resolve_exit(bars, entry_price, 90.0, EXIT_CONFIG)
+        entry = make_entry(16, entry_price, bars)
+        result_with = _resolve_exit(entry, {**EXIT_CONFIG, "trailing_stop_pct": 0})
+        result_without = _resolve_exit(entry, EXIT_CONFIG)
         self.assertEqual(result_with, result_without)
 
 
@@ -553,30 +575,32 @@ class TestMinHoldBars(unittest.TestCase):
         # Bar 17 (101.5): target hit but bars_held=1 <= 3, skipped
         # Bar 20 (101.5): bars_held=4 > 3, target hit -> TRIGGERED
         bars = make_bars(16, [100, 101.5, 101, 100.5, 101.5])
-        result = _resolve_exit(bars, entry_price, 90.0, config)
+        entry = make_entry(16, entry_price, bars)
+        result = _resolve_exit(entry, config)
         self.assertEqual(result["exit_type"], "signal")
         self.assertEqual(result["exit_bar"], 20)
 
     def test_min_hold_zero_default(self):
-        """min_hold_bars=0 behaves same as v1."""
+        """min_hold_bars=0 behaves same as without."""
         entry_price = 100.0
         bars = make_bars(16, [100, 101.5, 101, 100.5])
-        result_with = _resolve_exit(bars, entry_price, 90.0, {**EXIT_CONFIG, "min_hold_bars": 0})
-        result_without = _resolve_exit(bars, entry_price, 90.0, EXIT_CONFIG)
+        entry = make_entry(16, entry_price, bars)
+        result_with = _resolve_exit(entry, {**EXIT_CONFIG, "min_hold_bars": 0})
+        result_without = _resolve_exit(entry, EXIT_CONFIG)
         self.assertEqual(result_with, result_without)
 
     def test_min_hold_tracks_trailing_during_hold(self):
         """Trailing stop updates highest during min_hold (doesn't freeze)."""
         entry_price = 100.0
         config = {"target_pct": 0.10, "stop_pct": 0.01, "max_hold_bars": 60,
-                  "trailing_stop_pct": 0.02, "min_hold_bars": 2}
+                  "trailing_stop_pct": 0.02, "min_hold_bars": 2, "eod_buffer_bars": 0}
         # Bar 17 (105): bars_held=1 <= 2, skip. But highest->105, trail->102.9
         # Bar 18 (100): bars_held=2 <= 2, skip.
         # Bar 19 (103.5): bars_held=3 > 2. 103.5 > 102.9, no trigger
         # Bar 20 (102): bars_held=4 > 2. 102 <= 102.9, TRIGGERED!
-        # If tracking froze during hold, highest=100, trail=98, bar 20 wouldn't trigger.
         bars = make_bars(16, [100, 105, 100, 103.5, 102])
-        result = _resolve_exit(bars, entry_price, 85.0, config)
+        entry = make_entry(16, entry_price, bars, or_low=85.0)
+        result = _resolve_exit(entry, config)
         self.assertEqual(result["exit_type"], "signal")
         self.assertEqual(result["exit_bar"], 20)
         self.assertEqual(result["exit_price"], 102)
@@ -597,37 +621,40 @@ class TestBarHiLoExit(unittest.TestCase):
             {"bar_num": 16, "open": 100, "high": 101, "low": 99, "close": 100},
             {"bar_num": 17, "open": 100.5, "high": 102, "low": 100, "close": 101},
         ]
-        result = _resolve_exit(bars, entry_price, 90.0, config)
+        entry = make_entry(16, entry_price, bars)
+        result = _resolve_exit(entry, config)
         self.assertEqual(result["exit_type"], "signal")
         self.assertAlmostEqual(result["exit_price"], 101.5)  # filled at target_price
 
     def test_hilo_stop_uses_bar_low(self):
         """Stop triggered by bar low even when close is above stop."""
         entry_price = 100.0
-        or_low = 98.0  # stop = min(99, 98) = 98
+        # stop = 100*0.99 = 99
         config = {**EXIT_CONFIG, "use_bar_hilo": True}
-        # Bar 17: close=99.5 (above stop), low=97.5 (below stop)
+        # Bar 17: close=99.5 (above stop 99), low=97.5 (below stop 99)
         bars = [
             {"bar_num": 16, "open": 100, "high": 101, "low": 99, "close": 100},
             {"bar_num": 17, "open": 99.5, "high": 100, "low": 97.5, "close": 99.5},
         ]
-        result = _resolve_exit(bars, entry_price, or_low, config)
+        entry = make_entry(16, entry_price, bars, or_low=98.0)
+        result = _resolve_exit(entry, config)
         self.assertEqual(result["exit_type"], "signal")
-        self.assertAlmostEqual(result["exit_price"], 98.0)  # filled at stop_price
+        self.assertAlmostEqual(result["exit_price"], 99.0)  # filled at stop_price=99
 
     def test_hilo_both_triggered_conservative(self):
         """Both target and stop hit same bar -> exit at stop (conservative)."""
         entry_price = 100.0
-        or_low = 98.0  # stop = min(99, 98) = 98
+        # stop = 100*0.99 = 99
         config = {**EXIT_CONFIG, "use_bar_hilo": True}
-        # Wide bar: high=103 (>= target 101.5), low=97 (<= stop 98)
+        # Wide bar: high=103 (>= target 101.5), low=97 (<= stop 99)
         bars = [
             {"bar_num": 16, "open": 100, "high": 101, "low": 99, "close": 100},
             {"bar_num": 17, "open": 100, "high": 103, "low": 97, "close": 100},
         ]
-        result = _resolve_exit(bars, entry_price, or_low, config)
+        entry = make_entry(16, entry_price, bars, or_low=98.0)
+        result = _resolve_exit(entry, config)
         self.assertEqual(result["exit_type"], "signal")
-        self.assertAlmostEqual(result["exit_price"], 98.0)  # stop wins
+        self.assertAlmostEqual(result["exit_price"], 99.0)  # stop wins at 99
 
     def test_hilo_disabled_by_default(self):
         """use_bar_hilo=False (default) only checks close, ignoring high/low."""
@@ -639,7 +666,8 @@ class TestBarHiLoExit(unittest.TestCase):
             {"bar_num": 17, "open": 100.5, "high": 102, "low": 100, "close": 101},
             {"bar_num": 18, "open": 101, "high": 103, "low": 100.5, "close": 100.8},
         ]
-        result = _resolve_exit(bars, entry_price, 90.0, EXIT_CONFIG)
+        entry = make_entry(16, entry_price, bars)
+        result = _resolve_exit(entry, EXIT_CONFIG)
         self.assertEqual(result["exit_type"], "eod")
         self.assertEqual(result["exit_price"], 100.8)
 
@@ -651,22 +679,24 @@ class TestBarHiLoExit(unittest.TestCase):
             {"bar_num": 16, "open": 100, "high": 101, "low": 99, "close": 100},
             {"bar_num": 17, "open": 101, "high": 105, "low": 100.5, "close": 103},
         ]
-        result = _resolve_exit(bars, entry_price, 90.0, config)
+        entry = make_entry(16, entry_price, bars)
+        result = _resolve_exit(entry, config)
         # Target=101.5, high=105 triggers. Exit at 101.5, not close=103
         self.assertAlmostEqual(result["exit_price"], 101.5)
 
     def test_hilo_exit_price_at_stop(self):
         """With use_bar_hilo, stop exit fills at stop_price, not bar close."""
         entry_price = 100.0
-        or_low = 98.0  # stop = min(99, 98) = 98
+        # stop = 100*0.99 = 99
         config = {**EXIT_CONFIG, "use_bar_hilo": True}
         bars = [
             {"bar_num": 16, "open": 100, "high": 101, "low": 99, "close": 100},
             {"bar_num": 17, "open": 99, "high": 99.5, "low": 95, "close": 96},
         ]
-        result = _resolve_exit(bars, entry_price, or_low, config)
-        # Stop=98, low=95 triggers. Exit at 98, not close=96
-        self.assertAlmostEqual(result["exit_price"], 98.0)
+        entry = make_entry(16, entry_price, bars, or_low=98.0)
+        result = _resolve_exit(entry, config)
+        # Stop=99, low=95 triggers. Exit at 99, not close=96
+        self.assertAlmostEqual(result["exit_price"], 99.0)
 
 
 # ============================================================
@@ -679,13 +709,14 @@ class TestCombinedFeatures(unittest.TestCase):
         """Trailing stop + min hold: trailing updates during hold, exits after."""
         entry_price = 100.0
         config = {"target_pct": 0.10, "stop_pct": 0.01, "max_hold_bars": 60,
-                  "trailing_stop_pct": 0.02, "min_hold_bars": 2}
+                  "trailing_stop_pct": 0.02, "min_hold_bars": 2, "eod_buffer_bars": 0}
         # Bar 17 (105): bars_held=1 <= 2, skip. highest->105, trail->102.9
         # Bar 18 (103): bars_held=2 <= 2, skip.
         # Bar 19 (104): bars_held=3 > 2. 104 > 102.9, no trigger
         # Bar 20 (102): bars_held=4 > 2. 102 <= 102.9, TRIGGERED
         bars = make_bars(16, [100, 105, 103, 104, 102])
-        result = _resolve_exit(bars, entry_price, 85.0, config)
+        entry = make_entry(16, entry_price, bars, or_low=85.0)
+        result = _resolve_exit(entry, config)
         self.assertEqual(result["exit_type"], "signal")
         self.assertEqual(result["exit_bar"], 20)
 
@@ -705,8 +736,9 @@ class TestCombinedFeatures(unittest.TestCase):
         ]
         # Bar 17: bars_held=1 <= 1, skip. highest=106 (bar high), trail=103.88
         # Bar 18: bars_held=2 > 1. price_low=100 <= 103.88 -> stop hit
-        #   exit_price = stop_price = max(min(99,85), 103.88) = 103.88
-        result = _resolve_exit(bars, entry_price, 85.0, config)
+        #   exit_price = stop_price = max(99, 103.88) = 103.88
+        entry = make_entry(16, entry_price, bars, or_low=85.0)
+        result = _resolve_exit(entry, config)
         self.assertEqual(result["exit_type"], "signal")
         self.assertEqual(result["exit_bar"], 18)
         self.assertAlmostEqual(result["exit_price"], 103.88)
@@ -725,7 +757,7 @@ class TestSimulatorPhase4B(unittest.TestCase):
             "TEST.NS", "2024-01-15", 16, 100.0, bars, or_low=90.0
         )
         # High target (10%) so trailing stop triggers before target
-        config = {**DEFAULT_CONFIG, "target_pct": 0.10, "trailing_stop_pct": 0.02}
+        config = {**DEFAULT_CONFIG, "target_pct": 0.10, "trailing_stop_pct": 0.02, "eod_buffer_bars": 0}
         result = simulate_intraday_v2(matrix, config)
         self.assertEqual(result["trade_count"], 1)
         tl = result["trade_log"][0]
@@ -1130,7 +1162,271 @@ class TestPayoutSimulation(unittest.TestCase):
 
 
 # ============================================================
-# M. Phase 4F: Parallel sweep tests
+# M2. Time stop tests
+# ============================================================
+
+class TestTimeStop(unittest.TestCase):
+
+    def test_time_stop_fires_at_n_bars(self):
+        """Time stop exits at exactly N bars from entry."""
+        entry_price = 100.0
+        config = {**EXIT_CONFIG, "time_stop_bars": 3}
+        # Bars: entry(16), 17, 18, 19(time_stop at bar_num-entry_bar=3)
+        bars = make_bars(16, [100, 100.2, 100.1, 100.3, 100.2])
+        entry = make_entry(16, entry_price, bars)
+        result = _resolve_exit(entry, config)
+        self.assertEqual(result["exit_type"], "time_stop")
+        self.assertEqual(result["exit_bar"], 19)  # 19 - 16 = 3
+        self.assertEqual(result["exit_price"], 100.3)
+
+    def test_time_stop_disabled_when_zero(self):
+        """time_stop_bars=0 means disabled (no time stop)."""
+        entry_price = 100.0
+        config = {**EXIT_CONFIG, "time_stop_bars": 0}
+        bars = make_bars(16, [100, 100.2, 100.1, 100.3, 100.2])
+        entry = make_entry(16, entry_price, bars)
+        result = _resolve_exit(entry, config)
+        self.assertEqual(result["exit_type"], "eod")
+
+    def test_time_stop_before_target(self):
+        """Time stop fires before target would have been reached."""
+        entry_price = 100.0
+        config = {**EXIT_CONFIG, "time_stop_bars": 2}
+        # Target would hit at bar 20 (close=101.5), but time stop at bar 18
+        bars = make_bars(16, [100, 100.5, 101, 101.5, 102])
+        entry = make_entry(16, entry_price, bars)
+        result = _resolve_exit(entry, config)
+        self.assertEqual(result["exit_type"], "time_stop")
+        self.assertEqual(result["exit_bar"], 18)
+
+    def test_signal_exit_before_time_stop(self):
+        """Signal exit (target/stop) fires before time stop."""
+        entry_price = 100.0
+        config = {**EXIT_CONFIG, "time_stop_bars": 10}
+        # Target at bar 19 (close=101.5), time stop at bar 26
+        bars = make_bars(16, [100, 100.5, 101, 101.5, 102])
+        entry = make_entry(16, entry_price, bars)
+        result = _resolve_exit(entry, config)
+        self.assertEqual(result["exit_type"], "signal")
+        self.assertEqual(result["exit_bar"], 19)
+
+
+# ============================================================
+# M3. Re-entry range exit tests
+# ============================================================
+
+class TestReentryRangeExit(unittest.TestCase):
+
+    def test_reentry_exit_when_close_below_or_high(self):
+        """Exit when close drops back below or_high."""
+        entry_price = 105.0
+        or_high = 104.5
+        # stop = 105*0.99 = 103.95. Bar close=104.2 > stop but < or_high
+        config = {**EXIT_CONFIG, "exit_reentry_range": True}
+        bars = make_bars(16, [105, 104.2, 102])
+        entry = make_entry(16, entry_price, bars, or_high=or_high)
+        result = _resolve_exit(entry, config)
+        self.assertEqual(result["exit_type"], "reentry")
+        self.assertEqual(result["exit_bar"], 17)
+        self.assertEqual(result["exit_price"], 104.2)
+
+    def test_reentry_disabled_by_default(self):
+        """exit_reentry_range=False (default) does not trigger reentry."""
+        entry_price = 105.0
+        or_high = 104.0
+        config = {**EXIT_CONFIG, "exit_reentry_range": False}
+        # Close drops below or_high but reentry disabled
+        bars = make_bars(16, [105, 103, 102])
+        entry = make_entry(16, entry_price, bars, or_high=or_high)
+        result = _resolve_exit(entry, config)
+        self.assertNotEqual(result["exit_type"], "reentry")
+
+    def test_reentry_not_triggered_while_above_or_high(self):
+        """No reentry exit while close stays above or_high."""
+        entry_price = 105.0
+        or_high = 104.0
+        config = {**EXIT_CONFIG, "exit_reentry_range": True}
+        # All closes above or_high -> EOD, no reentry
+        bars = make_bars(16, [105, 106, 107, 108])
+        entry = make_entry(16, entry_price, bars, or_high=or_high)
+        result = _resolve_exit(entry, config)
+        self.assertNotEqual(result["exit_type"], "reentry")
+
+    def test_signal_exit_before_reentry(self):
+        """Target/stop fires before re-entry check."""
+        entry_price = 100.0
+        or_high = 99.0
+        config = {**EXIT_CONFIG, "exit_reentry_range": True, "use_bar_hilo": True}
+        # Bar 17: high=102 >= target 101.5 -> signal exit before reentry check
+        bars = [
+            {"bar_num": 16, "open": 100, "high": 101, "low": 99, "close": 100},
+            {"bar_num": 17, "open": 100.5, "high": 102, "low": 98, "close": 98.5},
+        ]
+        entry = make_entry(16, entry_price, bars, or_high=or_high)
+        result = _resolve_exit(entry, config)
+        self.assertEqual(result["exit_type"], "signal")
+
+
+# ============================================================
+# M4. Trail-only mode (target_pct=0) tests
+# ============================================================
+
+class TestTrailOnlyMode(unittest.TestCase):
+
+    def test_target_zero_means_no_target(self):
+        """target_pct=0 disables target exit."""
+        entry_price = 100.0
+        config = {**EXIT_CONFIG, "target_pct": 0}
+        # Close goes well above what would be a 1.5% target, no exit
+        bars = make_bars(16, [100, 102, 104, 106, 108])
+        entry = make_entry(16, entry_price, bars)
+        result = _resolve_exit(entry, config)
+        self.assertEqual(result["exit_type"], "eod")
+
+    def test_trailing_stop_as_sole_exit(self):
+        """target_pct=0 + trailing stop: only trailing stop can trigger signal exit."""
+        entry_price = 100.0
+        config = {"target_pct": 0, "stop_pct": 0.05, "trailing_stop_pct": 0.02,
+                  "eod_buffer_bars": 0}
+        # Price rises to 106, trail=103.88, then drops to 103 -> triggered
+        bars = make_bars(16, [100, 103, 106, 104, 103])
+        entry = make_entry(16, entry_price, bars)
+        result = _resolve_exit(entry, config)
+        self.assertEqual(result["exit_type"], "signal")
+        self.assertEqual(result["exit_bar"], 20)
+        self.assertEqual(result["exit_price"], 103)
+
+    def test_positive_target_pct_still_works(self):
+        """Positive target_pct still triggers target normally."""
+        entry_price = 100.0
+        config = {**EXIT_CONFIG, "target_pct": 0.015}
+        bars = make_bars(16, [100, 100.5, 101, 101.5, 102])
+        entry = make_entry(16, entry_price, bars)
+        result = _resolve_exit(entry, config)
+        self.assertEqual(result["exit_type"], "signal")
+        self.assertAlmostEqual(result["exit_price"], 101.5)
+
+
+# ============================================================
+# M5. ATR-based stop tests
+# ============================================================
+
+class TestAtrStop(unittest.TestCase):
+
+    def test_atr_stop_basic(self):
+        """ATR stop = entry_price - atr_multiplier * atr_14."""
+        entry_price = 100.0
+        atr_14 = 2.0  # stop = 100 - 1.0 * 2.0 = 98
+        config = {**EXIT_CONFIG, "use_atr_stop": True, "atr_multiplier": 1.0}
+        bars = make_bars(16, [100, 99, 97.5])  # 97.5 <= 98 -> triggered
+        entry = make_entry(16, entry_price, bars, atr_14=atr_14)
+        result = _resolve_exit(entry, config)
+        self.assertEqual(result["exit_type"], "signal")
+        self.assertEqual(result["exit_bar"], 18)
+
+    def test_atr_stop_with_multiplier(self):
+        """atr_multiplier scales the stop distance."""
+        entry_price = 100.0
+        atr_14 = 2.0  # stop = 100 - 1.5 * 2.0 = 97
+        config = {**EXIT_CONFIG, "use_atr_stop": True, "atr_multiplier": 1.5}
+        bars = make_bars(16, [100, 99, 97.5, 96.5])
+        entry = make_entry(16, entry_price, bars, atr_14=atr_14)
+        result = _resolve_exit(entry, config)
+        self.assertEqual(result["exit_type"], "signal")
+        # 97.5 > 97 (no trigger), 96.5 <= 97 (trigger)
+        self.assertEqual(result["exit_bar"], 19)
+
+    def test_atr_stop_fallback_when_no_atr(self):
+        """When atr_14 is None, falls back to pct stop."""
+        entry_price = 100.0
+        config = {**EXIT_CONFIG, "use_atr_stop": True, "atr_multiplier": 1.0}
+        bars = make_bars(16, [100, 98])  # 98 <= 99 (pct stop)
+        entry = make_entry(16, entry_price, bars, atr_14=None)
+        result = _resolve_exit(entry, config)
+        self.assertEqual(result["exit_type"], "signal")
+        self.assertEqual(result["exit_bar"], 17)
+
+    def test_atr_stop_disabled_by_default(self):
+        """use_atr_stop=False uses pct stop regardless of atr_14."""
+        entry_price = 100.0
+        atr_14 = 0.5  # Would give stop=99.5, tighter than pct stop=99
+        config = {**EXIT_CONFIG, "use_atr_stop": False}
+        bars = make_bars(16, [100, 99.3, 98.5])
+        entry = make_entry(16, entry_price, bars, atr_14=atr_14)
+        result = _resolve_exit(entry, config)
+        # With pct stop=99, bar 17 (99.3) doesn't trigger, bar 18 (98.5) does
+        self.assertEqual(result["exit_type"], "signal")
+        self.assertEqual(result["exit_bar"], 18)
+
+
+# ============================================================
+# M6. RVOL ranking tests
+# ============================================================
+
+class TestRvolRanking(unittest.TestCase):
+
+    def test_rvol_ranking_mode(self):
+        """rvol ranking sorts by rvol descending."""
+        entries = [
+            {"symbol": "A", "rvol": 0.8, "signal_strength": 0.10},
+            {"symbol": "B", "rvol": 2.5, "signal_strength": 0.05},
+            {"symbol": "C", "rvol": 1.5, "signal_strength": 0.08},
+        ]
+        ranked = _rank_entries(entries, "rvol", {})
+        self.assertEqual([e["symbol"] for e in ranked], ["B", "C", "A"])
+
+    def test_rvol_ranking_none_treated_as_zero(self):
+        """Entries with rvol=None sort last."""
+        entries = [
+            {"symbol": "A", "rvol": None, "signal_strength": 0.10},
+            {"symbol": "B", "rvol": 1.5, "signal_strength": 0.05},
+        ]
+        ranked = _rank_entries(entries, "rvol", {})
+        self.assertEqual(ranked[0]["symbol"], "B")
+        self.assertEqual(ranked[1]["symbol"], "A")
+
+    def test_rvol_ranking_all_none(self):
+        """All rvol=None: no-op, order preserved by stable sort."""
+        entries = [
+            {"symbol": "A", "rvol": None},
+            {"symbol": "B", "rvol": None},
+        ]
+        ranked = _rank_entries(entries, "rvol", {})
+        self.assertEqual(len(ranked), 2)
+
+
+# ============================================================
+# M7. Build entry signals with new fields
+# ============================================================
+
+class TestBuildEntrySignalsNewFields(unittest.TestCase):
+
+    def test_rvol_and_atr_carried_through(self):
+        """rvol and atr_14 from signal matrix appear in entry dict."""
+        matrix = [
+            {**make_signal_row("A.NS", "2024-01-15", 16, 100.0, 16, 100.0),
+             "rvol": 2.5, "atr_14": 3.0},
+            {**make_signal_row("A.NS", "2024-01-15", 16, 100.0, 17, 101.0),
+             "rvol": 2.5, "atr_14": 3.0},
+        ]
+        result = _build_entry_signals(matrix)
+        entry = result["2024-01-15"][0]
+        self.assertAlmostEqual(entry["rvol"], 2.5)
+        self.assertAlmostEqual(entry["atr_14"], 3.0)
+
+    def test_rvol_and_atr_none_when_absent(self):
+        """rvol and atr_14 are None when not in signal matrix."""
+        matrix = [
+            make_signal_row("A.NS", "2024-01-15", 16, 100.0, 16, 100.0),
+        ]
+        result = _build_entry_signals(matrix)
+        entry = result["2024-01-15"][0]
+        self.assertIsNone(entry["rvol"])
+        self.assertIsNone(entry["atr_14"])
+
+
+# ============================================================
+# M8. Phase 4F: Parallel sweep tests
 # ============================================================
 
 class TestParallelSweep(unittest.TestCase):

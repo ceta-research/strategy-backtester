@@ -13,19 +13,24 @@ scanner:
   min_range_pct: [0.015]
 
 entry:
-  or_window: [15, 30]
-  max_entry_bar: [60, 120]
+  or_window: [5, 15]
+  max_entry_bar: [60]
+  min_rvol: [1.0]
 
 exit:
-  target_pct: [0.015, 0.02]
+  target_pct: [0, 0.015]
   stop_pct: [0.01]
-  max_hold_bars: [60]
-  trailing_stop_pct: [0, 0.02]
-  min_hold_bars: [0, 5]
-  use_bar_hilo: [false, true]
+  trailing_stop_pct: [0.01, 0.02]
+  min_hold_bars: [0]
+  use_bar_hilo: [true]
+  eod_buffer_bars: [30]
+  time_stop_bars: [0, 90]
+  use_atr_stop: [false, true]
+  atr_multiplier: [1.0]
+  exit_reentry_range: [false, true]
 
 simulation:
-  max_positions: [5]
+  max_positions: [100]
   order_value: [50000]
-  sizing_type: [fixed, equal_weight]
-  ranking_type: [signal_strength, top_performer]
+  sizing_type: [fixed]
+  ranking_type: [rvol, signal_strength]

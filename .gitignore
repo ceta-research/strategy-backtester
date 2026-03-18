@@ -22,6 +22,10 @@ tests/verification/*.json
 .DS_Store
 Thumbs.db
 
+# Debug output (large artifacts, caches)
+debug_output/
+*.pkl
+
 # Environment
 .env
 *.env.local

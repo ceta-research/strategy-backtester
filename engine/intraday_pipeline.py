@@ -42,10 +42,13 @@ SQL_BUILDERS_V2 = {
 }
 
 # v2: target_pct, stop_pct, max_hold_bars are SIM keys (not SQL)
-SQL_KEYS_V2 = {"min_volume", "min_price", "min_range_pct", "or_window", "max_entry_bar"}
+SQL_KEYS_V2 = {"min_volume", "min_price", "min_range_pct", "or_window", "max_entry_bar",
+               "min_rvol"}
 
 SIM_KEYS_V2 = {"max_positions", "order_value", "target_pct", "stop_pct", "max_hold_bars",
                "trailing_stop_pct", "min_hold_bars", "use_bar_hilo",
+               "eod_buffer_bars",
+               "time_stop_bars", "use_atr_stop", "atr_multiplier", "exit_reentry_range",
                "sizing_type", "sizing_pct", "max_order_value",
                "max_positions_per_instrument",
                "ranking_type", "ranking_window_days"}
@@ -148,7 +151,7 @@ def _run_pipeline(config_path, raw, sql_builders, sql_keys, sim_keys,
                 # query_data is now a pre-built entries_by_date dict
             else:
                 sql = build_sql(full_sql_cfg)
-                query_data = client.query(sql, memory_mb=16384, threads=6,
+                query_data = client.query(sql, memory_mb=16384, threads=6, disk_mb=40960,
                                           timeout=600)
                 row_count = len(query_data)
         except Exception as e:
@@ -283,7 +286,7 @@ def _query_chunked(client, build_sql, full_sql_cfg, chunk_months=12):
 
     if len(chunks) <= 1:
         return client.query(build_sql(full_sql_cfg),
-                            memory_mb=16384, threads=6, timeout=600)
+                            memory_mb=16384, threads=6, disk_mb=40960, timeout=600)
 
     all_rows = []
     for i, (cs, ce) in enumerate(chunks):
@@ -291,7 +294,7 @@ def _query_chunked(client, build_sql, full_sql_cfg, chunk_months=12):
         sql = build_sql(chunk_cfg)
         print(f"      chunk {i+1}/{len(chunks)}: {cs} to {ce}", end="", flush=True)
         try:
-            rows = client.query(sql, memory_mb=16384, threads=6, timeout=600)
+            rows = client.query(sql, memory_mb=16384, threads=6, disk_mb=40960, timeout=600)
             all_rows.extend(rows)
             print(f" -> {len(rows)} rows")
         except Exception as e:
@@ -325,7 +328,7 @@ def _query_and_build_entries(client, build_sql, full_sql_cfg, chunk_months=12):
         sql = build_sql(chunk_cfg)
         print(f"      chunk {i+1}/{len(chunks)}: {cs} to {ce}", end="", flush=True)
         try:
-            rows = client.query(sql, memory_mb=16384, threads=6, timeout=600)
+            rows = client.query(sql, memory_mb=16384, threads=6, disk_mb=40960, timeout=600)
             total_rows += len(rows)
             print(f" -> {len(rows)} rows")
 
