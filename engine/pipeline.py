@@ -1,6 +1,7 @@
-"""Pipeline orchestrator: config -> data -> scanner -> order_gen -> rank -> simulate -> metrics.
+"""Pipeline orchestrator: config -> data -> signals -> rank -> simulate -> metrics.
 
 Replaces ATO_Simulator's driver.py + simulator.py + simulate_step_loader.py.
+Dispatches to pluggable signal generators based on strategy_type in config.
 """
 
 import sys
@@ -20,10 +21,15 @@ from engine.config_loader import (
 )
 from engine.config_sweep import create_config_iterator
 from engine.data_provider import CRDataProvider
-from engine import scanner, order_generator, simulator
+from engine import simulator
 from engine.ranking import sort_orders
 from engine.utils import create_epoch_wise_instrument_stats, create_config_df_loc_lookup
 from lib.metrics import compute_metrics
+
+# Import signal generators to trigger registration
+import engine.signals.eod_technical  # noqa: F401
+import engine.signals.connors_rsi  # noqa: F401
+from engine.signals.base import get_signal_generator
 
 
 def run_pipeline(config_path, data_provider=None):
@@ -40,6 +46,10 @@ def run_pipeline(config_path, data_provider=None):
     print(f"Loading config: {config_path}")
     config = load_config(config_path)
     static = config["static_config"]
+
+    strategy_type = static.get("strategy_type", "eod_technical")
+    signal_gen = get_signal_generator(strategy_type)
+    print(f"Strategy: {strategy_type}")
 
     # Count total config combinations
     scanner_total, _ = create_config_iterator(**config["scanner_config_input"])
@@ -92,17 +102,8 @@ def run_pipeline(config_path, data_provider=None):
         print("No data fetched. Aborting.")
         return []
 
-    # Scanner step
-    print("\n--- Scanner Step ---")
-    scanner_start = time.time()
-    df_scanned = scanner.process(context, df_tick_data)
-    print(f"  Scanner: {round(time.time() - scanner_start, 2)}s, {len(df_scanned)} rows")
-
-    # Order generation step
-    print("\n--- Order Generation Step ---")
-    order_start = time.time()
-    df_orders = order_generator.process(context, df_scanned)
-    print(f"  Order gen total: {round(time.time() - order_start, 2)}s")
+    # Signal generation (strategy-specific scanner + order gen)
+    df_orders = signal_gen.generate_orders(context, df_tick_data)
 
     if df_orders.is_empty():
         print("No orders generated. Aborting.")
@@ -211,8 +212,6 @@ def _compute_result_metrics(day_wise_log, config_id, scanner_cfg, entry_cfg, exi
         result.update({"cagr": None, "max_drawdown": None, "calmar_ratio": None, "total_return": None})
         return result
 
-    # Use metrics.compute_metrics (periods_per_year=252 for daily)
-    # We need a benchmark - use 0 returns as placeholder
     benchmark_returns = [0.0] * len(daily_returns)
     metrics = compute_metrics(daily_returns, benchmark_returns, periods_per_year=252)
 
