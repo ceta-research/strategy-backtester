@@ -9,8 +9,7 @@ import os
 import tempfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import numpy as np
-import pandas as pd
+import polars as pl
 
 from engine.config_loader import load_config, get_scanner_config_iterator, get_entry_config_iterator, get_exit_config_iterator, get_simulation_config_iterator
 from engine.config_sweep import create_config_iterator
@@ -51,7 +50,7 @@ def make_deterministic_data():
                 "instrument": f"NSE:{sym}",
                 "exchange": "NSE",
             })
-    return pd.DataFrame(rows)
+    return pl.DataFrame(rows)
 
 
 MINIMAL_CONFIG = """
@@ -121,14 +120,14 @@ def test_end_to_end():
     # Scanner
     df_scanned = scanner.process(context, df)
     assert "scanner_config_ids" in df_scanned.columns
-    signals = df_scanned["scanner_config_ids"].notna().sum()
-    print(f"  Scanner: {len(df_scanned)} rows, {signals} with signals")
+    signals = df_scanned["scanner_config_ids"].is_not_null().sum()
+    print(f"  Scanner: {df_scanned.height} rows, {signals} with signals")
 
     # Order generation
     df_orders = order_generator.process(context, df_scanned)
-    print(f"  Orders: {len(df_orders)}")
+    print(f"  Orders: {df_orders.height}")
 
-    if df_orders.empty:
+    if df_orders.is_empty():
         print("  No orders generated (expected with this synthetic data)")
         print("End-to-end test passed (no-orders path)!")
         return
@@ -151,9 +150,9 @@ def test_end_to_end():
         & entry_idx.get(entry_cfg["id"], set())
         & exit_idx.get(exit_cfg["id"], set())
     )
-    df_config_orders = df_orders.loc[list(order_indices), :].copy()
+    df_config_orders = df_orders[sorted(order_indices)]
 
-    if len(df_config_orders) > 0:
+    if df_config_orders.height > 0:
         df_config_orders = sort_orders(df_config_orders, sim_cfg, df, epoch_wise_stats)
 
     day_wise_log, order_ids, snapshot, positions = simulator.process(

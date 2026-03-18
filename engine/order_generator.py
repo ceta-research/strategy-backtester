@@ -9,7 +9,7 @@ import time
 from collections import defaultdict
 from multiprocessing import Pool, cpu_count
 
-import pandas as pd
+import polars as pl
 
 from engine.config_loader import get_entry_config_iterator, get_exit_config_iterator
 from engine.constants import SECONDS_IN_ONE_DAY
@@ -18,55 +18,72 @@ from engine.constants import SECONDS_IN_ONE_DAY
 class OrderGenerationUtil:
     PRICE_DROP_THRESHOLD = 20
 
-    def __init__(self, df_tick_data):
+    def __init__(self, df_tick_data: pl.DataFrame):
         self.df_tick_data = df_tick_data
         self.order_config_mapping = {}
 
     @staticmethod
-    def add_direction_score(df_tick_data, direction_score_config):
-        df_tick_data.sort_values(["instrument", "date_epoch"], inplace=True)
-        df_tick_data["direction_score_n_day_ma"] = df_tick_data.groupby("instrument")["close"].transform(
-            lambda x: x.rolling(window=direction_score_config["n_day_ma"], min_periods=1).mean()
+    def add_direction_score(df_tick_data: pl.DataFrame, direction_score_config: dict) -> pl.DataFrame:
+        df_tick_data = df_tick_data.sort(["instrument", "date_epoch"])
+        df_tick_data = df_tick_data.with_columns(
+            pl.col("close")
+            .rolling_mean(window_size=direction_score_config["n_day_ma"], min_samples=1)
+            .over("instrument")
+            .alias("direction_score_n_day_ma")
         )
 
-        df_tick_data.loc[~(df_tick_data["close"] > df_tick_data["direction_score_n_day_ma"]), "direction_score"] = 0
-        df_tick_data.loc[df_tick_data["close"] > df_tick_data["direction_score_n_day_ma"], "direction_score"] = 1
-        df_direction = df_tick_data.groupby("date_epoch")["direction_score"].mean().reset_index()
+        df_tick_data = df_tick_data.with_columns(
+            pl.when(pl.col("close") > pl.col("direction_score_n_day_ma"))
+            .then(1.0)
+            .otherwise(0.0)
+            .alias("direction_score")
+        )
 
-        df_tick_data = df_tick_data.drop(["direction_score", "direction_score_n_day_ma"], axis=1)
-        df_tick_data = pd.merge(df_tick_data, df_direction, on=["date_epoch"])
-        df_tick_data.sort_values(["instrument", "date_epoch"], inplace=True)
+        df_direction = df_tick_data.group_by("date_epoch").agg(
+            pl.col("direction_score").mean()
+        )
+
+        df_tick_data = df_tick_data.drop(["direction_score", "direction_score_n_day_ma"])
+        df_tick_data = df_tick_data.join(df_direction, on="date_epoch", how="left")
+        df_tick_data = df_tick_data.sort(["instrument", "date_epoch"])
         return df_tick_data
 
-    def add_entry_signal_inplace(self, df_tick_data, entry_config):
-        df_tick_data["instrument"] = df_tick_data["instrument"].astype("str")
+    def add_entry_signal_inplace(self, df_tick_data: pl.DataFrame, entry_config: dict) -> pl.DataFrame:
+        df_tick_data = df_tick_data.with_columns(pl.col("instrument").cast(pl.Utf8))
         df_tick_data = self.add_direction_score(df_tick_data, entry_config["direction_score"])
-        df_tick_data["n_day_ma"] = df_tick_data.groupby("instrument")["close"].transform(
-            lambda x: x.rolling(window=entry_config["n_day_ma"], min_periods=1).mean()
-        )
+        df_tick_data = df_tick_data.sort(["instrument", "date_epoch"]).with_columns([
+            pl.col("close")
+            .rolling_mean(window_size=entry_config["n_day_ma"], min_samples=1)
+            .over("instrument")
+            .alias("n_day_ma"),
+            pl.col("close")
+            .rolling_max(window_size=entry_config["n_day_high"], min_samples=1)
+            .over("instrument")
+            .alias("n_day_high"),
+        ])
 
-        df_tick_data["n_day_high"] = df_tick_data.groupby("instrument")["close"].transform(
-            lambda x: x.rolling(window=entry_config["n_day_high"], min_periods=1).max()
-        )
-
-        df_tick_data["can_enter"] = (
-            (df_tick_data["close"] > df_tick_data["n_day_ma"])
-            & (df_tick_data["close"] >= df_tick_data["n_day_high"])
-            & (df_tick_data["close"] > df_tick_data["open"])
-            & (~df_tick_data["scanner_config_ids"].isna())
-            & (df_tick_data["direction_score"] > entry_config["direction_score"]["score"])
+        df_tick_data = df_tick_data.with_columns(
+            (
+                (pl.col("close") > pl.col("n_day_ma"))
+                & (pl.col("close") >= pl.col("n_day_high"))
+                & (pl.col("close") > pl.col("open"))
+                & (pl.col("scanner_config_ids").is_not_null())
+                & (pl.col("direction_score") > entry_config["direction_score"]["score"])
+            ).alias("can_enter")
         )
         return df_tick_data
 
-    def update_config_order_map(self, df_tick_data, entry_config_id):
-        df_tick_data = df_tick_data[df_tick_data["can_enter"]]
+    def update_config_order_map(self, df_tick_data: pl.DataFrame, entry_config_id: int):
+        df_tick_data = df_tick_data.filter(pl.col("can_enter"))
+
+        instruments = df_tick_data["instrument"].to_list()
+        scanner_ids = df_tick_data["scanner_config_ids"].to_list()
+        next_epochs = df_tick_data["next_epoch"].to_list()
+        next_opens = df_tick_data["next_open"].to_list()
+        next_volumes = df_tick_data["next_volume"].to_list()
 
         for instrument, scanner_config_ids, entry_epoch, entry_price, entry_volume in zip(
-            df_tick_data["instrument"],
-            df_tick_data["scanner_config_ids"],
-            df_tick_data["next_epoch"],
-            df_tick_data["next_open"],
-            df_tick_data["next_volume"],
+            instruments, scanner_ids, next_epochs, next_opens, next_volumes,
         ):
             if instrument not in self.order_config_mapping:
                 self.order_config_mapping[instrument] = {}
@@ -83,7 +100,7 @@ class OrderGenerationUtil:
                     "entry_config_ids"
                 ] = f"{prev_entry_config_ids},{entry_config_id}"
 
-    def generate_order_df(self):
+    def generate_order_df(self) -> pl.DataFrame:
         """Convert nested order config mapping to DataFrame.
 
         After generate_exit_attributes, entries are:
@@ -112,26 +129,27 @@ class OrderGenerationUtil:
             "scanner_config_ids", "entry_config_ids", "exit_config_ids",
         ]
         if not rows:
-            return pd.DataFrame(columns=column_order)
-        df = pd.DataFrame(rows)
-        df = df[column_order]
-        df = df.sort_values(["instrument", "entry_epoch", "exit_epoch"])
+            return pl.DataFrame(schema={c: pl.Utf8 if c in ("instrument", "scanner_config_ids", "entry_config_ids", "exit_config_ids") else pl.Float64 for c in column_order})
+        df = pl.DataFrame(rows)
+        df = df.select(column_order)
+        df = df.sort(["instrument", "entry_epoch", "exit_epoch"])
         return df
 
-    def generate_exit_attributes(self, context):
+    def generate_exit_attributes(self, context: dict):
         """Compute exit prices/epochs for all instruments using multiprocessing."""
-        instrument_tick_data_idx_map = defaultdict(list)
-        self.df_tick_data = self.df_tick_data[self.df_tick_data["instrument"].isin(self.order_config_mapping.keys())]
-        self.df_tick_data.reset_index(drop=True, inplace=True)
-        for idx, instrument in zip(self.df_tick_data.index, self.df_tick_data["instrument"]):
-            instrument_tick_data_idx_map[instrument].append(idx)
+        instrument_tick_data_map = {}
+        self.df_tick_data = self.df_tick_data.filter(
+            pl.col("instrument").is_in(list(self.order_config_mapping.keys()))
+        )
+
+        for instrument_tuple, group in self.df_tick_data.group_by("instrument"):
+            instrument_name = instrument_tuple[0]
+            instrument_tick_data_map[instrument_name] = group.sort("date_epoch")
 
         instrument_tasks = []
-        for instrument in instrument_tick_data_idx_map:
-            instrument_indices = list(instrument_tick_data_idx_map[instrument])
-            df_instrument_tick_data = self.df_tick_data.loc[instrument_indices, :].reset_index(drop=True)
+        for instrument, group_df in instrument_tick_data_map.items():
             instrument_tasks.append(
-                (instrument, self.order_config_mapping[instrument], df_instrument_tick_data, context)
+                (instrument, self.order_config_mapping[instrument], group_df, context)
             )
 
         max_workers = min(cpu_count() - 1, 4) if cpu_count() > 1 else 1
@@ -150,11 +168,20 @@ def generate_exit_attributes_for_instrument(instrument, instrument_order_config,
     - Anomalous price drop >20% (exit at 80% of last good price)
     - End of data (exit at last close)
     """
-    instrument_last_epoch = df_instrument_tick_data["date_epoch"].max()
+    # Pre-extract columns as lists for fast iteration
+    date_epochs = df_instrument_tick_data["date_epoch"].to_list()
+    closes = df_instrument_tick_data["close"].to_list()
+    opens = df_instrument_tick_data["open"].to_list()
+    next_opens = df_instrument_tick_data["next_open"].to_list()
+    next_volumes = df_instrument_tick_data["next_volume"].to_list()
+    next_epochs = df_instrument_tick_data["next_epoch"].to_list()
 
-    for idx, entry_epoch, current_close in zip(
-        df_instrument_tick_data.index, df_instrument_tick_data["date_epoch"], df_instrument_tick_data["close"]
-    ):
+    instrument_last_epoch = max(date_epochs)
+
+    for idx in range(len(date_epochs)):
+        entry_epoch = date_epochs[idx]
+        current_close = closes[idx]
+
         if entry_epoch not in instrument_order_config:
             continue
 
@@ -164,14 +191,14 @@ def generate_exit_attributes_for_instrument(instrument, instrument_order_config,
         instrument_order_config[entry_epoch] = {}
         order_exit_tracker = set()
 
-        for close_price, open_price, next_open_price, next_volume, this_epoch, next_epoch in zip(
-            df_instrument_tick_data["close"][idx:],
-            df_instrument_tick_data["open"][idx:],
-            df_instrument_tick_data["next_open"][idx:],
-            df_instrument_tick_data["next_volume"][idx:],
-            df_instrument_tick_data["date_epoch"][idx:],
-            df_instrument_tick_data["next_epoch"][idx:],
-        ):
+        for j in range(idx, len(date_epochs)):
+            close_price = closes[j]
+            open_price = opens[j]
+            next_open_price = next_opens[j]
+            next_volume = next_volumes[j]
+            this_epoch = date_epochs[j]
+            next_epoch = next_epochs[j]
+
             max_price = max(max_price, close_price)
             hold_time_in_days = (this_epoch - entry_epoch) / SECONDS_IN_ONE_DAY
 
@@ -235,36 +262,38 @@ def generate_exit_attributes_for_instrument(instrument, instrument_order_config,
     return instrument, instrument_order_config
 
 
-def process(context, df_tick_data_original: pd.DataFrame):
+def process(context: dict, df_tick_data_original: pl.DataFrame) -> pl.DataFrame:
     """Run order generation: compute entry signals and exit attributes.
 
     Args:
         context: dict with entry_config_input, exit_config_input, total_exit_configs
-        df_tick_data_original: DataFrame from scanner step (with scanner_config_ids)
+        df_tick_data_original: pl.DataFrame from scanner step (with scanner_config_ids)
 
     Returns:
-        DataFrame of orders with columns:
+        pl.DataFrame of orders with columns:
             instrument, entry_epoch, exit_epoch, entry_price, exit_price,
             entry_volume, exit_volume, scanner_config_ids, entry_config_ids, exit_config_ids
     """
-    df_tick_data_original.sort_values(["instrument", "date_epoch"], inplace=True)
+    df_tick_data_original = df_tick_data_original.sort(["instrument", "date_epoch"])
 
     # Compute next-day values (entry happens on the day after signal)
-    df_tick_data_original["next_epoch"] = df_tick_data_original.groupby(["instrument"])["date_epoch"].shift(-1)
-    df_tick_data_original["next_open"] = df_tick_data_original.groupby(["instrument"])["open"].shift(-1)
-    df_tick_data_original["next_volume"] = df_tick_data_original.groupby(["instrument"])["volume"].shift(-1)
+    df_tick_data_original = df_tick_data_original.with_columns([
+        pl.col("date_epoch").shift(-1).over("instrument").alias("next_epoch"),
+        pl.col("open").shift(-1).over("instrument").alias("next_open"),
+        pl.col("volume").shift(-1).over("instrument").alias("next_volume"),
+    ])
 
     # Drop rows without next-day data (last day per instrument)
-    df_tick_data_original.dropna(subset=["next_epoch"], inplace=True)
+    df_tick_data_original = df_tick_data_original.filter(pl.col("next_epoch").is_not_null())
 
     order_generation_util = OrderGenerationUtil(df_tick_data_original)
 
-    print(f"  Order gen: {len(df_tick_data_original)} rows, "
-          f"{len(df_tick_data_original['instrument'].unique())} instruments")
+    print(f"  Order gen: {df_tick_data_original.height} rows, "
+          f"{df_tick_data_original['instrument'].n_unique()} instruments")
 
     _checkpoint = time.time()
     for entry_config in get_entry_config_iterator(context):
-        df_tick_data = df_tick_data_original.copy()
+        df_tick_data = df_tick_data_original.clone()
         df_tick_data = order_generation_util.add_entry_signal_inplace(df_tick_data, entry_config)
         order_generation_util.update_config_order_map(df_tick_data, entry_config["id"])
     print(f"  Entry signals: {round(time.time() - _checkpoint, 2)}s")
@@ -274,6 +303,6 @@ def process(context, df_tick_data_original: pd.DataFrame):
     print(f"  Exit attributes: {round(time.time() - _checkpoint, 2)}s")
 
     df_orders = order_generation_util.generate_order_df()
-    print(f"  Orders generated: {len(df_orders)}")
+    print(f"  Orders generated: {df_orders.height}")
 
     return df_orders

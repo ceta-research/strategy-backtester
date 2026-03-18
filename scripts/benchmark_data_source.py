@@ -93,8 +93,8 @@ def run_benchmark(provider, scenario, label):
     current, peak = tracemalloc.get_traced_memory()
     tracemalloc.stop()
 
-    rows = len(df) if df is not None and not df.empty else 0
-    instruments = df["instrument"].nunique() if rows > 0 else 0
+    rows = df.height if df is not None and not df.is_empty() else 0
+    instruments = df["instrument"].n_unique() if rows > 0 else 0
 
     result = {
         "label": label,

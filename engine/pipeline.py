@@ -7,7 +7,7 @@ import sys
 import os
 import time
 
-import pandas as pd
+import polars as pl
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -88,7 +88,7 @@ def run_pipeline(config_path, data_provider=None):
         prefetch_days=static["prefetch_days"],
     )
 
-    if df_tick_data.empty:
+    if df_tick_data.is_empty():
         print("No data fetched. Aborting.")
         return []
 
@@ -104,7 +104,7 @@ def run_pipeline(config_path, data_provider=None):
     df_orders = order_generator.process(context, df_scanned)
     print(f"  Order gen total: {round(time.time() - order_start, 2)}s")
 
-    if df_orders.empty:
+    if df_orders.is_empty():
         print("No orders generated. Aborting.")
         return []
 
@@ -137,7 +137,7 @@ def run_pipeline(config_path, data_provider=None):
                     exit_set = exit_idx_map.get(exit_cfg["id"], set())
                     order_indices = scanner_set & entry_set & exit_set
 
-                    df_config_orders = df_orders.loc[list(order_indices), :].copy()
+                    df_config_orders = df_orders[sorted(order_indices)]
 
                     # Rank/sort orders
                     if len(df_config_orders) > 0:

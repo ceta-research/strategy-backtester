@@ -7,11 +7,11 @@ Only the functions needed for in-memory pipeline are included.
 from collections import defaultdict
 from typing import Dict, Set, Tuple
 
-import pandas as pd
+import polars as pl
 
 
 def create_config_df_loc_lookup(
-    df: pd.DataFrame,
+    df: pl.DataFrame,
 ) -> Tuple[Dict[int, Set[int]], Dict[int, Set[int]], Dict[int, Set[int]]]:
     """Precompute lookup dictionaries for 3-way config ID intersection filtering.
 
@@ -22,8 +22,12 @@ def create_config_df_loc_lookup(
     entry_config_id_df_idx_map = defaultdict(set)
     exit_config_id_df_idx_map = defaultdict(set)
 
-    for idx, scanner_ids, entry_ids, exit_ids in zip(
-        df.index, df["scanner_config_ids"], df["entry_config_ids"], df["exit_config_ids"]
+    scanner_ids_list = df["scanner_config_ids"].to_list()
+    entry_ids_list = df["entry_config_ids"].to_list()
+    exit_ids_list = df["exit_config_ids"].to_list()
+
+    for idx, (scanner_ids, entry_ids, exit_ids) in enumerate(
+        zip(scanner_ids_list, entry_ids_list, exit_ids_list)
     ):
         for scanner_config_id in str(scanner_ids).split(","):
             if scanner_config_id:
@@ -40,42 +44,48 @@ def create_config_df_loc_lookup(
     return scanner_config_id_df_idx_map, entry_config_id_df_idx_map, exit_config_id_df_idx_map
 
 
-def create_epoch_wise_instrument_stats(df_tick_data):
+def create_epoch_wise_instrument_stats(df_tick_data: pl.DataFrame) -> dict:
     """Build {epoch: {instrument: {close, avg_txn}}} lookup with forward-fill.
 
     Used by simulator for MTM and by ranking for instrument scores.
     """
-    df_tick_data = df_tick_data.copy()
-    df_tick_data["instrument"] = df_tick_data["instrument"].astype("str")
-    df_tick_data["avg_txn"] = df_tick_data["volume"] * df_tick_data["average_price"]
-    df_tick_data["avg_txn"] = (
-        df_tick_data.groupby(["instrument"])["avg_txn"]
-        .rolling(30, min_periods=1)
-        .mean()
-        .reset_index(level=0, drop=True)
+    df_tick_data = df_tick_data.select(["instrument", "date_epoch", "close", "volume", "average_price"])
+
+    df_tick_data = df_tick_data.with_columns(
+        (pl.col("volume") * pl.col("average_price")).alias("avg_txn")
+    )
+    df_tick_data = df_tick_data.sort(["instrument", "date_epoch"]).with_columns(
+        pl.col("avg_txn")
+        .rolling_mean(window_size=30, min_samples=1)
+        .over("instrument")
+        .alias("avg_txn")
     )
 
     epoch_wise_data = {}
     one_day = 60 * 60 * 24
 
-    for instrument, group in df_tick_data.groupby("instrument"):
-        instrument_data = list(zip(group["date_epoch"], group["close"], group["avg_txn"]))
-        data_dict = {epoch: {"close": close, "avg_txn": avg_txn} for epoch, close, avg_txn in instrument_data}
+    for instrument, group in df_tick_data.group_by("instrument"):
+        instrument_name = instrument[0]
+        epochs = group["date_epoch"].to_list()
+        closes = group["close"].to_list()
+        avg_txns = group["avg_txn"].to_list()
 
-        start_epoch = group["date_epoch"].min()
-        end_epoch = group["date_epoch"].max()
+        data_dict = {e: {"close": c, "avg_txn": a} for e, c, a in zip(epochs, closes, avg_txns)}
+
+        start_epoch = min(epochs)
+        end_epoch = max(epochs)
 
         # Forward-fill missing dates
         last_known_data = {}
         for epoch in range(start_epoch, end_epoch + one_day, one_day):
             if epoch in data_dict:
-                last_known_data[instrument] = data_dict[epoch]
+                last_known_data[instrument_name] = data_dict[epoch]
             elif last_known_data:
-                data_dict[epoch] = last_known_data.get(instrument, {"close": None, "avg_txn": None})
+                data_dict[epoch] = last_known_data.get(instrument_name, {"close": None, "avg_txn": None})
 
         for epoch, values in data_dict.items():
             if epoch not in epoch_wise_data:
                 epoch_wise_data[epoch] = {}
-            epoch_wise_data[epoch][instrument] = values
+            epoch_wise_data[epoch][instrument_name] = values
 
     return epoch_wise_data

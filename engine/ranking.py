@@ -4,19 +4,18 @@ Ported from ATO_Simulator/simulator/steps/simulate_step/util.py (lines 232-399)
 and simulate_step_loader.py sort_orders() dispatcher.
 """
 
-import numpy as np
-import pandas as pd
+import polars as pl
 
 from engine.constants import SECONDS_IN_ONE_DAY
 from engine.utils import create_epoch_wise_instrument_stats
 
 
-def sort_orders(df_config_orders, sim_config, df_tick_data, epoch_wise_instrument_stats=None):
+def sort_orders(df_config_orders: pl.DataFrame, sim_config: dict, df_tick_data: pl.DataFrame, epoch_wise_instrument_stats=None) -> pl.DataFrame:
     """Dispatch to the correct ranking function based on sim_config.
 
     Ported from simulate_step_loader.py lines 167-186.
     """
-    if df_config_orders.empty:
+    if df_config_orders.is_empty():
         return df_config_orders
 
     order_ranking_window_days = sim_config["order_ranking_window_days"]
@@ -38,133 +37,170 @@ def sort_orders(df_config_orders, sim_config, df_tick_data, epoch_wise_instrumen
     return df_config_orders
 
 
-def sort_orders_by_highest_avg_txn(df_orders, df_tick_data, order_ranking_window_days):
+def sort_orders_by_highest_avg_txn(df_orders: pl.DataFrame, df_tick_data: pl.DataFrame, order_ranking_window_days: int) -> pl.DataFrame:
     """Rank orders by rolling average transaction volume."""
-    df_tick_data = df_tick_data.copy()
-    df_tick_data["instrument"] = df_tick_data["instrument"].astype("str")
+    df_tick_data = df_tick_data.with_columns(pl.col("instrument").cast(pl.Utf8))
+    df_tick_data = df_tick_data.sort(["instrument", "date_epoch"])
 
-    df_tick_data = df_tick_data.sort_values(["instrument", "date_epoch"])
-    df_tick_data["prev_volume"] = df_tick_data.groupby("instrument")["volume"].shift(1)
-    df_tick_data["prev_average_price"] = df_tick_data.groupby("instrument")["average_price"].shift(1)
+    df_tick_data = df_tick_data.with_columns([
+        pl.col("volume").shift(1).over("instrument").alias("prev_volume"),
+        pl.col("average_price").shift(1).over("instrument").alias("prev_average_price"),
+    ])
 
-    df_tick_data["avg_txn"] = df_tick_data["prev_volume"] * df_tick_data["prev_average_price"]
-    df_tick_data["avg_txn"] = (
-        df_tick_data.groupby(["instrument"])["avg_txn"]
-        .rolling(order_ranking_window_days, min_periods=1)
-        .mean()
-        .reset_index(level=0, drop=True)
+    df_tick_data = df_tick_data.with_columns(
+        (pl.col("prev_volume") * pl.col("prev_average_price")).alias("avg_txn")
+    )
+    df_tick_data = df_tick_data.with_columns(
+        pl.col("avg_txn")
+        .rolling_mean(window_size=order_ranking_window_days, min_samples=1)
+        .over("instrument")
+        .alias("avg_txn")
     )
 
-    df_tick_data["rank"] = df_tick_data.groupby("date_epoch")["avg_txn"].rank(ascending=False)
-    df_tick_data = df_tick_data[["date_epoch", "instrument", "rank"]]
-    df_orders = pd.merge(
-        df_orders, df_tick_data.rename(columns={"date_epoch": "entry_epoch"}), on=["instrument", "entry_epoch"]
+    df_tick_data = df_tick_data.with_columns(
+        pl.col("avg_txn").rank(descending=True).over("date_epoch").alias("rank")
     )
 
-    df_orders.sort_values(["entry_epoch", "rank"], ascending=[True, True], inplace=True)
+    rank_df = df_tick_data.select([
+        pl.col("date_epoch").alias("entry_epoch"),
+        "instrument",
+        "rank",
+    ])
+
+    df_orders = df_orders.join(rank_df, on=["instrument", "entry_epoch"], how="inner")
+    df_orders = df_orders.sort(["entry_epoch", "rank"])
     return df_orders
 
 
-def sort_orders_by_highest_gainer(df_orders, df_tick_data, order_ranking_window_days):
+def sort_orders_by_highest_gainer(df_orders: pl.DataFrame, df_tick_data: pl.DataFrame, order_ranking_window_days: int) -> pl.DataFrame:
     """Rank orders by n-day return percentage."""
-    df_tick_data = df_tick_data.copy()
-    df_tick_data["instrument"] = df_tick_data["instrument"].astype("str")
-    _df_tick_data = df_tick_data[["date_epoch", "instrument", "close"]].copy()
+    df_tick_data = df_tick_data.with_columns(pl.col("instrument").cast(pl.Utf8))
+    _df = df_tick_data.select(["date_epoch", "instrument", "close"])
+    _df = _df.sort(["instrument", "date_epoch"])
 
-    _df_tick_data = _df_tick_data.sort_values(["instrument", "date_epoch"])
-    _df_tick_data["prev_close"] = _df_tick_data.groupby("instrument")["close"].shift(1)
-    _df_tick_data["rank"] = _df_tick_data.groupby("instrument")["prev_close"].shift(order_ranking_window_days)
-    _df_tick_data["rank"] = (_df_tick_data["prev_close"] - _df_tick_data["rank"]) / _df_tick_data["rank"]
-
-    _df_tick_data["rank"] = _df_tick_data.groupby("date_epoch")["rank"].rank(ascending=False)
-
-    df_orders = pd.merge(
-        df_orders,
-        _df_tick_data[["instrument", "date_epoch", "rank"]].rename(columns={"date_epoch": "entry_epoch"}),
-        on=["instrument", "entry_epoch"],
+    _df = _df.with_columns(
+        pl.col("close").shift(1).over("instrument").alias("prev_close")
+    )
+    _df = _df.with_columns(
+        pl.col("prev_close").shift(order_ranking_window_days).over("instrument").alias("ref_close")
+    )
+    _df = _df.with_columns(
+        ((pl.col("prev_close") - pl.col("ref_close")) / pl.col("ref_close")).alias("gain")
+    )
+    _df = _df.with_columns(
+        pl.col("gain").rank(descending=True).over("date_epoch").alias("rank")
     )
 
-    df_orders.sort_values(["entry_epoch", "rank"], ascending=[True, True], inplace=True)
-    return df_orders.reset_index(drop=True)
+    rank_df = _df.select([
+        pl.col("date_epoch").alias("entry_epoch"),
+        "instrument",
+        "rank",
+    ])
+
+    df_orders = df_orders.join(rank_df, on=["instrument", "entry_epoch"], how="inner")
+    df_orders = df_orders.sort(["entry_epoch", "rank"])
+    return df_orders
 
 
-def calculate_daywise_instrument_score(df_orders, instrument_day_wise_close, window_size):
+def calculate_daywise_instrument_score(df_orders: pl.DataFrame, instrument_day_wise_close: dict, window_size: int) -> pl.DataFrame:
     """Compute per-instrument performance scores using realized + unrealized P&L.
 
     IMPORTANT: Internally calls remove_overlapping_orders() which is load-bearing
     for correct top_performer scoring.
     """
-    entry_epochs = sorted(set(df_orders["entry_epoch"].unique()))
-    df_orders = df_orders.copy()
-    df_orders.sort_values(["instrument", "entry_epoch", "exit_epoch"], inplace=True)
+    entry_epochs = sorted(df_orders["entry_epoch"].unique().to_list())
+    df_orders = df_orders.sort(["instrument", "entry_epoch", "exit_epoch"])
 
-    def remove_overlapping_orders(_df_orders):
+    def remove_overlapping_orders(_df_orders: pl.DataFrame) -> pl.DataFrame:
         idx_to_keep = []
-        for _, group in _df_orders.groupby("instrument"):
+        for instrument_tuple, group in _df_orders.group_by("instrument"):
+            group = group.sort(["entry_epoch", "exit_epoch"])
             current_end = None
-            for idx, entry_epoch, exit_epoch in zip(group.index, group["entry_epoch"], group["exit_epoch"]):
-                if current_end and exit_epoch <= current_end:
+            for row in group.iter_rows(named=True):
+                if current_end and row["exit_epoch"] <= current_end:
                     continue
-                current_end = exit_epoch
-                idx_to_keep.append(idx)
-        return _df_orders.loc[idx_to_keep, :]
+                current_end = row["exit_epoch"]
+                idx_to_keep.append(row)
+        if idx_to_keep:
+            return pl.DataFrame(idx_to_keep)
+        return _df_orders.clear()
 
     df_orders = remove_overlapping_orders(df_orders)
 
+    df_orders = df_orders.with_columns(
+        ((pl.col("exit_price") - pl.col("entry_price")) * 100.0 / pl.col("entry_price")).alias("profit")
+    )
+
     full_scoreboard = {}
-    df_orders["profit"] = (df_orders["exit_price"] - df_orders["entry_price"]) * 100 / df_orders["entry_price"]
+    # Convert to lists for fast iteration in the scoring loop
+    order_instruments = df_orders["instrument"].to_list()
+    order_entry_epochs = df_orders["entry_epoch"].to_list()
+    order_exit_epochs = df_orders["exit_epoch"].to_list()
+    order_entry_prices = df_orders["entry_price"].to_list()
+    order_profits = df_orders["profit"].to_list()
+
     for epoch in entry_epochs:
         window_start = epoch - window_size
-        _df = df_orders[df_orders["entry_epoch"] < epoch]
-        _df = _df[_df["entry_epoch"] >= window_start]
+        score_map = {}
 
-        # Realized P&L (sold orders)
-        score_map = _df[_df["exit_epoch"] < epoch].groupby("instrument")["profit"].sum().to_dict()
-
-        # Unrealized P&L (open orders)
-        __df = _df[_df["exit_epoch"] >= epoch]
-        for inst_instrument, inst_entry_price in zip(__df["instrument"], __df["entry_price"]):
-            if inst_entry_price == 0:
+        for i in range(len(order_entry_epochs)):
+            oe = order_entry_epochs[i]
+            if oe >= epoch or oe < window_start:
                 continue
-            prev_epoch = epoch - SECONDS_IN_ONE_DAY
-            if prev_epoch in instrument_day_wise_close and inst_instrument in instrument_day_wise_close[prev_epoch]:
-                last_close_price = instrument_day_wise_close[prev_epoch][inst_instrument]["close"]
-                score_map[inst_instrument] = score_map.get(inst_instrument, 0) + (
-                    (last_close_price - inst_entry_price) * 100 / inst_entry_price
-                )
+
+            inst = order_instruments[i]
+            # Realized P&L (sold orders)
+            if order_exit_epochs[i] < epoch:
+                score_map[inst] = score_map.get(inst, 0) + order_profits[i]
+            else:
+                # Unrealized P&L (open orders)
+                entry_price = order_entry_prices[i]
+                if entry_price == 0:
+                    continue
+                prev_epoch = epoch - SECONDS_IN_ONE_DAY
+                if prev_epoch in instrument_day_wise_close and inst in instrument_day_wise_close[prev_epoch]:
+                    last_close_price = instrument_day_wise_close[prev_epoch][inst]["close"]
+                    score_map[inst] = score_map.get(inst, 0) + (
+                        (last_close_price - entry_price) * 100 / entry_price
+                    )
 
         full_scoreboard[epoch] = score_map
 
     rows = []
     for epoch, instruments in full_scoreboard.items():
         for inst, score in instruments.items():
-            rows.append([epoch, inst, score])
+            rows.append({"entry_epoch": epoch, "instrument": inst, "score": score})
 
-    df_score = pd.DataFrame(rows, columns=["entry_epoch", "instrument", "score"])
-    df_score["rank"] = df_score.groupby(["entry_epoch"])["score"].rank(ascending=False)
-    df_score.sort_values(["entry_epoch", "rank"], inplace=True)
-    return df_score.reset_index(drop=True)
+    if not rows:
+        return pl.DataFrame(schema={"entry_epoch": pl.Float64, "instrument": pl.Utf8, "score": pl.Float64, "rank": pl.Float64})
+
+    df_score = pl.DataFrame(rows)
+    df_score = df_score.with_columns(
+        pl.col("score").rank(descending=True).over("entry_epoch").alias("rank")
+    )
+    df_score = df_score.sort(["entry_epoch", "rank"])
+    return df_score
 
 
-def sort_orders_by_top_performer(df_orders, instrument_day_wise_close, order_ranking_window_days):
+def sort_orders_by_top_performer(df_orders: pl.DataFrame, instrument_day_wise_close: dict, order_ranking_window_days: int) -> pl.DataFrame:
     """Walk-forward adaptive ranking using realized + unrealized P&L."""
     df_rank = calculate_daywise_instrument_score(
         df_orders, instrument_day_wise_close, order_ranking_window_days * SECONDS_IN_ONE_DAY
     )
     if "rank" in df_orders.columns:
-        df_orders = df_orders.rename(columns={"rank": "previous_rank"})
+        df_orders = df_orders.rename({"rank": "previous_rank"})
     else:
-        df_orders = df_orders.copy()
-        df_orders["previous_rank"] = np.nan
+        df_orders = df_orders.with_columns(pl.lit(None).cast(pl.Float64).alias("previous_rank"))
 
-    df_orders = pd.merge(df_orders, df_rank, on=["instrument", "entry_epoch"], how="left")
+    df_orders = df_orders.join(df_rank, on=["instrument", "entry_epoch"], how="left")
 
     # Keep +ve scores first, then nans, then -ve scores
-    df_orders["score_priority"] = np.select(
-        [df_orders["score"] > 0, df_orders["score"] <= 0, df_orders["score"].isna()], [0, 1, 2], default=2
+    df_orders = df_orders.with_columns(
+        pl.when(pl.col("score") > 0).then(0)
+        .when(pl.col("score") <= 0).then(1)
+        .otherwise(2)
+        .alias("score_priority")
     )
-    df_orders.sort_values(
-        ["entry_epoch", "score_priority", "rank", "previous_rank"], ascending=[True, True, True, True], inplace=True
-    )
-    df_orders.drop(["score_priority"], axis=1, inplace=True)
-    return df_orders.reset_index(drop=True)
+    df_orders = df_orders.sort(["entry_epoch", "score_priority", "rank", "previous_rank"])
+    df_orders = df_orders.drop("score_priority")
+    return df_orders

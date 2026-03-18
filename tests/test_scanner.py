@@ -5,7 +5,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import numpy as np
-import pandas as pd
+import polars as pl
 
 from engine.scanner import fill_missing_dates, process
 
@@ -32,16 +32,18 @@ def make_synthetic_data(n_instruments=3, n_days=50):
                 "instrument": f"NSE:{symbol}",
                 "exchange": "NSE",
             })
-    return pd.DataFrame(rows)
+    return pl.DataFrame(rows)
 
 
 def test_fill_missing_dates():
     df = make_synthetic_data(n_instruments=2, n_days=10)
-    # Remove a few rows to create gaps
-    df = df.drop([3, 7, 15]).reset_index(drop=True)
-    original_len = len(df)
+    # Remove a few rows to create gaps by filtering out specific rows
+    indices_to_drop = {3, 7, 15}
+    keep_mask = [i not in indices_to_drop for i in range(df.height)]
+    df = df.filter(pl.Series(keep_mask))
+    original_len = df.height
     filled = fill_missing_dates(df)
-    assert len(filled) >= original_len
+    assert filled.height >= original_len
 
 
 def test_scanner_process():
@@ -60,7 +62,7 @@ def test_scanner_process():
     assert "scanner_config_ids" in result.columns
     assert "uid" in result.columns
     # Some rows should have scanner signals
-    has_signals = result["scanner_config_ids"].notna().sum()
+    has_signals = result["scanner_config_ids"].is_not_null().sum()
     assert has_signals > 0, "Expected some scanner signals"
 
 

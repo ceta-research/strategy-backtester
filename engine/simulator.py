@@ -7,7 +7,7 @@ Daily loop: entries, exits, MTM, position tracking with real broker charges.
 import copy
 from collections import defaultdict
 
-import pandas as pd
+import polars as pl
 
 from engine.constants import SECONDS_IN_ONE_DAY
 from engine.charges import calculate_charges
@@ -64,7 +64,7 @@ def process(context, df_orders, epoch_wise_instrument_stats, current_snapshot, s
 
     if len(df_orders) > 0:
         end_epoch = df_orders["entry_epoch"].max()
-        order_epochs = set(df_orders["entry_epoch"].unique()) | set(df_orders["exit_epoch"].unique())
+        order_epochs = set(df_orders["entry_epoch"].unique().to_list()) | set(df_orders["exit_epoch"].unique().to_list())
     else:
         end_epoch = context["end_epoch"]
 
@@ -72,7 +72,7 @@ def process(context, df_orders, epoch_wise_instrument_stats, current_snapshot, s
     processing_dates = sorted(mtm_epochs | order_epochs)
 
     if len(df_orders) > 0:
-        for record in df_orders.to_dict("records"):
+        for record in df_orders.to_dicts():
             date_orders[record["entry_epoch"]]["entries"].append(record)
 
     day_wise_log = []
