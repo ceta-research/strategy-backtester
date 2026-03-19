@@ -256,6 +256,64 @@ def _build_exit_config_trending_value(exit_cfg: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Momentum Dip-Buy entry/exit
+# ---------------------------------------------------------------------------
+
+def _build_entry_config_momentum_dip(entry: dict) -> dict:
+    return {
+        "rsi_threshold": entry.get("rsi_threshold", [30]),
+        "momentum_lookback_days": entry.get("momentum_lookback_days", [126]),
+        "top_n": entry.get("top_n", [50]),
+        "rerank_interval_days": entry.get("rerank_interval_days", [21]),
+    }
+
+
+def _build_exit_config_momentum_dip(exit_cfg: dict) -> dict:
+    return {
+        "profit_target_pct": exit_cfg.get("profit_target_pct", [0.03]),
+        "max_hold_days": exit_cfg.get("max_hold_days", [10]),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Extended IBS Mean Reversion entry/exit
+# ---------------------------------------------------------------------------
+
+def _build_entry_config_extended_ibs(entry: dict) -> dict:
+    return {
+        "ibs_threshold": entry.get("ibs_threshold", [0.3]),
+        "sma_trend_period": entry.get("sma_trend_period", [0]),
+        "vei_max": entry.get("vei_max", [0]),
+    }
+
+
+def _build_exit_config_extended_ibs(exit_cfg: dict) -> dict:
+    return {
+        "max_hold_days": exit_cfg.get("max_hold_days", [30]),
+        "stop_loss_pct": exit_cfg.get("stop_loss_pct", [0]),
+        "trailing_stop_pct": exit_cfg.get("trailing_stop_pct", [0]),
+    }
+
+
+# ---------------------------------------------------------------------------
+# BB Mean Reversion entry/exit
+# ---------------------------------------------------------------------------
+
+def _build_entry_config_bb_mean_reversion(entry: dict) -> dict:
+    return {
+        "bb_period": entry.get("bb_period", [20]),
+        "bb_std": entry.get("bb_std", [2.0]),
+        "sma_trend_period": entry.get("sma_trend_period", [200]),
+    }
+
+
+def _build_exit_config_bb_mean_reversion(exit_cfg: dict) -> dict:
+    return {
+        "max_hold_days": exit_cfg.get("max_hold_days", [400]),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Factor Composite entry/exit
 # ---------------------------------------------------------------------------
 
@@ -295,6 +353,9 @@ _ENTRY_BUILDERS = {
     "holp_lohp": _build_entry_config_holp_lohp,
     "factor_composite": _build_entry_config_factor_composite,
     "trending_value": _build_entry_config_trending_value,
+    "bb_mean_reversion": _build_entry_config_bb_mean_reversion,
+    "extended_ibs": _build_entry_config_extended_ibs,
+    "momentum_dip": _build_entry_config_momentum_dip,
 }
 
 _EXIT_BUILDERS = {
@@ -309,6 +370,9 @@ _EXIT_BUILDERS = {
     "holp_lohp": _build_exit_config_holp_lohp,
     "factor_composite": _build_exit_config_factor_composite,
     "trending_value": _build_exit_config_trending_value,
+    "bb_mean_reversion": _build_exit_config_bb_mean_reversion,
+    "extended_ibs": _build_exit_config_extended_ibs,
+    "momentum_dip": _build_exit_config_momentum_dip,
 }
 
 

@@ -1,0 +1,34 @@
+static:
+  strategy_type: bb_mean_reversion
+  start_margin: 100000
+  start_epoch: 1167609600      # 2007-01-01
+  end_epoch: 1741219200        # 2025-03-06
+  prefetch_days: 400
+  data_granularity: day
+
+scanner:
+  instruments:
+    - [{exchange: US, symbols: [SPY, QQQ, DIA, IWM]}]
+  price_threshold: [1]
+  avg_day_transaction_threshold:
+    - {period: 20, threshold: 1000}
+  n_day_gain_threshold:
+    - {n: 360, threshold: -999}
+
+entry:
+  bb_period: [20]
+  bb_std: [2.0]
+  sma_trend_period: [200]
+
+exit:
+  max_hold_days: [400]
+
+simulation:
+  default_sorting_type: [top_gainer]
+  order_sorting_type: [top_gainer]
+  order_ranking_window_days: [30]
+  max_positions: [1]
+  max_positions_per_instrument: [1]
+  order_value_multiplier: [1]
+  max_order_value:
+    - {type: fixed, value: 100000}

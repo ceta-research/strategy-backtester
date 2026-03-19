@@ -38,6 +38,9 @@ import engine.signals.squeeze  # noqa: F401
 import engine.signals.holp_lohp  # noqa: F401
 import engine.signals.factor_composite  # noqa: F401
 import engine.signals.trending_value  # noqa: F401
+import engine.signals.bb_mean_reversion  # noqa: F401
+import engine.signals.extended_ibs  # noqa: F401
+import engine.signals.momentum_dip  # noqa: F401
 from engine.signals.base import get_signal_generator, sanitize_orders
 
 
