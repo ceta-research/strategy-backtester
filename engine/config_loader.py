@@ -119,6 +119,167 @@ def _build_exit_config_ibs(exit_cfg: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Gap Fill entry/exit
+# ---------------------------------------------------------------------------
+
+def _build_entry_config_gap_fill(entry: dict) -> dict:
+    return {
+        "min_gap_down_pct": entry.get("min_gap_down_pct", [0.01]),
+        "max_gap_down_pct": entry.get("max_gap_down_pct", [0.04]),
+    }
+
+
+def _build_exit_config_gap_fill(exit_cfg: dict) -> dict:
+    return {
+        "exit_at": exit_cfg.get("exit_at", ["close"]),
+        "max_hold_days": exit_cfg.get("max_hold_days", [1]),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Overnight Hold entry/exit
+# ---------------------------------------------------------------------------
+
+def _build_entry_config_overnight_hold(entry: dict) -> dict:
+    return {
+        "buy_on_down_day": entry.get("buy_on_down_day", [False]),
+        "min_rsi_14": entry.get("min_rsi_14", [0]),
+    }
+
+
+def _build_exit_config_overnight_hold(exit_cfg: dict) -> dict:
+    return {
+        "exit_at": exit_cfg.get("exit_at", ["next_open"]),
+        "max_hold_days": exit_cfg.get("max_hold_days", [1]),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Darvas Box entry/exit
+# ---------------------------------------------------------------------------
+
+def _build_entry_config_darvas_box(entry: dict) -> dict:
+    return {
+        "box_min_days": entry.get("box_min_days", [10]),
+        "volume_breakout_mult": entry.get("volume_breakout_mult", [1.5]),
+    }
+
+
+def _build_exit_config_darvas_box(exit_cfg: dict) -> dict:
+    return {
+        "trailing_stop_pct": exit_cfg.get("trailing_stop_pct", [0.08]),
+        "max_hold_days": exit_cfg.get("max_hold_days", [30]),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Swing Master entry/exit
+# ---------------------------------------------------------------------------
+
+def _build_entry_config_swing_master(entry: dict) -> dict:
+    return {
+        "sma_short": entry.get("sma_short", [10]),
+        "sma_long": entry.get("sma_long", [20]),
+        "pullback_days": entry.get("pullback_days", [3]),
+    }
+
+
+def _build_exit_config_swing_master(exit_cfg: dict) -> dict:
+    return {
+        "target_pct": exit_cfg.get("target_pct", [0.07]),
+        "stop_pct": exit_cfg.get("stop_pct", [0.04]),
+        "max_hold_days": exit_cfg.get("max_hold_days", [20]),
+        "trailing_buffer_pct": exit_cfg.get("trailing_buffer_pct", [0.002]),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Squeeze entry/exit
+# ---------------------------------------------------------------------------
+
+def _build_entry_config_squeeze(entry: dict) -> dict:
+    return {
+        "bb_period": entry.get("bb_period", [20]),
+        "bb_std": entry.get("bb_std", [2.0]),
+        "kc_period": entry.get("kc_period", [20]),
+        "kc_mult": entry.get("kc_mult", [1.5]),
+        "mom_period": entry.get("mom_period", [12]),
+    }
+
+
+def _build_exit_config_squeeze(exit_cfg: dict) -> dict:
+    return {
+        "stop_pct": exit_cfg.get("stop_pct", [0.05]),
+        "max_hold_days": exit_cfg.get("max_hold_days", [20]),
+    }
+
+
+# ---------------------------------------------------------------------------
+# HOLP/LOHP entry/exit
+# ---------------------------------------------------------------------------
+
+def _build_entry_config_holp_lohp(entry: dict) -> dict:
+    return {
+        "lookback_period": entry.get("lookback_period", [20]),
+    }
+
+
+def _build_exit_config_holp_lohp(exit_cfg: dict) -> dict:
+    return {
+        "trailing_start_day": exit_cfg.get("trailing_start_day", [3]),
+        "max_hold_days": exit_cfg.get("max_hold_days", [20]),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Trending Value entry/exit
+# ---------------------------------------------------------------------------
+
+def _build_entry_config_trending_value(entry: dict) -> dict:
+    return {
+        "max_debt_to_assets": entry.get("max_debt_to_assets", [0.6]),
+        "min_roe": entry.get("min_roe", [0.0]),
+        "growth_lookback_years": entry.get("growth_lookback_years", [3]),
+        "growth_weights": entry.get("growth_weights", [
+            {"revenue": 0.5, "earnings": 0.5}
+        ]),
+        "top_n_stocks": entry.get("top_n_stocks", [20]),
+        "rebalance_frequency": entry.get("rebalance_frequency", ["quarterly"]),
+    }
+
+
+def _build_exit_config_trending_value(exit_cfg: dict) -> dict:
+    return {
+        "min_hold_days": exit_cfg.get("min_hold_days", [365]),
+        "trailing_stop_pct": exit_cfg.get("trailing_stop_pct", [0.20]),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Factor Composite entry/exit
+# ---------------------------------------------------------------------------
+
+def _build_entry_config_factor_composite(entry: dict) -> dict:
+    return {
+        "momentum_lookback_days": entry.get("momentum_lookback_days", [252]),
+        "momentum_skip_days": entry.get("momentum_skip_days", [21]),
+        "factor_weights": entry.get("factor_weights", [
+            {"momentum": 0.4, "gross_profitability": 0.3, "value": 0.3}
+        ]),
+        "regime_filter_sma": entry.get("regime_filter_sma", [200]),
+        "top_n_stocks": entry.get("top_n_stocks", [30]),
+    }
+
+
+def _build_exit_config_factor_composite(exit_cfg: dict) -> dict:
+    return {
+        "vol_target_annual": exit_cfg.get("vol_target_annual", [0.15]),
+        "vol_lookback_days": exit_cfg.get("vol_lookback_days", [126]),
+        "stop_loss_pct": exit_cfg.get("stop_loss_pct", [0.15]),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Strategy dispatch tables
 # ---------------------------------------------------------------------------
 
@@ -126,12 +287,28 @@ _ENTRY_BUILDERS = {
     "eod_technical": _build_entry_config_eod_technical,
     "connors_rsi": _build_entry_config_connors_rsi,
     "ibs_mean_reversion": _build_entry_config_ibs,
+    "gap_fill": _build_entry_config_gap_fill,
+    "overnight_hold": _build_entry_config_overnight_hold,
+    "darvas_box": _build_entry_config_darvas_box,
+    "swing_master": _build_entry_config_swing_master,
+    "squeeze": _build_entry_config_squeeze,
+    "holp_lohp": _build_entry_config_holp_lohp,
+    "factor_composite": _build_entry_config_factor_composite,
+    "trending_value": _build_entry_config_trending_value,
 }
 
 _EXIT_BUILDERS = {
     "eod_technical": _build_exit_config_eod_technical,
     "connors_rsi": _build_exit_config_connors_rsi,
     "ibs_mean_reversion": _build_exit_config_ibs,
+    "gap_fill": _build_exit_config_gap_fill,
+    "overnight_hold": _build_exit_config_overnight_hold,
+    "darvas_box": _build_exit_config_darvas_box,
+    "swing_master": _build_exit_config_swing_master,
+    "squeeze": _build_exit_config_squeeze,
+    "holp_lohp": _build_exit_config_holp_lohp,
+    "factor_composite": _build_exit_config_factor_composite,
+    "trending_value": _build_exit_config_trending_value,
 }
 
 

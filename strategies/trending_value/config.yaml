@@ -1,0 +1,39 @@
+static:
+  start_margin: 1000000
+  start_epoch: 1356998400       # 2013-01-01 (need 5yr growth lookback from 2018+)
+  end_epoch: 1741219200         # 2025-03-06
+  prefetch_days: 600
+  data_granularity: day
+  strategy_type: trending_value
+
+scanner:
+  instruments:
+    - [{exchange: US, symbols: []}]
+  price_threshold: [10]
+  avg_day_transaction_threshold:
+    - {period: 50, threshold: 100000000}
+  n_day_gain_threshold:
+    - {n: 30, threshold: -999}
+
+entry:
+  max_debt_to_assets: [0.5]
+  min_roe: [0.0]
+  growth_lookback_years: [3, 5]
+  growth_weights:
+    - {revenue: 0.5, earnings: 0.5}
+  top_n_stocks: [15, 20]
+  rebalance_frequency: [quarterly, yearly]
+
+exit:
+  min_hold_days: [365]
+  trailing_stop_pct: [0.20, 0.25]
+
+simulation:
+  default_sorting_type: [top_gainer]
+  order_sorting_type: [top_gainer]
+  order_ranking_window_days: [1]
+  max_positions: [20]
+  max_positions_per_instrument: [1]
+  order_value_multiplier: [1]
+  max_order_value:
+    - {type: fixed, value: 100000}

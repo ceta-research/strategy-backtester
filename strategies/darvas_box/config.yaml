@@ -1,0 +1,34 @@
+static:
+  start_margin: 500000
+  start_epoch: 1577836800      # 2020-01-01
+  end_epoch: 1741219200        # 2025-03-06
+  prefetch_days: 60
+  data_granularity: day
+  strategy_type: darvas_box
+
+scanner:
+  instruments:
+    - [{exchange: US, symbols: []}]
+  price_threshold: [20]
+  avg_day_transaction_threshold:
+    - {period: 20, threshold: 50000000}
+  n_day_gain_threshold:
+    - {n: 30, threshold: -999}
+
+entry:
+  box_min_days: [10, 20]
+  volume_breakout_mult: [1.0, 1.5]
+
+exit:
+  trailing_stop_pct: [0.08, 0.10]
+  max_hold_days: [30, 60]
+
+simulation:
+  default_sorting_type: [top_gainer]
+  order_sorting_type: [top_gainer]
+  order_ranking_window_days: [1]
+  max_positions: [5, 10]
+  max_positions_per_instrument: [1]
+  order_value_multiplier: [1]
+  max_order_value:
+    - {type: fixed, value: 50000}

@@ -1,0 +1,41 @@
+static:
+  start_margin: 1000000
+  start_epoch: 1420070400       # 2015-01-01
+  end_epoch: 1741219200         # 2025-03-06
+  prefetch_days: 500
+  data_granularity: day
+  strategy_type: factor_composite
+
+scanner:
+  instruments:
+    - [{exchange: US, symbols: []}]
+  price_threshold: [20]
+  avg_day_transaction_threshold:
+    - {period: 50, threshold: 200000000}     # $200M/day turnover = large-cap only
+  n_day_gain_threshold:
+    - {n: 30, threshold: -999}
+
+entry:
+  momentum_lookback_days: [252]
+  momentum_skip_days: [21]
+  factor_weights:
+    - {momentum: 0.4, gross_profitability: 0.3, value: 0.3}
+    - {momentum: 0.2, gross_profitability: 0.5, value: 0.3}
+    - {momentum: 0.6, gross_profitability: 0.2, value: 0.2}
+  regime_filter_sma: [0, 100]
+  top_n_stocks: [20, 30]
+
+exit:
+  vol_target_annual: [0.0]
+  vol_lookback_days: [126]
+  stop_loss_pct: [0.12, 0.20]
+
+simulation:
+  default_sorting_type: [top_gainer]
+  order_sorting_type: [top_gainer]
+  order_ranking_window_days: [1]
+  max_positions: [30]
+  max_positions_per_instrument: [1]
+  order_value_multiplier: [1]
+  max_order_value:
+    - {type: fixed, value: 100000}

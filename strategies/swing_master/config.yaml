@@ -1,0 +1,36 @@
+static:
+  start_margin: 500000
+  start_epoch: 1577836800      # 2020-01-01
+  end_epoch: 1741219200        # 2025-03-06
+  prefetch_days: 60
+  data_granularity: day
+  strategy_type: swing_master
+
+scanner:
+  instruments:
+    - [{exchange: US, symbols: []}]
+  price_threshold: [20]
+  avg_day_transaction_threshold:
+    - {period: 20, threshold: 50000000}
+  n_day_gain_threshold:
+    - {n: 30, threshold: -999}
+
+entry:
+  sma_short: [10]
+  sma_long: [20]
+  pullback_days: [3]
+
+exit:
+  target_pct: [0.07]
+  stop_pct: [0.04]
+  max_hold_days: [20, 40]
+
+simulation:
+  default_sorting_type: [top_gainer]
+  order_sorting_type: [top_gainer]
+  order_ranking_window_days: [1]
+  max_positions: [10, 20]
+  max_positions_per_instrument: [1]
+  order_value_multiplier: [1]
+  max_order_value:
+    - {type: fixed, value: 50000}

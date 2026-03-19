@@ -30,7 +30,15 @@ from lib.metrics import compute_metrics
 import engine.signals.eod_technical  # noqa: F401
 import engine.signals.connors_rsi  # noqa: F401
 import engine.signals.ibs_reversion  # noqa: F401
-from engine.signals.base import get_signal_generator
+import engine.signals.gap_fill  # noqa: F401
+import engine.signals.overnight_hold  # noqa: F401
+import engine.signals.darvas_box  # noqa: F401
+import engine.signals.swing_master  # noqa: F401
+import engine.signals.squeeze  # noqa: F401
+import engine.signals.holp_lohp  # noqa: F401
+import engine.signals.factor_composite  # noqa: F401
+import engine.signals.trending_value  # noqa: F401
+from engine.signals.base import get_signal_generator, sanitize_orders
 
 
 def run_pipeline(config_path, data_provider=None):
@@ -108,6 +116,13 @@ def run_pipeline(config_path, data_provider=None):
 
     if df_orders.is_empty():
         print("No orders generated. Aborting.")
+        return []
+
+    # Sanitize orders: remove zero-price entries only (no return cap - matches ATO_Simulator)
+    df_orders = sanitize_orders(df_orders, max_return_mult=999.0)
+
+    if df_orders.is_empty():
+        print("All orders removed by sanitization. Aborting.")
         return []
 
     # Build epoch-wise instrument stats (used by simulator + ranking)

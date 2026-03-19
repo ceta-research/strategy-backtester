@@ -94,6 +94,54 @@ def add_next_day_values(df_tick_data: pl.DataFrame) -> pl.DataFrame:
     return df_tick_data.filter(pl.col("next_epoch").is_not_null())
 
 
+def sanitize_orders(df_orders: pl.DataFrame, min_entry_price: float = 0.10,
+                     max_return_mult: float = 5.0) -> pl.DataFrame:
+    """Remove bad orders caused by data quality issues (splits, zero prices, etc).
+
+    Applied in pipeline after signal generation, before simulation.
+
+    Filters:
+        1. entry_price <= min_entry_price (sub-penny, zero, or near-zero)
+        2. exit_price <= 0
+        3. Per-trade return > max_return_mult (caps exit_price; catches reverse splits,
+           price unit mismatches, and other data errors)
+
+    Args:
+        df_orders: DataFrame with entry_price, exit_price columns.
+        min_entry_price: Minimum valid entry price (default $0.10).
+        max_return_mult: Maximum allowed exit/entry ratio (default 5.0 = 500%).
+
+    Returns:
+        Sanitized DataFrame with bad rows removed and extreme exits capped.
+    """
+    if df_orders.is_empty():
+        return df_orders
+
+    before = df_orders.height
+
+    # Filter out zero / near-zero entry prices
+    df_orders = df_orders.filter(pl.col("entry_price") > min_entry_price)
+
+    # Filter out zero / negative exit prices
+    df_orders = df_orders.filter(pl.col("exit_price") > 0)
+
+    # Cap extreme returns (reverse splits, data errors)
+    max_exit = pl.col("entry_price") * max_return_mult
+    df_orders = df_orders.with_columns(
+        pl.when(pl.col("exit_price") > max_exit)
+        .then(max_exit)
+        .otherwise(pl.col("exit_price"))
+        .alias("exit_price")
+    )
+
+    removed = before - df_orders.height
+    if removed > 0:
+        print(f"  Sanitized: removed {removed} bad orders ({removed/before*100:.1f}%), "
+              f"capped returns at {max_return_mult:.0f}x")
+
+    return df_orders
+
+
 def apply_liquidity_filter(df_tick_data: pl.DataFrame, context: dict) -> pl.DataFrame:
     """Apply scanner-phase liquidity/price filters and tag scanner_config_ids.
 

@@ -14,7 +14,7 @@ def calculate_charges(exchange, order_value, segment="EQUITY", trade_type="DELIV
     """Calculate broker charges for a single-leg trade.
 
     Args:
-        exchange: Exchange name (NSE, BSE, etc.)
+        exchange: Exchange name (NSE, BSE, US, etc.)
         order_value: Total value of the order
         segment: Trading segment (EQUITY, FO, etc.)
         trade_type: Type of trade (DELIVERY, INTRADAY)
@@ -23,6 +23,20 @@ def calculate_charges(exchange, order_value, segment="EQUITY", trade_type="DELIV
     Returns:
         float: Total charges for the trade
     """
+    # US equities: zero-commission model (SEC fee + FINRA TAF on sell side only)
+    if exchange in ("US", "NASDAQ", "NYSE", "AMEX"):
+        if which_side == "SELL_SIDE":
+            sec_fee = order_value * 0.0000278   # ~$27.80 per million
+            shares = order_value / 50.0         # estimate
+            taf = min(shares * 0.000166, 8.30)  # FINRA TAF, capped
+            return round(sec_fee + taf, 2)
+        return 0.0
+
+    # Non-Indian, non-US exchanges: flat percentage estimate (no country-specific taxes)
+    if exchange not in ("NSE", "BSE"):
+        return round(order_value * 0.001, 2)  # 0.1% round-trip estimate
+
+    # Indian exchanges: full charge structure
     brokerage_rate = 0.0003  # 0.03% or Rs 20, whichever is lower
     brokerage = min(order_value * brokerage_rate, 20)
 
@@ -34,9 +48,7 @@ def calculate_charges(exchange, order_value, segment="EQUITY", trade_type="DELIV
             if which_side == "SELL_SIDE":
                 stt = order_value * 0.00025  # 0.025% sell side only
 
-    exchange_charges = 0
-    if exchange in ("NSE", "BSE"):
-        exchange_charges = order_value * 0.0000345  # 0.00345%
+    exchange_charges = order_value * 0.0000345  # 0.00345%
 
     sebi_charges = order_value * 0.000001  # Rs 10 per crore
 
