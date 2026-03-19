@@ -39,7 +39,7 @@ import yaml
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-from engine.intraday_sql_builder import build_orb_signal_sql
+from engine.intraday_sql_builder import build_orb_signal_sql, build_rvol_atr_sql
 from engine.intraday_simulator import _date_to_epoch, _get_charges_fn
 from engine.intraday_simulator_v2 import (
     _build_entry_signals, _resolve_exit, _rank_entries,
@@ -299,6 +299,34 @@ def main():
         with open(cache_path, "wb") as f:
             pickle.dump(all_entries, f)
         print(f"\n  Entries cached to: {cache_path}")
+
+    # -- Enrich entries with RVOL + ATR (separate lightweight query) --
+    # Check if entries already have RVOL data
+    sample_entry = next(iter(next(iter(all_entries.values()))), None) if all_entries else None
+    needs_enrichment = sample_entry and sample_entry.get("rvol") is None
+
+    if needs_enrichment:
+        from engine.intraday_pipeline import _enrich_entries_rvol_atr
+        subhdr("RVOL + ATR Enrichment (second query)")
+        if args.load_entries:
+            enrich_client = CetaResearch()
+        else:
+            enrich_client = client
+        full_enrich_cfg = {
+            "start_date": static["start_date"],
+            "end_date": static["end_date"],
+            **EXCHANGE_SQL_DEFAULTS.get(exchange, EXCHANGE_SQL_DEFAULTS["NSE"]),
+            **sql_cfg,
+        }
+        all_entries = _enrich_entries_rvol_atr(enrich_client, all_entries, full_enrich_cfg)
+        print(f"  After enrichment: {sum(len(v) for v in all_entries.values()):,} entries "
+              f"across {len(all_entries)} days")
+
+        # Re-save cache with RVOL/ATR included
+        cache_path = os.path.join(dump_dir, "entries_cache.pkl")
+        with open(cache_path, "wb") as f:
+            pickle.dump(all_entries, f)
+        print(f"  Entries cache updated with RVOL/ATR: {cache_path}")
 
     # -- Apply exclusion filters --
     if exclude_symbols or max_ss:

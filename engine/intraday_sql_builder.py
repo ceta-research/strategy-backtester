@@ -70,41 +70,6 @@ opening_range AS (
     HAVING MAX(high) > MIN(low)
 ),
 
--- RVOL: first 5-min volume relative to 21-day trailing average
-first_5min_volume AS (
-    SELECT symbol, trade_date, SUM(volume) AS vol_5min
-    FROM bars WHERE bar_num <= 5
-    GROUP BY symbol, trade_date
-),
-rvol AS (
-    SELECT symbol, trade_date,
-        vol_5min / NULLIF(
-            AVG(vol_5min) OVER (
-                PARTITION BY symbol ORDER BY trade_date
-                ROWS BETWEEN 21 PRECEDING AND 1 PRECEDING
-            ), 0
-        ) AS rvol
-    FROM first_5min_volume
-),
-
--- ATR(14): 14-day average true range from EOD data
-eod_true_range AS (
-    SELECT symbol, trade_date,
-        GREATEST(high - low,
-                 ABS(high - LAG(close) OVER (PARTITION BY symbol ORDER BY trade_date)),
-                 ABS(low - LAG(close) OVER (PARTITION BY symbol ORDER BY trade_date))
-        ) AS true_range
-    FROM all_eod
-),
-atr_14 AS (
-    SELECT symbol, trade_date,
-        AVG(true_range) OVER (
-            PARTITION BY symbol ORDER BY trade_date
-            ROWS BETWEEN 13 PRECEDING AND CURRENT ROW
-        ) AS atr_14
-    FROM eod_true_range
-),
-
 -- Entry: first bar closing above OR high (breakout)
 -- Join filtered_eod to get EOD open for split-adjustment check
 entry_candidates AS (
@@ -115,11 +80,9 @@ entry_candidates AS (
     FROM bars b
     JOIN opening_range o USING (symbol, trade_date)
     JOIN filtered_eod f USING (symbol, trade_date)
-    LEFT JOIN rvol r USING (symbol, trade_date)
     WHERE b.bar_num > {cfg["or_window"]}
       AND b.bar_num <= {cfg["max_entry_bar"]}
       AND b.close > o.or_high
-      AND (r.rvol >= {cfg.get("min_rvol", 0)} OR r.rvol IS NULL)
 ),
 
 first_entry AS (
@@ -216,13 +179,94 @@ SELECT
     e.or_high, e.or_low, e.or_range,
     e.or_range / NULLIF(e.or_low, 0) AS signal_strength,
     b.bar_num, b.open AS bar_open, b.high AS bar_high, b.low AS bar_low, b.close AS bar_close,
-    bench.bench_ret,
-    r.rvol, a.atr_14
+    bench.bench_ret
 FROM first_entry e
 JOIN bars b ON b.symbol = e.symbol AND b.trade_date = e.trade_date
     AND b.bar_num >= e.entry_bar
 JOIN bench ON bench.trade_date = e.trade_date
-LEFT JOIN rvol r ON r.symbol = e.symbol AND r.trade_date = e.trade_date
-LEFT JOIN atr_14 a ON a.symbol = e.symbol AND a.trade_date = e.trade_date
 ORDER BY e.trade_date, e.symbol, b.bar_num
+"""
+
+
+def build_rvol_atr_sql(symbols: list, start_date: str, end_date: str,
+                       symbol_filter: str = "symbol NOT LIKE '%.%'",
+                       exchange_filter: str = "m.exchange = 'NASDAQ'") -> str:
+    """Build a lightweight SQL query to compute RVOL and ATR for specific symbols.
+
+    Run AFTER the signal matrix query, using the entry symbols discovered.
+    Uses EOD data (small) + first-5-min volume from minute bars (scoped).
+
+    Returns: SQL producing columns:
+        symbol, trade_date, rvol, atr_14
+    """
+    symbol_list = ", ".join(f"'{s}'" for s in symbols)
+
+    return f"""
+WITH
+eod AS (
+    SELECT symbol, date AS trade_date, open, close, high, low, volume
+    FROM fmp.stock_eod
+    WHERE symbol IN ({symbol_list})
+      AND date BETWEEN '{start_date}' AND '{end_date}'
+      AND close > 0
+),
+
+-- ATR(14) from EOD data
+eod_true_range AS (
+    SELECT symbol, trade_date,
+        GREATEST(high - low,
+                 ABS(high - LAG(close) OVER (PARTITION BY symbol ORDER BY trade_date)),
+                 ABS(low - LAG(close) OVER (PARTITION BY symbol ORDER BY trade_date))
+        ) AS true_range
+    FROM eod
+),
+atr_14 AS (
+    SELECT symbol, trade_date,
+        AVG(true_range) OVER (
+            PARTITION BY symbol ORDER BY trade_date
+            ROWS BETWEEN 13 PRECEDING AND CURRENT ROW
+        ) AS atr_14
+    FROM eod_true_range
+),
+
+-- RVOL: first 5-min volume vs 21-day trailing average
+minute_bars AS (
+    SELECT
+        m.symbol,
+        to_timestamp(m.dateEpoch)::DATE AS trade_date,
+        m.volume,
+        ROW_NUMBER() OVER (
+            PARTITION BY m.symbol, to_timestamp(m.dateEpoch)::DATE
+            ORDER BY m.dateEpoch
+        ) AS bar_num
+    FROM fmp.stock_prices_minute m
+    WHERE m.symbol IN ({symbol_list})
+      AND {exchange_filter}
+      AND to_timestamp(m.dateEpoch)::DATE BETWEEN '{start_date}' AND '{end_date}'
+),
+first_5min_volume AS (
+    SELECT symbol, trade_date, SUM(volume) AS vol_5min
+    FROM minute_bars
+    WHERE bar_num <= 5
+    GROUP BY symbol, trade_date
+),
+rvol AS (
+    SELECT symbol, trade_date,
+        vol_5min / NULLIF(
+            AVG(vol_5min) OVER (
+                PARTITION BY symbol ORDER BY trade_date
+                ROWS BETWEEN 21 PRECEDING AND 1 PRECEDING
+            ), 0
+        ) AS rvol
+    FROM first_5min_volume
+)
+
+SELECT
+    a.symbol,
+    a.trade_date,
+    r.rvol,
+    a.atr_14
+FROM atr_14 a
+LEFT JOIN rvol r ON r.symbol = a.symbol AND r.trade_date = a.trade_date
+ORDER BY a.symbol, a.trade_date
 """

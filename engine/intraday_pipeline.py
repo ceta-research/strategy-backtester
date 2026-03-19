@@ -17,7 +17,7 @@ import yaml
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from engine.intraday_sql_builder import build_orb_sql, build_orb_signal_sql
+from engine.intraday_sql_builder import build_orb_sql, build_orb_signal_sql, build_rvol_atr_sql
 from engine.intraday_simulator import simulate_intraday
 from engine.intraday_simulator_v2 import simulate_intraday_v2
 from lib.cr_client import CetaResearch
@@ -163,6 +163,11 @@ def _run_pipeline(config_path, raw, sql_builders, sql_keys, sim_keys,
         if version_label == "v2":
             n_entries = sum(len(v) for v in query_data.values())
             print(f"    {row_count} rows -> {n_entries} entries across {len(query_data)} days ({query_elapsed}s)")
+            # Second pass: enrich with RVOL + ATR (separate lightweight query)
+            query_data = _enrich_entries_rvol_atr(client, query_data, full_sql_cfg)
+            n_after = sum(len(v) for v in query_data.values())
+            if n_after != n_entries:
+                print(f"    After RVOL filter: {n_after} entries across {len(query_data)} days")
         else:
             print(f"    {len(query_data)} rows returned ({query_elapsed}s)")
 
@@ -341,6 +346,79 @@ def _query_and_build_entries(client, build_sql, full_sql_cfg, chunk_months=12):
             print(f" -> failed: {e}")
 
     return all_entries, total_rows
+
+
+def _enrich_entries_rvol_atr(client, all_entries: dict, full_sql_cfg: dict) -> dict:
+    """Fetch RVOL + ATR in a separate lightweight query, merge into entries.
+
+    Also applies min_rvol filter if configured.
+
+    Args:
+        client: CetaResearch API client
+        all_entries: dict keyed by trade_date -> list of entry dicts
+        full_sql_cfg: SQL config with start_date, end_date, exchange_filter, min_rvol
+
+    Returns:
+        Filtered entries dict with rvol and atr_14 populated.
+    """
+    # Collect unique symbols from entries
+    symbols = set()
+    for entries in all_entries.values():
+        for e in entries:
+            symbols.add(e["symbol"])
+
+    if not symbols:
+        return all_entries
+
+    print(f"    RVOL+ATR query: {len(symbols)} symbols")
+
+    sql = build_rvol_atr_sql(
+        symbols=sorted(symbols),
+        start_date=full_sql_cfg["start_date"],
+        end_date=full_sql_cfg["end_date"],
+        symbol_filter=full_sql_cfg.get("symbol_filter", "symbol NOT LIKE '%.%'"),
+        exchange_filter=full_sql_cfg.get("exchange_filter", "m.exchange = 'NASDAQ'"),
+    )
+
+    try:
+        rows = client.query(sql, memory_mb=16384, threads=6, disk_mb=40960, timeout=600)
+        print(f"    RVOL+ATR: {len(rows)} rows returned")
+    except Exception as e:
+        print(f"    RVOL+ATR query failed: {e} (continuing without RVOL/ATR)")
+        return all_entries
+
+    # Build lookup: (symbol, trade_date) -> {rvol, atr_14}
+    lookup = {}
+    for row in rows:
+        key = (row["symbol"], str(row["trade_date"]))
+        lookup[key] = {"rvol": row.get("rvol"), "atr_14": row.get("atr_14")}
+    del rows
+
+    # Merge into entries and apply min_rvol filter
+    min_rvol = full_sql_cfg.get("min_rvol", 0)
+    filtered = {}
+    removed = 0
+    for d, entries in all_entries.items():
+        day_entries = []
+        for e in entries:
+            key = (e["symbol"], d)
+            enrichment = lookup.get(key, {})
+            e["rvol"] = enrichment.get("rvol")
+            e["atr_14"] = enrichment.get("atr_14")
+
+            # Apply min_rvol filter
+            rvol = e["rvol"]
+            if min_rvol > 0 and rvol is not None and rvol < min_rvol:
+                removed += 1
+                continue
+            day_entries.append(e)
+        if day_entries:
+            filtered[d] = day_entries
+
+    if min_rvol > 0 and removed > 0:
+        print(f"    RVOL filter (min_rvol={min_rvol}): removed {removed} entries")
+
+    return filtered
 
 
 def _cartesian(params: dict) -> list:
