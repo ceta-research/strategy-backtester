@@ -338,6 +338,61 @@ def _build_exit_config_factor_composite(exit_cfg: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Index Green Candle Momentum entry/exit
+# ---------------------------------------------------------------------------
+
+def _build_entry_config_index_green_candle(entry: dict) -> dict:
+    return {
+        "green_candles": entry.get("green_candles", [2]),
+    }
+
+
+def _build_exit_config_index_green_candle(exit_cfg: dict) -> dict:
+    return {
+        "red_candles_exit": exit_cfg.get("red_candles_exit", [1]),
+        "take_profit_pct": exit_cfg.get("take_profit_pct", [0]),
+        "stop_loss_pct": exit_cfg.get("stop_loss_pct", [0]),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Index SMA Crossover entry/exit
+# ---------------------------------------------------------------------------
+
+def _build_entry_config_index_sma_crossover(entry: dict) -> dict:
+    return {
+        "sma_short": entry.get("sma_short", [10]),
+        "sma_long": entry.get("sma_long", [50]),
+    }
+
+
+def _build_exit_config_index_sma_crossover(exit_cfg: dict) -> dict:
+    return {
+        "stop_loss_pct": exit_cfg.get("stop_loss_pct", [0]),
+        "max_hold_days": exit_cfg.get("max_hold_days", [0]),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Index Dip-Buy entry/exit
+# ---------------------------------------------------------------------------
+
+def _build_entry_config_index_dip_buy(entry: dict) -> dict:
+    return {
+        "sma_short": entry.get("sma_short", [20]),
+        "sma_long": entry.get("sma_long", [200]),
+        "rsi_threshold": entry.get("rsi_threshold", [0]),
+    }
+
+
+def _build_exit_config_index_dip_buy(exit_cfg: dict) -> dict:
+    return {
+        "max_hold_days": exit_cfg.get("max_hold_days", [20]),
+        "stop_loss_pct": exit_cfg.get("stop_loss_pct", [0]),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Strategy dispatch tables
 # ---------------------------------------------------------------------------
 
@@ -356,6 +411,9 @@ _ENTRY_BUILDERS = {
     "bb_mean_reversion": _build_entry_config_bb_mean_reversion,
     "extended_ibs": _build_entry_config_extended_ibs,
     "momentum_dip": _build_entry_config_momentum_dip,
+    "index_green_candle": _build_entry_config_index_green_candle,
+    "index_sma_crossover": _build_entry_config_index_sma_crossover,
+    "index_dip_buy": _build_entry_config_index_dip_buy,
 }
 
 _EXIT_BUILDERS = {
@@ -373,6 +431,9 @@ _EXIT_BUILDERS = {
     "bb_mean_reversion": _build_exit_config_bb_mean_reversion,
     "extended_ibs": _build_exit_config_extended_ibs,
     "momentum_dip": _build_exit_config_momentum_dip,
+    "index_green_candle": _build_exit_config_index_green_candle,
+    "index_sma_crossover": _build_exit_config_index_sma_crossover,
+    "index_dip_buy": _build_exit_config_index_dip_buy,
 }
 
 

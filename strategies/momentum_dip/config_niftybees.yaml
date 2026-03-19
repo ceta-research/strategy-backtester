@@ -1,0 +1,36 @@
+static:
+  strategy_type: momentum_dip
+  start_margin: 10000000       # 1 Crore
+  start_epoch: 1262304000      # 2010-01-01
+  end_epoch: 1741219200        # 2025-03-06
+  prefetch_days: 400
+  data_granularity: day
+
+scanner:
+  instruments:
+    - [{exchange: NSE, symbols: [NIFTYBEES]}]
+  price_threshold: [1]
+  avg_day_transaction_threshold:
+    - {period: 20, threshold: 1000000}
+  n_day_gain_threshold:
+    - {n: 30, threshold: -999}
+
+entry:
+  rsi_threshold: [25, 30, 35, 40]
+  momentum_lookback_days: [126]
+  top_n: [1]
+  rerank_interval_days: [21]
+
+exit:
+  profit_target_pct: [0.03, 0.05, 0.10, 0.15]
+  max_hold_days: [5, 10, 20, 30]
+
+simulation:
+  default_sorting_type: [top_gainer]
+  order_sorting_type: [top_gainer]
+  order_ranking_window_days: [30]
+  max_positions: [1]
+  max_positions_per_instrument: [1]
+  order_value_multiplier: [0.95]
+  max_order_value:
+    - {type: fixed, value: 100000000}

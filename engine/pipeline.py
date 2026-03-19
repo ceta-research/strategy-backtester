@@ -41,6 +41,9 @@ import engine.signals.trending_value  # noqa: F401
 import engine.signals.bb_mean_reversion  # noqa: F401
 import engine.signals.extended_ibs  # noqa: F401
 import engine.signals.momentum_dip  # noqa: F401
+import engine.signals.index_green_candle  # noqa: F401
+import engine.signals.index_sma_crossover  # noqa: F401
+import engine.signals.index_dip_buy  # noqa: F401
 from engine.signals.base import get_signal_generator, sanitize_orders
 
 
