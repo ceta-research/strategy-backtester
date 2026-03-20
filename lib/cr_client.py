@@ -40,6 +40,20 @@ DEFAULT_POLL_INTERVAL = 5.0  # seconds (keep low to avoid 1000 req/hr rate limit
 DEFAULT_TIMEOUT = 300  # seconds
 
 
+def _read_dotenv_key(key):
+    """Read a key from .env file (simple KEY=VALUE format). Used in cloud containers."""
+    for env_path in [".env", "/session/.env"]:
+        try:
+            with open(env_path) as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith(f"{key}="):
+                        return line.split("=", 1)[1].strip()
+        except FileNotFoundError:
+            continue
+    return None
+
+
 class CetaResearchError(Exception):
     """Base exception for Ceta Research API errors."""
     pass
@@ -72,6 +86,7 @@ class CetaResearch:
             api_key
             or os.environ.get("CR_API_KEY")
             or os.environ.get("TS_API_KEY")
+            or _read_dotenv_key("CR_API_KEY")
         )
         if not self.api_key:
             raise CetaResearchError(
@@ -773,9 +788,9 @@ class CetaResearch:
         Returns:
             dict with imported project details.
         """
-        body = {"repoUrl": repo_url}
+        body = {"url": repo_url}
         if ref:
-            body["ref"] = ref
+            body["branch"] = ref
 
         resp = self._post_with_csrf(f"{self.base_url}/projects/import-git", json=body)
         if resp.status_code not in (200, 201):
