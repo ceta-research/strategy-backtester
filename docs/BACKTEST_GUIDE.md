@@ -38,6 +38,9 @@ Every script writes a single `result.json` file containing all metrics, equity c
 
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Cloud container fallback (scripts run from /session/scripts/ but libs are at /session/)
+if "/session" not in sys.path and os.path.isdir("/session/lib"):
+    sys.path.insert(0, "/session")
 
 from lib.cr_client import CetaResearch
 from engine.charges import calculate_charges
@@ -328,24 +331,29 @@ Cross-exchange ratios must normalize to a common currency.
 ### Setup (once)
 
 ```bash
-# Push repo to GitHub (private)
-git remote add origin git@github.com:ceta-research/strategy-backtester.git
-git push -u origin main
-
-# Link repo as a CR project
-python run_remote.py --setup --repo https://github.com/ceta-research/strategy-backtester
+# Create project and upload all files
+python run_remote.py --setup
 ```
 
-This creates `.remote_project.json` with the project ID. Don't commit this file.
+This creates `.remote_project.json` with the project ID. Don't commit this file. The runner uploads all scripts, `lib/`, and `engine/` files, and injects your API key (from `CR_API_KEY` env var) before each run.
+
+Optionally, if you've connected GitHub OAuth on cetaresearch.com, you can use git-sync:
+
+```bash
+python run_remote.py --setup --repo https://github.com/ceta-research/strategy-backtester
+```
 
 ### Running
 
 ```bash
-# Standard run (syncs git first)
+# Standard run (syncs changed files first)
 python run_remote.py scripts/buy_2day_high.py
 
 # Custom resources for heavy sweeps
 python run_remote.py scripts/buy_2day_high.py --timeout 600 --ram 8192
+
+# Skip file sync (use project files as-is)
+python run_remote.py scripts/buy_2day_high.py --no-sync
 
 # Save to specific path
 python run_remote.py scripts/buy_2day_high.py -o results/niftybees_sweep.json
@@ -353,10 +361,11 @@ python run_remote.py scripts/buy_2day_high.py -o results/niftybees_sweep.json
 
 ### What happens
 
-1. `run_remote.py` calls `pull_project_from_git()` to sync latest code
-2. Submits `run_project(entry_path="scripts/buy_2day_high.py")`
-3. Script runs on prod (fetches data via CR API, simulates, writes result.json)
-4. Runner downloads result.json to `results/` locally
+1. `run_remote.py` uploads changed files (hash-based diff, only modified files)
+2. Injects `.env` with `CR_API_KEY` so the container can fetch data
+3. Submits `run_project(entry_path="scripts/buy_2day_high.py")`
+4. Script runs on prod (fetches data via CR API, simulates, writes result.json)
+5. Runner downloads result.json to `results/` locally
 
 ### Resource defaults
 
