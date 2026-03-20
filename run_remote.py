@@ -326,7 +326,8 @@ def main():
 
     # Download result.json
     if result.get("status") == "completed":
-        run_id = result.get("id") or result.get("taskId")
+        # Prefer taskId (code execution ID) over id (project run ID) for file downloads
+        run_id = result.get("taskId") or result.get("id")
         output = args.output or f"results/{os.path.basename(args.script).replace('.py', '')}_{int(time.time())}.json"
         download_result(cr, project_id, run_id, output)
     else:

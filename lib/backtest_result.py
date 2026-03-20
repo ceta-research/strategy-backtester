@@ -26,7 +26,6 @@ See docs/BACKTEST_GUIDE.md for full schema and usage.
 """
 
 import json
-import math
 import os
 from datetime import datetime, timezone
 

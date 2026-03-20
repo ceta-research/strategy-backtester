@@ -81,9 +81,8 @@ def simulate(data, start_idx, bm_epochs, bm_values, *,
     """
     params = {"lookback_days": lookback_days, "trailing_sl_pct": trailing_sl,
               "buy_fraction": buy_fraction}
-    symbol = data[0].get("symbol", "NIFTYBEES") if data else "NIFTYBEES"
     result = BacktestResult(
-        STRATEGY_NAME, params, symbol, exchange, CAPITAL,
+        STRATEGY_NAME, params, "NIFTYBEES", exchange, CAPITAL,
         slippage_bps=int(SLIPPAGE * 10000), description=DESCRIPTION,
     )
 

@@ -32,7 +32,6 @@ Usage:
 import os
 import time
 import json
-import base64
 import requests
 
 DEFAULT_BASE_URL = "https://api.cetaresearch.com/api/v1"

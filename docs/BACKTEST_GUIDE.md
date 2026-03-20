@@ -380,9 +380,9 @@ python run_remote.py scripts/buy_2day_high.py -o results/niftybees_sweep.json
 | Scenario | Configs | result.json size |
 |----------|---------|-----------------|
 | Single config | 1 | ~500 KB |
-| Small sweep (top 20 detailed) | 48 | ~12 MB |
-| Medium sweep (top 20 detailed) | 500 | ~15 MB |
-| Large sweep (top 20 detailed) | 2000 | ~18 MB |
+| Small sweep (top 20 detailed) | 48 | ~7 MB |
+| Medium sweep (top 20 detailed) | 500 | ~10 MB |
+| Large sweep (top 20 detailed) | 2000 | ~15 MB |
 
 Size stays manageable because only top 20 configs get full equity curves and trade lists. The rest get summary metrics only (~200 bytes per config).
 
