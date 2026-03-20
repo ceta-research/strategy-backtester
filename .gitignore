@@ -29,3 +29,6 @@ debug_output/
 # Environment
 .env
 *.env.local
+
+# Remote execution config (contains project ID)
+.remote_project.json
