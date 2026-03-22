@@ -393,6 +393,31 @@ def _build_exit_config_index_dip_buy(exit_cfg: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Quality Dip-Buy entry/exit
+# ---------------------------------------------------------------------------
+
+def _build_entry_config_quality_dip_buy(entry: dict) -> dict:
+    return {
+        "consecutive_positive_years": entry.get("consecutive_positive_years", [3]),
+        "min_yearly_return_pct": entry.get("min_yearly_return_pct", [0]),
+        "dip_threshold_pct": entry.get("dip_threshold_pct", [10]),
+        "peak_lookback_days": entry.get("peak_lookback_days", [252]),
+        "rescreen_interval_days": entry.get("rescreen_interval_days", [63]),
+        "max_per_sector": entry.get("max_per_sector", [0]),
+        "rsi_threshold": entry.get("rsi_threshold", [0]),
+        "regime_instrument": entry.get("regime_instrument", [""]),
+        "regime_sma_period": entry.get("regime_sma_period", [0]),
+    }
+
+
+def _build_exit_config_quality_dip_buy(exit_cfg: dict) -> dict:
+    return {
+        "tsl_pct": exit_cfg.get("tsl_pct", [0]),
+        "max_hold_days": exit_cfg.get("max_hold_days", [0]),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Strategy dispatch tables
 # ---------------------------------------------------------------------------
 
@@ -414,6 +439,7 @@ _ENTRY_BUILDERS = {
     "index_green_candle": _build_entry_config_index_green_candle,
     "index_sma_crossover": _build_entry_config_index_sma_crossover,
     "index_dip_buy": _build_entry_config_index_dip_buy,
+    "quality_dip_buy": _build_entry_config_quality_dip_buy,
 }
 
 _EXIT_BUILDERS = {
@@ -434,6 +460,7 @@ _EXIT_BUILDERS = {
     "index_green_candle": _build_exit_config_index_green_candle,
     "index_sma_crossover": _build_exit_config_index_sma_crossover,
     "index_dip_buy": _build_exit_config_index_dip_buy,
+    "quality_dip_buy": _build_exit_config_quality_dip_buy,
 }
 
 
