@@ -17,10 +17,12 @@ import time
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if "/session" not in sys.path and os.path.isdir("/session/lib"):
+    sys.path.insert(0, "/session")
 
 from lib.cr_client import CetaResearch
 from engine.charges import calculate_charges
-from lib.metrics import compute_metrics as compute_full_metrics
+from lib.backtest_result import BacktestResult, SweepResult
 
 
 # ── Config (FIXED — no sweep) ───────────────────────────────────────────────
@@ -135,21 +137,30 @@ def compute_z(values, lookback):
 
 def sim_pair_corrected(epochs, closes_a, closes_b, z_lookback=Z_LOOKBACK,
                         z_entry=Z_ENTRY, z_exit=Z_EXIT, capital=CAPITAL,
-                        slippage=SLIPPAGE_PCT):
+                        slippage=SLIPPAGE_PCT,
+                        instrument="SPY vs EWJ", exchange="US",
+                        params_dict=None):
     """Corrected pair simulation.
 
     KEY FIX: Signal on bar i → execute on bar i+1 close.
+    Returns a BacktestResult.
     """
+    if params_dict is None:
+        params_dict = {"z_lookback": z_lookback, "z_entry": z_entry, "z_exit": z_exit}
+
+    result = BacktestResult(
+        "pairs_nextday", params_dict, instrument, exchange, capital,
+        slippage_bps=int(slippage * 10000),
+    )
+
     n = len(epochs)
     ratios = [closes_a[i] / closes_b[i] if closes_b[i] > 0 else 1.0 for i in range(n)]
     z_scores = compute_z(ratios, z_lookback)
 
     cash = capital
     position = None  # ("a"/"b", qty, entry_price, entry_idx)
-    trades = 0
-    total_charges = 0.0
-    total_slippage = 0.0
-    values = []
+    buy_ch = 0.0
+    buy_slip = 0.0
 
     # Pending signal: computed on bar i, executed on bar i+1
     pending_entry = None   # ("a"/"b") or None
@@ -166,8 +177,14 @@ def sim_pair_corrected(epochs, closes_a, closes_b, z_lookback=Z_LOOKBACK,
             ch = calculate_charges("US", sell_val, "EQUITY", "DELIVERY", "SELL_SIDE")
             slip = sell_val * slippage
             cash += sell_val - ch - slip
-            total_charges += ch
-            total_slippage += slip
+            result.add_trade(
+                entry_epoch=epochs[ei], exit_epoch=epochs[i],
+                entry_price=ep, exit_price=exit_price,
+                quantity=qty, side="LONG",
+                charges=buy_ch + ch, slippage=buy_slip + slip,
+            )
+            buy_ch = 0.0
+            buy_slip = 0.0
             position = None
             pending_exit = False
 
@@ -184,9 +201,8 @@ def sim_pair_corrected(epochs, closes_a, closes_b, z_lookback=Z_LOOKBACK,
                     if actual_cost + ch + slip <= cash:
                         position = (buy_side, qty, buy_price, i)
                         cash -= actual_cost + ch + slip
-                        total_charges += ch
-                        total_slippage += slip
-                        trades += 1
+                        buy_ch = ch
+                        buy_slip = slip
             pending_entry = None
 
         # ── GENERATE signals for TOMORROW ──
@@ -209,72 +225,47 @@ def sim_pair_corrected(epochs, closes_a, closes_b, z_lookback=Z_LOOKBACK,
         if position:
             side, qty, _, _ = position
             cp = closes_a[i] if side == "a" else closes_b[i]
-            values.append(cash + qty * cp)
+            result.add_equity_point(epochs[i], cash + qty * cp)
         else:
-            values.append(cash)
+            result.add_equity_point(epochs[i], cash)
 
-    return values, trades, total_charges, total_slippage
+    return result
 
 
-# ── Metrics ──────────────────────────────────────────────────────────────────
+# ── Helpers ──────────────────────────────────────────────────────────────────
 
-def compute_stats(values, epochs_sub):
+def _fmt_summary(s):
+    """Format a BacktestResult summary dict into one line."""
+    if not s:
+        return "NO DATA"
+    cagr = (s.get("cagr") or 0) * 100
+    mdd = (s.get("max_drawdown") or 0) * 100
+    calmar = s.get("calmar_ratio") or 0
+    parts = [f"CAGR={cagr:>+6.1f}%", f"MDD={mdd:>6.1f}%", f"Calmar={calmar:.2f}"]
+    sh = s.get("sharpe_ratio")
+    if sh is not None:
+        parts.append(f"Sharpe={sh:.2f}")
+    so = s.get("sortino_ratio")
+    if so is not None:
+        parts.append(f"Sortino={so:.2f}")
+    return ", ".join(parts)
+
+
+def _fmt_bh(values, epochs):
+    """Format buy-and-hold stats into one line."""
     if len(values) < 2:
-        return None
+        return "NO DATA"
     sv, ev = values[0], values[-1]
-    yrs = (epochs_sub[-1] - epochs_sub[0]) / (365.25 * 86400)
+    yrs = (epochs[-1] - epochs[0]) / (365.25 * 86400)
     if yrs <= 0 or ev <= 0 or sv <= 0:
-        return None
-    tr = ev / sv
-    cagr = (tr ** (1 / yrs) - 1) * 100
+        return "NO DATA"
+    cagr = ((ev / sv) ** (1 / yrs) - 1) * 100
     peak = sv
     mdd = 0
     for v in values:
         peak = max(peak, v)
         mdd = min(mdd, (v - peak) / peak * 100)
-    calmar = cagr / abs(mdd) if mdd != 0 else 0
-
-    dr = [(values[i] - values[i-1]) / values[i-1] if values[i-1] > 0 else 0
-          for i in range(1, len(values))]
-    sharpe = sortino = vol = None
-    if len(dr) >= 20:
-        full = compute_full_metrics(dr, [0.0]*len(dr), periods_per_year=252)
-        p = full["portfolio"]
-        sharpe = p.get("sharpe_ratio")
-        sortino = p.get("sortino_ratio")
-        vol = p.get("annualized_volatility")
-
-    yearly = {}
-    for j, v in enumerate(values):
-        yr = datetime.fromtimestamp(epochs_sub[j], tz=timezone.utc).year
-        if yr not in yearly:
-            yearly[yr] = {"first": v, "last": v, "peak": v, "trough": v}
-        yearly[yr]["last"] = v
-        yearly[yr]["peak"] = max(yearly[yr]["peak"], v)
-        yearly[yr]["trough"] = min(yearly[yr]["trough"], v)
-
-    return {"cagr": cagr, "mdd": mdd, "calmar": calmar, "tr": tr, "yrs": yrs,
-            "sharpe": sharpe, "sortino": sortino, "vol": vol, "yearly": yearly}
-
-
-def print_yearwise(s, label, trades=0, charges=0, slippage=0):
-    if not s:
-        print(f"  {label}: No data")
-        return
-    sh = f", Sharpe={s['sharpe']:.2f}" if s.get('sharpe') else ""
-    so = f", Sortino={s['sortino']:.2f}" if s.get('sortino') else ""
-    print(f"\n  {label}")
-    print(f"  CAGR={s['cagr']:.1f}%, MaxDD={s['mdd']:.1f}%, Calmar={s['calmar']:.2f}{sh}{so}")
-    print(f"  Growth={s['tr']:.1f}x over {s['yrs']:.1f} years, {trades} trades")
-    print(f"  Charges={charges:,.0f}, Slippage={slippage:,.0f} "
-          f"(total cost: {(charges+slippage)/CAPITAL*100:.2f}% of starting capital)")
-    print(f"\n  {'Year':<6} {'Return':>9} {'MaxDD':>9} {'EndValue':>14}")
-    print(f"  {'-'*42}")
-    for yr in sorted(s["yearly"].keys()):
-        y = s["yearly"][yr]
-        ret = (y["last"] - y["first"]) / y["first"] * 100
-        dd = (y["trough"] - y["peak"]) / y["peak"] * 100 if y["peak"] > 0 else 0
-        print(f"  {yr:<6} {ret:>+8.1f}% {dd:>8.1f}% {y['last']:>14,.0f}")
+    return f"CAGR={cagr:>+6.1f}%, MDD={mdd:>6.1f}%"
 
 
 # ── Main ─────────────────────────────────────────────────────────────────────
@@ -341,11 +332,9 @@ def main():
         print(f"  {label}: {len(common)} days (NO currency adjustment)")
 
         # Full period
-        vals, tr, ch, slip = sim_pair_corrected(common, ca, cb)
-        ep = common[Z_LOOKBACK:]
-        s = compute_stats(vals, ep)
-        print_yearwise(s, f"{label} — FULL (2005-2026, next-day entry, no FX fix)",
-                       tr, ch, slip)
+        result = sim_pair_corrected(common, ca, cb, instrument=label, exchange="US")
+        result.compute()
+        result.print_summary()
 
         # Train/test split
         train_end = next((i for i, e in enumerate(common) if e >= split_epoch), len(common))
@@ -353,16 +342,18 @@ def main():
 
         if train_end > Z_LOOKBACK + 50 and test_start < len(common) - 50:
             # Train
-            vals_train, tr_t, ch_t, sl_t = sim_pair_corrected(
-                common[:train_end], ca[:train_end], cb[:train_end])
-            s_train = compute_stats(vals_train, common[Z_LOOKBACK:train_end])
-            print_yearwise(s_train, f"  TRAIN (2005-2015)", tr_t, ch_t, sl_t)
+            result_train = sim_pair_corrected(
+                common[:train_end], ca[:train_end], cb[:train_end],
+                instrument=f"{label} TRAIN", exchange="US")
+            result_train.compute()
+            print(f"\n  TRAIN (2005-2015): {_fmt_summary(result_train.to_dict()['summary'])}")
 
             # Test (fresh capital)
-            vals_test, tr_te, ch_te, sl_te = sim_pair_corrected(
-                common[test_start:], ca[test_start:], cb[test_start:])
-            s_test = compute_stats(vals_test, common[test_start + Z_LOOKBACK:])
-            print_yearwise(s_test, f"  TEST  (2016-2026, out-of-sample)", tr_te, ch_te, sl_te)
+            result_test = sim_pair_corrected(
+                common[test_start:], ca[test_start:], cb[test_start:],
+                instrument=f"{label} TEST", exchange="US")
+            result_test.compute()
+            print(f"  TEST  (2016-2026): {_fmt_summary(result_test.to_dict()['summary'])}")
 
     # ══════════════════════════════════════════════════════════════════════════
     #  TEST 2: Index pairs WITH currency adjustment
@@ -411,19 +402,19 @@ def main():
         print(f"\n{'─'*70}")
         print(f"  {label}: {len(common)} days (USD-normalized)")
 
-        vals, tr, ch, slip = sim_pair_corrected(common, ca, cb)
-        ep = common[Z_LOOKBACK:]
-        s = compute_stats(vals, ep)
-        print_yearwise(s, f"{label} — FULL (USD-adjusted, next-day entry)", tr, ch, slip)
+        result = sim_pair_corrected(common, ca, cb,
+                                    instrument=f"{label} (USD-adj)", exchange="US")
+        result.compute()
+        result.print_summary()
 
         # Train/test
         train_end = next((i for i, e in enumerate(common) if e >= split_epoch), len(common))
         if train_end > Z_LOOKBACK + 50 and train_end < len(common) - 50:
-            vals_test, tr_te, ch_te, sl_te = sim_pair_corrected(
-                common[train_end:], ca[train_end:], cb[train_end:])
-            s_test = compute_stats(vals_test, common[train_end + Z_LOOKBACK:])
-            print_yearwise(s_test, f"  TEST (2016-2026, USD-adjusted, out-of-sample)",
-                           tr_te, ch_te, sl_te)
+            result_test = sim_pair_corrected(
+                common[train_end:], ca[train_end:], cb[train_end:],
+                instrument=f"{label} TEST (USD-adj)", exchange="US")
+            result_test.compute()
+            print(f"\n  TEST (2016-2026, USD-adjusted, OOS): {_fmt_summary(result_test.to_dict()['summary'])}")
 
     # ══════════════════════════════════════════════════════════════════════════
     #  TEST 3: Actual US-listed ETFs (the tradeable version)
@@ -450,6 +441,10 @@ def main():
         else:
             print(f"    NO DATA for {sym}")
 
+    sweep = SweepResult("pairs_nextday_etf", "ETF Pairs", "US", CAPITAL,
+                        slippage_bps=int(SLIPPAGE_PCT * 10000),
+                        description="Corrected next-day pairs on US-listed ETFs")
+
     for sa, sb, label, _, _ in ETF_PAIRS:
         if sa not in etf_data or sb not in etf_data:
             print(f"  Skipping {label} — missing data")
@@ -465,20 +460,26 @@ def main():
         print(f"\n{'─'*70}")
         print(f"  {label}: {len(common)} days (from {start_date})")
 
-        vals, tr, ch, slip = sim_pair_corrected(common, ca, cb)
-        ep = common[Z_LOOKBACK:]
-        s = compute_stats(vals, ep)
-        print_yearwise(s, f"{label} — FULL (real ETFs, next-day entry)", tr, ch, slip)
+        params = {"pair": f"{sa}/{sb}", "z_lookback": Z_LOOKBACK,
+                  "z_entry": Z_ENTRY, "z_exit": Z_EXIT}
+        result = sim_pair_corrected(common, ca, cb,
+                                    instrument=label, exchange="US",
+                                    params_dict=params)
+        result.compute()
+        result.print_summary()
 
         # B&H comparison for both sides
         bh_a = [ca[i] / ca[0] * CAPITAL for i in range(len(ca))]
         bh_b = [cb[i] / cb[0] * CAPITAL for i in range(len(cb))]
-        s_bh_a = compute_stats(bh_a, common)
-        s_bh_b = compute_stats(bh_b, common)
-        if s_bh_a:
-            print(f"  B&H {sa}: CAGR={s_bh_a['cagr']:.1f}%, MDD={s_bh_a['mdd']:.1f}%")
-        if s_bh_b:
-            print(f"  B&H {sb}: CAGR={s_bh_b['cagr']:.1f}%, MDD={s_bh_b['mdd']:.1f}%")
+        print(f"  B&H {sa}: {_fmt_bh(bh_a, common)}")
+        print(f"  B&H {sb}: {_fmt_bh(bh_b, common)}")
+
+        sweep.add_config(params, result)
+
+    # Print ETF sweep leaderboard and save
+    if sweep.configs:
+        sweep.print_leaderboard()
+        sweep.save("result.json")
 
     # ══════════════════════════════════════════════════════════════════════════
     #  TEST 4: Multi-pair ETF portfolio
@@ -507,33 +508,54 @@ def main():
             start_date = datetime.fromtimestamp(common[0], tz=timezone.utc).date()
             print(f"\n  {n_pairs} ETF pairs, {len(common)} common days (from {start_date})")
 
-            # Run each pair independently, sum values
-            all_pair_vals = []
-            total_trades = total_ch = total_sl = 0
+            # Run each pair independently, collect sub-results
+            sub_results = []
             for sa, sb, label in valid_etf_pairs:
                 ca = [etf_data[sa][e] for e in common]
                 cb = [etf_data[sb][e] for e in common]
-                vals, tr, ch, slip = sim_pair_corrected(common, ca, cb, capital=per_pair)
-                all_pair_vals.append(vals)
-                total_trades += tr
-                total_ch += ch
-                total_sl += slip
-                print(f"    {label}: {tr} trades")
+                sub = sim_pair_corrected(common, ca, cb, capital=per_pair,
+                                         instrument=label, exchange="US")
+                sub_results.append(sub)
+                n_trades = len(sub.trades) if hasattr(sub, 'trades') else 0
+                print(f"    {label}: computing...")
 
-            min_len = min(len(pv) for pv in all_pair_vals)
-            combined = [sum(pv[i] for pv in all_pair_vals) for i in range(min_len)]
-            ep = common[Z_LOOKBACK:]
-            s = compute_stats(combined, ep)
-            print_yearwise(s, f"MULTI-PAIR ETF PORTFOLIO ({n_pairs} pairs, real instruments)",
-                           total_trades, total_ch, total_sl)
+            # Build combined equity curve
+            combined_result = BacktestResult(
+                "pairs_nextday", {"n_pairs": n_pairs, "per_pair_capital": per_pair},
+                f"Multi({n_pairs} pairs)", "US", CAPITAL,
+                slippage_bps=int(SLIPPAGE_PCT * 10000),
+            )
 
-            # B&H SPY comparison
-            spy_bh = [etf_data["SPY"][e] / etf_data["SPY"][common[0]] * CAPITAL
-                      for e in common if e in etf_data["SPY"]]
-            s_spy = compute_stats(spy_bh, common)
-            if s_spy:
-                print(f"\n  B&H SPY: CAGR={s_spy['cagr']:.1f}%, MDD={s_spy['mdd']:.1f}%, "
-                      f"Calmar={s_spy['calmar']:.2f}")
+            # Sum equity curves across sub-results
+            # All sub-results have same epoch sequence (same common array)
+            min_len = min(len(sr.equity_curve) for sr in sub_results)
+            for j in range(min_len):
+                epoch = sub_results[0].equity_curve[j][0]
+                combined_val = sum(sr.equity_curve[j][1] for sr in sub_results)
+                combined_result.add_equity_point(epoch, combined_val)
+
+            # Copy trades from all sub-results
+            for sr in sub_results:
+                for t in sr.trades:
+                    combined_result.add_trade(
+                        entry_epoch=t["entry_epoch"], exit_epoch=t["exit_epoch"],
+                        entry_price=t["entry_price"], exit_price=t["exit_price"],
+                        quantity=t["quantity"], side=t["side"],
+                        charges=t["charges"], slippage=t["slippage"],
+                    )
+
+            # SPY B&H as benchmark
+            spy_bh_vals = [etf_data["SPY"][e] / etf_data["SPY"][common[0]] * CAPITAL
+                           for e in common if e in etf_data["SPY"]]
+            spy_bh_epochs = [e for e in common if e in etf_data["SPY"]]
+            if len(spy_bh_vals) == len(combined_result.equity_curve):
+                combined_result.set_benchmark_values(spy_bh_epochs, spy_bh_vals)
+
+            combined_result.compute()
+            combined_result.print_summary()
+
+            # SPY B&H one-liner
+            print(f"\n  B&H SPY: {_fmt_bh(spy_bh_vals, spy_bh_epochs)}")
     else:
         print("  Not enough ETF pairs with data")
 

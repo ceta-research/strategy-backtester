@@ -21,10 +21,12 @@ import time
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if "/session" not in sys.path and os.path.isdir("/session/lib"):
+    sys.path.insert(0, "/session")
 
 from lib.cr_client import CetaResearch
 from engine.charges import calculate_charges
-from lib.metrics import compute_metrics as compute_full_metrics
+from lib.backtest_result import BacktestResult, SweepResult, MultiSweepResult
 
 CAPITAL = 10_000_000
 SLIPPAGE = 0.0005
@@ -94,47 +96,21 @@ def us_charges(value, side):
     return calculate_charges("US", value, "EQUITY", "DELIVERY", side)
 
 
-def stats(values, epochs_sub):
-    if len(values) < 2:
-        return None
-    sv, ev = values[0], values[-1]
-    yrs = (epochs_sub[-1] - epochs_sub[0]) / (365.25 * 86400)
-    if yrs <= 0 or ev <= 0 or sv <= 0:
-        return None
-    tr = ev / sv
-    cagr = (tr ** (1 / yrs) - 1) * 100
-    peak = sv
-    mdd = 0
-    for v in values:
-        peak = max(peak, v)
-        mdd = min(mdd, (v - peak) / peak * 100)
-    calmar = cagr / abs(mdd) if mdd != 0 else 0
-    dr = [(values[i] - values[i-1]) / values[i-1] if values[i-1] > 0 else 0
-          for i in range(1, len(values))]
-    sharpe = sortino = None
-    if len(dr) >= 20:
-        full = compute_full_metrics(dr, [0.0]*len(dr), periods_per_year=252)
-        p = full["portfolio"]
-        sharpe = p.get("sharpe_ratio")
-        sortino = p.get("sortino_ratio")
-    yearly = {}
-    for j, v in enumerate(values):
-        yr = datetime.fromtimestamp(epochs_sub[j], tz=timezone.utc).year
-        if yr not in yearly:
-            yearly[yr] = {"first": v, "last": v, "peak": v, "trough": v}
-        yearly[yr]["last"] = v
-        yearly[yr]["peak"] = max(yearly[yr]["peak"], v)
-        yearly[yr]["trough"] = min(yearly[yr]["trough"], v)
-    return {"cagr": cagr, "mdd": mdd, "calmar": calmar, "tr": tr, "yrs": yrs,
-            "sharpe": sharpe, "sortino": sortino, "yearly": yearly}
-
-
-def fmt(s):
+def _fmt_summary(s):
+    """Format BacktestResult summary dict into one line."""
     if not s:
         return "NO DATA"
-    sh = f" Sh={s['sharpe']:.2f}" if s.get('sharpe') else ""
-    so = f" So={s['sortino']:.2f}" if s.get('sortino') else ""
-    return f"CAGR={s['cagr']:>+6.1f}% MDD={s['mdd']:>6.1f}% Cal={s['calmar']:.2f}{sh}{so}"
+    cagr = (s.get("cagr") or 0) * 100
+    mdd = (s.get("max_drawdown") or 0) * 100
+    calmar = s.get("calmar_ratio") or 0
+    parts = [f"CAGR={cagr:>+6.1f}%", f"MDD={mdd:>6.1f}%", f"Cal={calmar:.2f}"]
+    sh = s.get("sharpe_ratio")
+    if sh is not None:
+        parts.append(f"Sh={sh:.2f}")
+    so = s.get("sortino_ratio")
+    if so is not None:
+        parts.append(f"So={so:.2f}")
+    return " ".join(parts)
 
 
 # ── Unified Simulator ────────────────────────────────────────────────────────
@@ -146,13 +122,14 @@ def sim_moc(epochs, closes_a, closes_b, *,
             # Vol regime
             vol_filter=False, vol_window=20, vol_avg_window=60, vol_threshold=2.0,
             # Conviction sizing
-            conviction=False,  # deeper z → more capital
+            conviction=False,  # deeper z -> more capital
             # Min hold
             min_hold_days=0,
             # Dual timeframe
             dual_z=False, z_long_lookback=60,
-            capital=CAPITAL, slippage=SLIPPAGE):
-    """MOC pairs sim with all optional layers."""
+            capital=CAPITAL, slippage=SLIPPAGE,
+            instrument="SPY vs EWJ", exchange="US", params_dict=None):
+    """MOC pairs sim with all optional layers. Returns (BacktestResult, warmup)."""
     n = len(epochs)
     ratios = [closes_a[i] / closes_b[i] if closes_b[i] > 0 else 1.0 for i in range(n)]
     z_scores = compute_z(ratios, z_lookback)
@@ -171,11 +148,17 @@ def sim_moc(epochs, closes_a, closes_b, *,
                  trend_period if trend_filter else 0,
                  vol_avg_window if vol_filter else 0)
 
+    result = BacktestResult(
+        "alpha_variations", params_dict or {}, instrument, exchange, capital,
+        slippage_bps=int(slippage * 10000),
+    )
+
     cash = capital
     position = None  # ("a"/"b", qty, entry_price, entry_idx, entry_epoch)
     trades = 0
     total_costs = 0.0
-    values = []
+    buy_ch = 0.0
+    buy_sl = 0.0
 
     for i in range(warmup, n):
         z_sig = z_scores[i - 1]  # yesterday's signal
@@ -200,11 +183,20 @@ def sim_moc(epochs, closes_a, closes_b, *,
             if should_exit:
                 exit_price = closes_a[i] if side == "a" else closes_b[i]
                 sell_val = qty * exit_price
-                ch = us_charges(sell_val, "SELL_SIDE")
-                sl = sell_val * slippage
-                cash += sell_val - ch - sl
-                total_costs += ch + sl
+                sell_ch = us_charges(sell_val, "SELL_SIDE")
+                sell_sl = sell_val * slippage
+                cash += sell_val - sell_ch - sell_sl
+                total_costs += sell_ch + sell_sl
+                result.add_trade(
+                    entry_epoch=ee, exit_epoch=epochs[i],
+                    entry_price=ep, exit_price=exit_price,
+                    quantity=qty, side="LONG",
+                    charges=buy_ch + sell_ch,
+                    slippage=buy_sl + sell_sl,
+                )
                 position = None
+                buy_ch = 0.0
+                buy_sl = 0.0
 
         # ── ENTRY ──
         if position is None:
@@ -235,7 +227,7 @@ def sim_moc(epochs, closes_a, closes_b, *,
                 if ratio > vol_threshold:
                     vol_mult = 0.5
 
-            # Conviction: deeper z → more capital
+            # Conviction: deeper z -> more capital
             size_pct = 0.95  # base
             if buy_side and conviction:
                 abs_z = abs(z_sig)
@@ -261,78 +253,91 @@ def sim_moc(epochs, closes_a, closes_b, *,
                             position = (buy_side, qty, buy_price, i, epochs[i])
                             cash -= cost + ch + sl
                             total_costs += ch + sl
+                            buy_ch = ch
+                            buy_sl = sl
                             trades += 1
 
         if position:
             side, qty, _, _, _ = position
             cp = closes_a[i] if side == "a" else closes_b[i]
-            values.append(cash + qty * cp)
+            result.add_equity_point(epochs[i], cash + qty * cp)
         else:
-            values.append(cash)
+            result.add_equity_point(epochs[i], cash)
 
-    return values, trades, total_costs, warmup
+    return result, warmup
 
 
 # ── Sweep Runner ─────────────────────────────────────────────────────────────
 
-def run_sweep(epochs, ca, cb, configs, label, split_epoch=None):
+def run_sweep(epochs, ca, cb, configs, label, split_epoch=None,
+              instrument="SPY vs EWJ", exchange="US"):
     """Run all configs and print results."""
-    results = []
+    sweep = SweepResult("alpha_variations", instrument, exchange, CAPITAL,
+                        slippage_bps=int(SLIPPAGE * 10000))
+
+    oos_data = []  # [(desc, oos_result)]
+
     for i, (desc, kwargs) in enumerate(configs):
-        vals, tr, costs, wu = sim_moc(epochs, ca, cb, **kwargs)
-        ep = epochs[wu:]
-        if len(vals) > len(ep):
-            vals = vals[:len(ep)]
-        s = stats(vals, ep)
-        if s:
-            results.append({"desc": desc, "trades": tr, "costs": costs,
-                            "warmup": wu, **s, "kwargs": kwargs})
+        params_dict = dict(kwargs)
+        params_dict["desc"] = desc
+        result, wu = sim_moc(epochs, ca, cb, instrument=instrument,
+                             exchange=exchange, params_dict=params_dict, **kwargs)
+        sweep.add_config(params_dict, result)
 
-            # OOS if split_epoch provided
-            if split_epoch:
-                te = next((j for j, e in enumerate(epochs) if e >= split_epoch), len(epochs))
-                if te > wu + 50 and te < len(epochs) - 50:
-                    vals_oos, tr_oos, _, wu_oos = sim_moc(
-                        epochs[te:], ca[te:], cb[te:], **kwargs)
-                    ep_oos = epochs[te + wu_oos:]
-                    s_oos = stats(vals_oos, ep_oos)
-                    results[-1]["oos"] = s_oos
-                    results[-1]["oos_trades"] = tr_oos
+        # OOS if split_epoch provided
+        if split_epoch:
+            te = next((j for j, e in enumerate(epochs) if e >= split_epoch), len(epochs))
+            if te > wu + 50 and te < len(epochs) - 50:
+                oos_result, wu_oos = sim_moc(
+                    epochs[te:], ca[te:], cb[te:],
+                    instrument=instrument, exchange=exchange,
+                    params_dict=params_dict, **kwargs)
+                oos_result.compute()
+                oos_data.append((desc, oos_result))
 
-    results.sort(key=lambda r: r["calmar"], reverse=True)
+    # Print leaderboard with OOS info
+    sorted_configs = sweep._sorted("calmar_ratio")
+    oos_lookup = {d: r for d, r in oos_data}
 
     print(f"\n{'='*130}")
-    print(f"  {label} — {len(results)} configs, sorted by Calmar")
+    print(f"  {label} -- {len(sorted_configs)} configs, sorted by Calmar")
     print(f"{'='*130}")
     print(f"  {'#':<3} {'Description':<42} {'CAGR':>7} {'MDD':>7} {'Cal':>5} "
           f"{'Shrp':>5} {'Sort':>5} {'Tr':>4} "
           f"{'OOS CAGR':>9} {'OOS Cal':>8}")
     print(f"  {'-'*110}")
 
-    for i, r in enumerate(results[:25]):
-        oos = r.get("oos")
-        oos_cagr = f"{oos['cagr']:>+7.1f}%" if oos else "     N/A"
-        oos_cal = f"{oos['calmar']:>7.2f}" if oos else "     N/A"
-        print(f"  {i+1:<3} {r['desc']:<42} "
-              f"{r['cagr']:>+6.1f}% {r['mdd']:>6.1f}% {r['calmar']:>5.2f} "
-              f"{r.get('sharpe') or 0:>5.2f} {r.get('sortino') or 0:>5.2f} {r['trades']:>4} "
+    for i, (params, result) in enumerate(sorted_configs[:25]):
+        s = result.to_dict()["summary"]
+        cagr = (s.get("cagr") or 0) * 100
+        mdd = (s.get("max_drawdown") or 0) * 100
+        cal = s.get("calmar_ratio") or 0
+        sh = s.get("sharpe_ratio") or 0
+        so = s.get("sortino_ratio") or 0
+        tr = s.get("total_trades") or 0
+        desc = params.get("desc", str(params))
+
+        oos_r = oos_lookup.get(desc)
+        if oos_r:
+            oos_s = oos_r.to_dict()["summary"]
+            oos_cagr = f"{(oos_s.get('cagr') or 0)*100:>+7.1f}%"
+            oos_cal = f"{oos_s.get('calmar_ratio') or 0:>7.2f}"
+        else:
+            oos_cagr = "     N/A"
+            oos_cal = "     N/A"
+
+        print(f"  {i+1:<3} {desc:<42} "
+              f"{cagr:>+6.1f}% {mdd:>6.1f}% {cal:>5.2f} "
+              f"{sh:>5.2f} {so:>5.2f} {tr:>4} "
               f"{oos_cagr} {oos_cal}")
 
     # Year-wise for best
-    if results:
-        best = results[0]
-        print(f"\n  BEST: {best['desc']}")
-        print(f"  {fmt(best)}, {best['trades']} trades, costs={best['costs']:,.0f}")
-        yearly = best["yearly"]
-        print(f"\n  {'Year':<6} {'Return':>9} {'MaxDD':>9}")
-        print(f"  {'-'*28}")
-        for yr in sorted(yearly.keys()):
-            y = yearly[yr]
-            ret = (y["last"] - y["first"]) / y["first"] * 100
-            dd = (y["trough"] - y["peak"]) / y["peak"] * 100 if y["peak"] > 0 else 0
-            print(f"  {yr:<6} {ret:>+8.1f}% {dd:>8.1f}%")
+    if sorted_configs:
+        best_params, best_result = sorted_configs[0]
+        print(f"\n  BEST: {best_params.get('desc', str(best_params))}")
+        best_result.print_summary()
 
-    return results
+    return sweep
 
 
 # ── Main ─────────────────────────────────────────────────────────────────────
@@ -354,6 +359,8 @@ def main():
             all_data[sym] = data
             print(f"    {len(data)} days")
 
+    multi = MultiSweepResult("alpha_variations", "Variation sweeps on SPY vs EWJ")
+
     # ══════════════════════════════════════════════════════════════════════════
     #  VARIATION 1: Z-Score Parameters (SPY vs EWJ)
     # ══════════════════════════════════════════════════════════════════════════
@@ -371,8 +378,9 @@ def main():
                 configs_zscore.append((desc, dict(
                     z_lookback=zlb, z_entry=ze, z_exit=zx)))
 
-    run_sweep(common, ca, cb, configs_zscore,
-              "VAR 1: Z-Score Parameters", split_epoch)
+    sweep1 = run_sweep(common, ca, cb, configs_zscore,
+                       "VAR 1: Z-Score Parameters", split_epoch)
+    multi.add_sweep("var1_zscore_params", sweep1)
 
     # ══════════════════════════════════════════════════════════════════════════
     #  VARIATION 2: Trend Filter
@@ -392,8 +400,9 @@ def main():
                     z_lookback=20, z_entry=ze, z_exit=zx,
                     trend_filter=False)))
 
-    run_sweep(common, ca, cb, configs_trend,
-              "VAR 2: Trend Filter", split_epoch)
+    sweep2 = run_sweep(common, ca, cb, configs_trend,
+                       "VAR 2: Trend Filter", split_epoch)
+    multi.add_sweep("var2_trend_filter", sweep2)
 
     # ══════════════════════════════════════════════════════════════════════════
     #  VARIATION 3: Volatility Regime Filter
@@ -411,8 +420,9 @@ def main():
         configs_vol.append((desc, dict(
             z_lookback=20, z_entry=ze, z_exit=-0.5, vol_filter=False)))
 
-    run_sweep(common, ca, cb, configs_vol,
-              "VAR 3: Volatility Regime", split_epoch)
+    sweep3 = run_sweep(common, ca, cb, configs_vol,
+                       "VAR 3: Volatility Regime", split_epoch)
+    multi.add_sweep("var3_vol_regime", sweep3)
 
     # ══════════════════════════════════════════════════════════════════════════
     #  VARIATION 4: Conviction Sizing
@@ -427,8 +437,9 @@ def main():
             configs_conv.append((desc, dict(
                 z_lookback=20, z_entry=ze, z_exit=zx, conviction=False)))
 
-    run_sweep(common, ca, cb, configs_conv,
-              "VAR 4: Conviction Sizing", split_epoch)
+    sweep4 = run_sweep(common, ca, cb, configs_conv,
+                       "VAR 4: Conviction Sizing", split_epoch)
+    multi.add_sweep("var4_conviction", sweep4)
 
     # ══════════════════════════════════════════════════════════════════════════
     #  VARIATION 5: Minimum Hold Days
@@ -440,8 +451,9 @@ def main():
             configs_hold.append((desc, dict(
                 z_lookback=20, z_entry=ze, z_exit=-0.5, min_hold_days=mh)))
 
-    run_sweep(common, ca, cb, configs_hold,
-              "VAR 5: Minimum Hold Days", split_epoch)
+    sweep5 = run_sweep(common, ca, cb, configs_hold,
+                       "VAR 5: Minimum Hold Days", split_epoch)
+    multi.add_sweep("var5_min_hold", sweep5)
 
     # ══════════════════════════════════════════════════════════════════════════
     #  VARIATION 6: Dual Timeframe Z-Score
@@ -459,8 +471,9 @@ def main():
         configs_dual.append((desc, dict(
             z_lookback=20, z_entry=ze, z_exit=-0.5, dual_z=False)))
 
-    run_sweep(common, ca, cb, configs_dual,
-              "VAR 6: Dual Timeframe Z", split_epoch)
+    sweep6 = run_sweep(common, ca, cb, configs_dual,
+                       "VAR 6: Dual Timeframe Z", split_epoch)
+    multi.add_sweep("var6_dual_z", sweep6)
 
     # ══════════════════════════════════════════════════════════════════════════
     #  VARIATION 7: Combined Best Layers
@@ -493,11 +506,12 @@ def main():
                 configs_combined.append((desc, dict(
                     z_lookback=zlb, z_entry=ze, z_exit=zx)))
 
-    run_sweep(common, ca, cb, configs_combined,
-              "VAR 7: Combined Layers (SPY vs EWJ)", split_epoch)
+    sweep7 = run_sweep(common, ca, cb, configs_combined,
+                       "VAR 7: Combined Layers (SPY vs EWJ)", split_epoch)
+    multi.add_sweep("var7_combined", sweep7)
 
     # ══════════════════════════════════════════════════════════════════════════
-    #  VARIATION 8: Best config on other pairs
+    #  VARIATION 8: Best config on other pairs (print-only)
     # ══════════════════════════════════════════════════════════════════════════
     print("\n" + "=" * 130)
     print("  VAR 8: Best configs applied to ALL pairs")
@@ -534,28 +548,43 @@ def main():
         c_b = [all_data[pb][e] for e in com]
 
         for desc, kwargs in best_configs:
-            vals, tr, costs, wu = sim_moc(com, c_a, c_b, **kwargs)
-            ep = com[wu:]
-            s = stats(vals, ep)
+            result, wu = sim_moc(com, c_a, c_b,
+                                 instrument=f"{pa} vs {pb}", exchange="US",
+                                 params_dict={"desc": desc}, **kwargs)
+            result.compute()
+            s = result.to_dict()["summary"]
+
             # OOS
             te = next((j for j, e in enumerate(com) if e >= split_epoch), len(com))
             oos_s = None
             oos_tr = 0
             if te > wu + 50 and te < len(com) - 50:
-                vals_oos, oos_tr, _, wu_oos = sim_moc(
-                    com[te:], c_a[te:], c_b[te:], **kwargs)
-                oos_s = stats(vals_oos, com[te + wu_oos:])
+                oos_result, wu_oos = sim_moc(
+                    com[te:], c_a[te:], c_b[te:],
+                    instrument=f"{pa} vs {pb}", exchange="US",
+                    params_dict={"desc": desc}, **kwargs)
+                oos_result.compute()
+                oos_s = oos_result.to_dict()["summary"]
 
             if s:
-                oos_cagr = f"{oos_s['cagr']:>+7.1f}%" if oos_s else "     N/A"
-                oos_cal = f"{oos_s['calmar']:>7.2f}" if oos_s else "     N/A"
+                cagr = (s.get("cagr") or 0) * 100
+                mdd = (s.get("max_drawdown") or 0) * 100
+                cal = s.get("calmar_ratio") or 0
+                sh = s.get("sharpe_ratio") or 0
+                tr = s.get("total_trades") or 0
+                if oos_s:
+                    oos_cagr = f"{(oos_s.get('cagr') or 0)*100:>+7.1f}%"
+                    oos_cal = f"{oos_s.get('calmar_ratio') or 0:>7.2f}"
+                else:
+                    oos_cagr = "     N/A"
+                    oos_cal = "     N/A"
                 print(f"  {plabel:<12} {desc:<28} "
-                      f"{s['cagr']:>+6.1f}% {s['mdd']:>6.1f}% {s['calmar']:>5.2f} "
-                      f"{s.get('sharpe') or 0:>5.2f} {tr:>4} "
+                      f"{cagr:>+6.1f}% {mdd:>6.1f}% {cal:>5.2f} "
+                      f"{sh:>5.2f} {tr:>4} "
                       f"{oos_cagr} {oos_cal}")
 
     # ══════════════════════════════════════════════════════════════════════════
-    #  VARIATION 9: Multi-pair with best 3 pairs only
+    #  VARIATION 9: Multi-pair with best 3 pairs only (print-only)
     # ══════════════════════════════════════════════════════════════════════════
     print("\n" + "=" * 130)
     print("  VAR 9: Multi-pair portfolios (best pairs only)")
@@ -583,64 +612,89 @@ def main():
         n_pairs = len(combo)
         per_pair = CAPITAL / n_pairs
 
-        all_vals = []
-        total_tr = total_costs = 0
+        # Build combined equity from individual results
+        all_results = []
+        total_tr = 0
         for pa, pb in combo:
             c_a = [all_data[pa][e] for e in com]
             c_b = [all_data[pb][e] for e in com]
-            vals, tr, costs, wu = sim_moc(com, c_a, c_b, capital=per_pair)
-            all_vals.append(vals)
-            total_tr += tr
-            total_costs += costs
+            r, wu = sim_moc(com, c_a, c_b, capital=per_pair,
+                            instrument=f"{pa} vs {pb}", exchange="US",
+                            params_dict={"pair": f"{pa}/{pb}"})
+            r.compute()
+            all_results.append(r)
+            total_tr += r.to_dict()["summary"].get("total_trades") or 0
 
-        min_len = min(len(v) for v in all_vals)
-        combined = [sum(v[i] for v in all_vals) for i in range(min_len)]
-        # Use max warmup
-        max_wu = max(21, 21)  # z_lookback + 1
-        ep = com[max_wu:]
-        if len(combined) > len(ep):
-            combined = combined[:len(ep)]
-        s = stats(combined, ep)
+        # Combine equity curves
+        all_eq = [r.equity_curve for r in all_results]
+        min_len = min(len(eq) for eq in all_eq)
+        combined_result = BacktestResult(
+            "alpha_variations", {"combo": label, "n_pairs": n_pairs},
+            f"SPY vs {label}", "US", CAPITAL,
+            slippage_bps=int(SLIPPAGE * 10000),
+        )
+        for j in range(min_len):
+            epoch = all_eq[0][j][0]
+            combined_val = sum(eq[j][1] for eq in all_eq)
+            combined_result.add_equity_point(epoch, combined_val)
+        combined_result.compute()
+        cs = combined_result.to_dict()["summary"]
 
         # OOS
         te = next((j for j, e in enumerate(com) if e >= split_epoch), len(com))
         oos_s = None
+        max_wu = 21
         if te > max_wu + 50 and te < len(com) - 50:
-            oos_vals = []
-            oos_tr = 0
+            oos_results = []
             for pa, pb in combo:
                 c_a = [all_data[pa][e] for e in com[te:]]
                 c_b = [all_data[pb][e] for e in com[te:]]
-                vals_o, tr_o, _, wu_o = sim_moc(com[te:], c_a, c_b, capital=per_pair)
-                oos_vals.append(vals_o)
-                oos_tr += tr_o
-            min_len_o = min(len(v) for v in oos_vals)
-            combined_o = [sum(v[i] for v in oos_vals) for i in range(min_len_o)]
-            ep_o = com[te + max_wu:]
-            if len(combined_o) > len(ep_o):
-                combined_o = combined_o[:len(ep_o)]
-            oos_s = stats(combined_o, ep_o)
+                r_o, wu_o = sim_moc(com[te:], c_a, c_b, capital=per_pair,
+                                    instrument=f"{pa} vs {pb}", exchange="US",
+                                    params_dict={"pair": f"{pa}/{pb}"})
+                r_o.compute()
+                oos_results.append(r_o)
+            oos_eq = [r.equity_curve for r in oos_results]
+            oos_min_len = min(len(eq) for eq in oos_eq)
+            oos_combined = BacktestResult(
+                "alpha_variations", {"combo": label, "n_pairs": n_pairs, "oos": True},
+                f"SPY vs {label}", "US", CAPITAL,
+                slippage_bps=int(SLIPPAGE * 10000),
+            )
+            for j in range(oos_min_len):
+                epoch = oos_eq[0][j][0]
+                combined_val = sum(eq[j][1] for eq in oos_eq)
+                oos_combined.add_equity_point(epoch, combined_val)
+            oos_combined.compute()
+            oos_s = oos_combined.to_dict()["summary"]
 
-        if s:
-            oos_str = f", OOS: {fmt(oos_s)}" if oos_s else ""
-            print(f"\n  {label} ({n_pairs} pairs): {fmt(s)}, {total_tr} trades{oos_str}")
+        if cs:
+            oos_str = f", OOS: {_fmt_summary(oos_s)}" if oos_s else ""
+            print(f"\n  {label} ({n_pairs} pairs): {_fmt_summary(cs)}, {total_tr} trades{oos_str}")
 
-            yearly = s["yearly"]
-            print(f"  {'Year':<6} {'Return':>9} {'MaxDD':>9}")
-            print(f"  {'-'*28}")
-            for yr in sorted(yearly.keys()):
-                y = yearly[yr]
-                ret = (y["last"] - y["first"]) / y["first"] * 100
-                dd = (y["trough"] - y["peak"]) / y["peak"] * 100 if y["peak"] > 0 else 0
-                print(f"  {yr:<6} {ret:>+8.1f}% {dd:>8.1f}%")
+            yearly = combined_result.to_dict().get("yearly_returns", [])
+            if yearly:
+                print(f"  {'Year':<6} {'Return':>9} {'MaxDD':>9}")
+                print(f"  {'-'*28}")
+                for y in yearly:
+                    print(f"  {y['year']:<6} {y['return']*100:>+8.1f}% {y['mdd']*100:>8.1f}%")
 
     # SPY benchmark
     if "SPY" in all_data:
-        spy_bh = [all_data["SPY"][e] / all_data["SPY"][common[0]] * CAPITAL
-                  for e in common]
-        s_spy = stats(spy_bh, common)
-        if s_spy:
-            print(f"\n  B&H SPY: {fmt(s_spy)}")
+        spy_bh_result = BacktestResult(
+            "spy_benchmark", {}, "SPY", "US", CAPITAL,
+            slippage_bps=0,
+        )
+        for e in common:
+            spy_bh_result.add_equity_point(e, all_data["SPY"][e] / all_data["SPY"][common[0]] * CAPITAL)
+        spy_bh_result.compute()
+        spy_s = spy_bh_result.to_dict()["summary"]
+        if spy_s:
+            print(f"\n  B&H SPY: {_fmt_summary(spy_s)}")
+
+    # Save multi-sweep results
+    multi.save("result.json", top_n=20)
+    multi.print_leaderboard(top_n=10)
 
 
 if __name__ == "__main__":

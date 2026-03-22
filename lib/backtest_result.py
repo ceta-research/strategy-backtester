@@ -167,6 +167,30 @@ class BacktestResult:
             self.compute()
         return self._computed
 
+    def compact(self):
+        """Free heavy data after compute() to reduce memory in large sweeps.
+
+        Strips everything except summary, strategy, benchmark, comparison,
+        and costs from the cached result. After compact(), to_dict() still
+        returns a valid dict but equity_curve, trades, monthly/yearly
+        breakdowns will be empty.
+
+        Call after sweep.add_config() in loops with 1000+ configs.
+        """
+        if self._computed is None:
+            self.compute()
+        # Clear raw data
+        self.equity_curve = []
+        self.trades = []
+        self.benchmark_values = []
+        # Strip heavy serialized data from cached dict
+        if self._computed:
+            self._computed["equity_curve"] = []
+            self._computed["trades"] = []
+            self._computed["monthly_returns"] = {}
+            self._computed["yearly_returns"] = []
+        return self
+
     def save(self, path="result.json"):
         """Write result JSON to disk."""
         if self._computed is None:
@@ -406,14 +430,8 @@ class SweepResult:
             result.compute()
         self.configs.append((params, result))
 
-    def save(self, path="result.json", top_n=20, sort_by="calmar_ratio"):
-        """Save consolidated sweep result.
-
-        Args:
-            path: Output file path.
-            top_n: Number of configs to include full detail for.
-            sort_by: Metric key to sort configs by (descending).
-        """
+    def _to_dict(self, top_n=20, sort_by="calmar_ratio"):
+        """Build sweep output dict without writing to disk."""
         sorted_configs = self._sorted(sort_by)
 
         # All configs: summary + params only
@@ -439,7 +457,7 @@ class SweepResult:
                 "costs": d.get("costs", {}),
             })
 
-        output = {
+        return {
             "version": "1.0",
             "type": "sweep",
             "meta": self.meta,
@@ -450,6 +468,15 @@ class SweepResult:
             "detailed": detailed,
         }
 
+    def save(self, path="result.json", top_n=20, sort_by="calmar_ratio"):
+        """Save consolidated sweep result.
+
+        Args:
+            path: Output file path.
+            top_n: Number of configs to include full detail for.
+            sort_by: Metric key to sort configs by (descending).
+        """
+        output = self._to_dict(top_n, sort_by)
         with open(path, "w") as f:
             json.dump(output, f)  # no indent for sweeps (size)
         size_mb = os.path.getsize(path) / (1024 * 1024)
@@ -482,6 +509,52 @@ class SweepResult:
             v = d.get("summary", {}).get(sort_by)
             return v if v is not None else float("-inf")
         return sorted(self.configs, key=key, reverse=True)
+
+
+# ── Multi-Sweep Result ───────────────────────────────────────────────────
+
+class MultiSweepResult:
+    """Container for scripts that run multiple named sweeps.
+
+    Usage:
+        multi = MultiSweepResult("alpha_variations", "8 variation sweeps on SPY vs EWJ")
+        multi.add_sweep("zscore_params", sweep_result_1)
+        multi.add_sweep("trend_filter", sweep_result_2)
+        multi.print_leaderboard(top_n=10)
+        multi.save("result.json")
+    """
+
+    def __init__(self, strategy_name, description=""):
+        self.meta = {"strategy_name": strategy_name, "description": description}
+        self.sweeps = {}  # name -> SweepResult
+
+    def add_sweep(self, name, sweep_result):
+        """Add a named sweep."""
+        self.sweeps[name] = sweep_result
+
+    def print_leaderboard(self, top_n=10, sort_by="calmar_ratio"):
+        """Print leaderboards for all sweeps."""
+        for name, sr in self.sweeps.items():
+            print(f"\n  === {name} ===")
+            sr.print_leaderboard(top_n=top_n, sort_by=sort_by)
+
+    def save(self, path="result.json", top_n=20, sort_by="calmar_ratio"):
+        """Save all sweeps into a single JSON file."""
+        output = {
+            "version": "1.0",
+            "type": "multi_sweep",
+            "meta": self.meta,
+            "total_sweeps": len(self.sweeps),
+            "sweeps": {
+                name: sr._to_dict(top_n, sort_by)
+                for name, sr in self.sweeps.items()
+            },
+        }
+        with open(path, "w") as f:
+            json.dump(output, f)
+        size_mb = os.path.getsize(path) / (1024 * 1024)
+        print(f"  Saved {path} ({size_mb:.1f} MB, {len(self.sweeps)} sweeps)")
+        return path
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────

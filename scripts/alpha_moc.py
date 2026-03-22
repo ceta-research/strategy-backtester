@@ -21,10 +21,12 @@ import time
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if "/session" not in sys.path and os.path.isdir("/session/lib"):
+    sys.path.insert(0, "/session")
 
 from lib.cr_client import CetaResearch
 from engine.charges import calculate_charges
-from lib.metrics import compute_metrics as compute_full_metrics
+from lib.backtest_result import BacktestResult, SweepResult
 
 
 # ── Fixed config ─────────────────────────────────────────────────────────────
@@ -83,23 +85,30 @@ def compute_z(values, lookback):
 
 def sim_moc(epochs, closes_a, closes_b, z_lookback=Z_LOOKBACK,
             z_entry=Z_ENTRY, z_exit=Z_EXIT, capital=CAPITAL,
-            slippage=SLIPPAGE_PCT):
+            slippage=SLIPPAGE_PCT, instrument="SPY vs EWJ",
+            exchange="US", params_dict=None):
     """MOC execution: signal from day i-1 ratio, execute at day i close.
 
     Z-score on bar i uses ratio[i-lookback:i] (past only).
     But we use z[i-1] (yesterday's signal) to decide today's trade.
     Execution at closes_a[i] / closes_b[i] (today's close via MOC order).
     """
+    if params_dict is None:
+        params_dict = {"z_lookback": z_lookback, "z_entry": z_entry, "z_exit": z_exit}
+
+    result = BacktestResult(
+        "pairs_moc", params_dict, instrument, exchange, capital,
+        slippage_bps=int(slippage * 10000),
+    )
+
     n = len(epochs)
     ratios = [closes_a[i] / closes_b[i] if closes_b[i] > 0 else 1.0 for i in range(n)]
     z_scores = compute_z(ratios, z_lookback)
 
     cash = capital
     position = None  # ("a"/"b", qty, entry_price, entry_idx)
-    trades = 0
-    total_charges = 0.0
-    total_slippage = 0.0
-    values = []
+    buy_ch = 0.0
+    buy_slip = 0.0
 
     for i in range(z_lookback + 1, n):
         # Signal from YESTERDAY's z-score (known before today's open)
@@ -120,9 +129,15 @@ def sim_moc(epochs, closes_a, closes_b, z_lookback=Z_LOOKBACK,
                 ch = calculate_charges("US", sell_val, "EQUITY", "DELIVERY", "SELL_SIDE")
                 slip = sell_val * slippage
                 cash += sell_val - ch - slip
-                total_charges += ch
-                total_slippage += slip
+                result.add_trade(
+                    entry_epoch=epochs[ei], exit_epoch=epochs[i],
+                    entry_price=ep, exit_price=exit_price,
+                    quantity=qty, side="LONG",
+                    charges=buy_ch + ch, slippage=buy_slip + slip,
+                )
                 position = None
+                buy_ch = 0.0
+                buy_slip = 0.0
 
         # ── ENTRY: check yesterday's signal, execute at today's close ──
         if position is None:
@@ -144,37 +159,43 @@ def sim_moc(epochs, closes_a, closes_b, z_lookback=Z_LOOKBACK,
                         if cost + ch + slip <= cash:
                             position = (buy_side, qty, buy_price, i)
                             cash -= cost + ch + slip
-                            total_charges += ch
-                            total_slippage += slip
-                            trades += 1
+                            buy_ch = ch
+                            buy_slip = slip
 
         # Portfolio value at today's close
         if position:
             side, qty, _, _ = position
             cp = closes_a[i] if side == "a" else closes_b[i]
-            values.append(cash + qty * cp)
+            result.add_equity_point(epochs[i], cash + qty * cp)
         else:
-            values.append(cash)
+            result.add_equity_point(epochs[i], cash)
 
-    return values, trades, total_charges, total_slippage
+    return result
 
 
 def sim_nextday(epochs, closes_a, closes_b, z_lookback=Z_LOOKBACK,
                 z_entry=Z_ENTRY, z_exit=Z_EXIT, capital=CAPITAL,
-                slippage=SLIPPAGE_PCT):
+                slippage=SLIPPAGE_PCT, instrument="SPY vs EWJ",
+                exchange="US", params_dict=None):
     """Next-day execution: signal from day i, execute at day i+1 close.
     (Same as alpha_corrected.py for comparison.)
     """
+    if params_dict is None:
+        params_dict = {"z_lookback": z_lookback, "z_entry": z_entry, "z_exit": z_exit}
+
+    result = BacktestResult(
+        "pairs_nextday", params_dict, instrument, exchange, capital,
+        slippage_bps=int(slippage * 10000),
+    )
+
     n = len(epochs)
     ratios = [closes_a[i] / closes_b[i] if closes_b[i] > 0 else 1.0 for i in range(n)]
     z_scores = compute_z(ratios, z_lookback)
 
     cash = capital
     position = None
-    trades = 0
-    total_charges = 0.0
-    total_slippage = 0.0
-    values = []
+    buy_ch = 0.0
+    buy_slip = 0.0
     pending_entry = None
     pending_exit = False
 
@@ -189,9 +210,15 @@ def sim_nextday(epochs, closes_a, closes_b, z_lookback=Z_LOOKBACK,
             ch = calculate_charges("US", sell_val, "EQUITY", "DELIVERY", "SELL_SIDE")
             slip = sell_val * slippage
             cash += sell_val - ch - slip
-            total_charges += ch
-            total_slippage += slip
+            result.add_trade(
+                entry_epoch=epochs[ei], exit_epoch=epochs[i],
+                entry_price=ep, exit_price=exit_price,
+                quantity=qty, side="LONG",
+                charges=buy_ch + ch, slippage=buy_slip + slip,
+            )
             position = None
+            buy_ch = 0.0
+            buy_slip = 0.0
             pending_exit = False
 
         if pending_entry and position is None:
@@ -207,9 +234,8 @@ def sim_nextday(epochs, closes_a, closes_b, z_lookback=Z_LOOKBACK,
                     if cost + ch + slip <= cash:
                         position = (buy_side, qty, buy_price, i)
                         cash -= cost + ch + slip
-                        total_charges += ch
-                        total_slippage += slip
-                        trades += 1
+                        buy_ch = ch
+                        buy_slip = slip
             pending_entry = None
 
         # Generate signals for tomorrow
@@ -229,75 +255,50 @@ def sim_nextday(epochs, closes_a, closes_b, z_lookback=Z_LOOKBACK,
         if position:
             side, qty, _, _ = position
             cp = closes_a[i] if side == "a" else closes_b[i]
-            values.append(cash + qty * cp)
+            result.add_equity_point(epochs[i], cash + qty * cp)
         else:
-            values.append(cash)
+            result.add_equity_point(epochs[i], cash)
 
-    return values, trades, total_charges, total_slippage
+    return result
 
 
-# ── Metrics ──────────────────────────────────────────────────────────────────
+# ── Formatting helpers ───────────────────────────────────────────────────────
 
-def compute_stats(values, epochs_sub):
+def _fmt_summary(s):
+    """Format a BacktestResult summary dict into a one-line string."""
+    if not s:
+        return "NO DATA"
+    cagr = (s.get("cagr") or 0) * 100
+    mdd = (s.get("max_drawdown") or 0) * 100
+    calmar = s.get("calmar_ratio") or 0
+    parts = [f"CAGR={cagr:>+6.1f}%", f"MDD={mdd:>6.1f}%", f"Calmar={calmar:.2f}"]
+    sh = s.get("sharpe_ratio")
+    if sh is not None:
+        parts.append(f"Sharpe={sh:.2f}")
+    so = s.get("sortino_ratio")
+    if so is not None:
+        parts.append(f"Sortino={so:.2f}")
+    return ", ".join(parts)
+
+
+def _fmt_bh(values, epochs):
+    """Compute buy-and-hold stats and return a formatted summary string."""
     if len(values) < 2:
-        return None
+        return "NO DATA", None
     sv, ev = values[0], values[-1]
-    yrs = (epochs_sub[-1] - epochs_sub[0]) / (365.25 * 86400)
+    yrs = (epochs[-1] - epochs[0]) / (365.25 * 86400)
     if yrs <= 0 or ev <= 0 or sv <= 0:
-        return None
-    tr = ev / sv
-    cagr = (tr ** (1 / yrs) - 1) * 100
+        return "NO DATA", None
+    cagr = ((ev / sv) ** (1 / yrs) - 1) * 100
     peak = sv
     mdd = 0
     for v in values:
         peak = max(peak, v)
         mdd = min(mdd, (v - peak) / peak * 100)
     calmar = cagr / abs(mdd) if mdd != 0 else 0
-
-    dr = [(values[i] - values[i-1]) / values[i-1] if values[i-1] > 0 else 0
-          for i in range(1, len(values))]
-    sharpe = sortino = None
-    if len(dr) >= 20:
-        full = compute_full_metrics(dr, [0.0]*len(dr), periods_per_year=252)
-        p = full["portfolio"]
-        sharpe = p.get("sharpe_ratio")
-        sortino = p.get("sortino_ratio")
-
-    yearly = {}
-    for j, v in enumerate(values):
-        yr = datetime.fromtimestamp(epochs_sub[j], tz=timezone.utc).year
-        if yr not in yearly:
-            yearly[yr] = {"first": v, "last": v, "peak": v, "trough": v}
-        yearly[yr]["last"] = v
-        yearly[yr]["peak"] = max(yearly[yr]["peak"], v)
-        yearly[yr]["trough"] = min(yearly[yr]["trough"], v)
-
-    return {"cagr": cagr, "mdd": mdd, "calmar": calmar, "tr": tr, "yrs": yrs,
-            "sharpe": sharpe, "sortino": sortino, "yearly": yearly}
-
-
-def fmt(s):
-    if not s:
-        return "NO DATA"
-    sh = f", Sharpe={s['sharpe']:.2f}" if s.get('sharpe') else ""
-    so = f", Sortino={s['sortino']:.2f}" if s.get('sortino') else ""
-    return f"CAGR={s['cagr']:>+6.1f}%, MDD={s['mdd']:>6.1f}%, Calmar={s['calmar']:.2f}{sh}{so}"
-
-
-def print_yearwise(s, label, trades=0, charges=0, slippage=0):
-    if not s:
-        return
-    print(f"\n  {label}")
-    print(f"  {fmt(s)}")
-    print(f"  Growth={s['tr']:.1f}x, {trades} trades, "
-          f"costs={charges+slippage:,.0f} ({(charges+slippage)/CAPITAL*100:.1f}% of capital)")
-    print(f"\n  {'Year':<6} {'Return':>9} {'MaxDD':>9} {'EndValue':>14}")
-    print(f"  {'-'*42}")
-    for yr in sorted(s["yearly"].keys()):
-        y = s["yearly"][yr]
-        ret = (y["last"] - y["first"]) / y["first"] * 100
-        dd = (y["trough"] - y["peak"]) / y["peak"] * 100 if y["peak"] > 0 else 0
-        print(f"  {yr:<6} {ret:>+8.1f}% {dd:>8.1f}% {y['last']:>14,.0f}")
+    return f"CAGR={cagr:>+6.1f}%, MDD={mdd:>6.1f}%, Calmar={calmar:.2f}", {
+        "cagr": cagr, "mdd": mdd, "calmar": calmar, "yrs": yrs, "tr": ev / sv
+    }
 
 
 # ── Main ─────────────────────────────────────────────────────────────────────
@@ -341,9 +342,9 @@ def main():
             print(f"    {len(data)} days, {datetime.fromtimestamp(epochs[0], tz=timezone.utc).date()} "
                   f"to {datetime.fromtimestamp(epochs[-1], tz=timezone.utc).date()}")
 
-    # ── Compare 3 execution models per pair ──
+    # ── Compare execution models per pair ──
     print("\n" + "=" * 100)
-    print("  EXECUTION MODEL COMPARISON: Same-bar vs MOC vs Next-day")
+    print("  EXECUTION MODEL COMPARISON: MOC vs Next-day")
     print("  All use real US-listed ETFs, 5bps slippage, US charges")
     print("=" * 100)
 
@@ -356,44 +357,53 @@ def main():
         ca = [all_data[sa][e] for e in common]
         cb = [all_data[sb][e] for e in common]
         start_date = datetime.fromtimestamp(common[0], tz=timezone.utc).date()
+        instrument = f"{sa} vs {sb}"
 
         # Buy-and-hold benchmarks
         bh_a = [ca[i] / ca[0] * CAPITAL for i in range(len(ca))]
         bh_b = [cb[i] / cb[0] * CAPITAL for i in range(len(cb))]
-        s_bh_a = compute_stats(bh_a, common)
-        s_bh_b = compute_stats(bh_b, common)
+        bh_a_str, _ = _fmt_bh(bh_a, common)
+        bh_b_str, _ = _fmt_bh(bh_b, common)
 
         print(f"\n{'━'*100}")
         print(f"  {label} ({len(common)} days from {start_date})")
         print(f"{'━'*100}")
-        if s_bh_a:
-            print(f"  B&H {sa}: {fmt(s_bh_a)}")
-        if s_bh_b:
-            print(f"  B&H {sb}: {fmt(s_bh_b)}")
+        print(f"  B&H {sa}: {bh_a_str}")
+        print(f"  B&H {sb}: {bh_b_str}")
 
         # MOC model (the realistic one)
-        vals_moc, tr_moc, ch_moc, sl_moc = sim_moc(common, ca, cb)
-        ep_moc = common[Z_LOOKBACK + 1:]
-        s_moc = compute_stats(vals_moc, ep_moc)
-        print_yearwise(s_moc, f"MOC (signal yesterday → execute today's close)", tr_moc, ch_moc, sl_moc)
+        result_moc = sim_moc(common, ca, cb, instrument=instrument)
+        # Benchmark must match equity curve length (starts at z_lookback+1)
+        bm_start = Z_LOOKBACK + 1
+        result_moc.set_benchmark_values(common[bm_start:], bh_a[bm_start:])
+        result_moc.compute()
+        s_moc = result_moc.to_dict()["summary"]
+        c_moc = result_moc.to_dict()["costs"]
+        tr_moc = s_moc.get("total_trades", 0)
+
+        result_moc.print_summary()
 
         # Next-day model (too conservative)
-        vals_nd, tr_nd, ch_nd, sl_nd = sim_nextday(common, ca, cb)
-        ep_nd = common[Z_LOOKBACK:]
-        s_nd = compute_stats(vals_nd, ep_nd)
+        result_nd = sim_nextday(common, ca, cb, instrument=instrument)
+        result_nd.compute()
+        s_nd = result_nd.to_dict()["summary"]
+        tr_nd = s_nd.get("total_trades", 0)
 
         print(f"\n  Comparison:")
-        print(f"    MOC (realistic): {fmt(s_moc)}, {tr_moc} trades")
-        print(f"    Next-day (cons): {fmt(s_nd)}, {tr_nd} trades")
+        print(f"    MOC (realistic): {_fmt_summary(s_moc)}, {tr_moc} trades")
+        print(f"    Next-day (cons): {_fmt_summary(s_nd)}, {tr_nd} trades")
 
         # Train/test on MOC
         train_end = next((i for i, e in enumerate(common) if e >= split_epoch), len(common))
         if train_end > Z_LOOKBACK + 50 and train_end < len(common) - 50:
-            vals_test, tr_te, ch_te, sl_te = sim_moc(
-                common[train_end:], ca[train_end:], cb[train_end:])
-            s_test = compute_stats(vals_test, common[train_end + Z_LOOKBACK + 1:])
-            if s_test:
-                print(f"    MOC OOS (2016+):  {fmt(s_test)}, {tr_te} trades")
+            result_oos = sim_moc(
+                common[train_end:], ca[train_end:], cb[train_end:],
+                instrument=instrument)
+            result_oos.compute()
+            s_oos = result_oos.to_dict()["summary"]
+            tr_oos = s_oos.get("total_trades", 0)
+            if s_oos.get("cagr") is not None:
+                print(f"    MOC OOS (2016+):  {_fmt_summary(s_oos)}, {tr_oos} trades")
 
     # ── Multi-pair MOC portfolio ──
     print("\n\n" + "=" * 100)
@@ -415,30 +425,57 @@ def main():
             start_date = datetime.fromtimestamp(common[0], tz=timezone.utc).date()
             print(f"\n  {n_pairs} pairs, {len(common)} common days from {start_date}")
 
-            all_vals = []
-            total_tr = total_ch = total_sl = 0
+            all_results = []
             for sa, sb, label in valid_pairs:
                 ca = [all_data[sa][e] for e in common]
                 cb = [all_data[sb][e] for e in common]
-                vals, tr, ch, sl = sim_moc(common, ca, cb, capital=per_pair)
-                all_vals.append(vals)
-                total_tr += tr
-                total_ch += ch
-                total_sl += sl
+                instrument = f"{sa} vs {sb}"
+                r = sim_moc(common, ca, cb, capital=per_pair, instrument=instrument)
+                r.compute()
+                tr = r.to_dict()["summary"].get("total_trades", 0)
+                all_results.append(r)
                 print(f"    {label}: {tr} trades")
 
-            min_len = min(len(v) for v in all_vals)
-            combined = [sum(v[i] for v in all_vals) for i in range(min_len)]
-            ep = common[Z_LOOKBACK + 1:]
-            s = compute_stats(combined, ep)
-            print_yearwise(s, f"COMBINED {n_pairs}-PAIR MOC PORTFOLIO",
-                           total_tr, total_ch, total_sl)
+            # Build combined equity curve from individual results
+            # All results start at z_lookback+1, so they should have the same length
+            combined_epochs = common[Z_LOOKBACK + 1:]
+            all_equity = []
+            for r in all_results:
+                eq = r.equity_curve
+                all_equity.append(eq)
+
+            min_len = min(len(eq) for eq in all_equity)
+            combined_values = [sum(eq[i][1] for eq in all_equity) for i in range(min_len)]
+            combined_ep = [all_equity[0][i][0] for i in range(min_len)]
+
+            # Create a combined BacktestResult
+            combined_result = BacktestResult(
+                "pairs_moc", {"pairs": n_pairs, "z_lookback": Z_LOOKBACK,
+                              "z_entry": Z_ENTRY, "z_exit": Z_EXIT},
+                f"Multi({n_pairs} pairs)", "US", CAPITAL,
+                slippage_bps=int(SLIPPAGE_PCT * 10000),
+            )
+            for i in range(min_len):
+                combined_result.add_equity_point(combined_ep[i], combined_values[i])
+            # Copy trades from all individual results
+            for r in all_results:
+                for t in r.trades:
+                    combined_result.trades.append(t)
+                    combined_result.costs["total_charges"] += t["charges"]
+                    combined_result.costs["total_slippage"] += t["slippage"]
 
             # SPY benchmark
             spy_bh = [all_data["SPY"][e] / all_data["SPY"][common[0]] * CAPITAL for e in common]
-            s_spy = compute_stats(spy_bh, common)
-            if s_spy:
-                print(f"\n  B&H SPY: {fmt(s_spy)}")
+            spy_bh_epochs = common
+            combined_result.set_benchmark_values(
+                spy_bh_epochs[Z_LOOKBACK + 1:Z_LOOKBACK + 1 + min_len],
+                spy_bh[Z_LOOKBACK + 1:Z_LOOKBACK + 1 + min_len],
+            )
+            combined_result.compute()
+            combined_result.print_summary()
+
+            spy_bh_str, _ = _fmt_bh(spy_bh, common)
+            print(f"\n  B&H SPY: {spy_bh_str}")
 
     # ── Sensitivity: try 3 configs on best pair ──
     print("\n\n" + "=" * 100)
@@ -451,27 +488,32 @@ def main():
         ca = [all_data[sa][e] for e in common]
         cb = [all_data[sb][e] for e in common]
 
-        print(f"\n  {'Config':<45} {'CAGR':>7} {'MDD':>7} {'Calm':>6} {'Shrp':>5} {'Tr':>5}")
-        print(f"  {'-'*80}")
+        sweep = SweepResult("pairs_moc", "SPY vs EWJ", "US", CAPITAL,
+                            slippage_bps=int(SLIPPAGE_PCT * 10000))
 
         for zlb, ze, zx, desc in CONFIGS:
-            vals, tr, ch, sl = sim_moc(common, ca, cb, z_lookback=zlb,
-                                        z_entry=ze, z_exit=zx)
-            ep = common[zlb + 1:]
-            s = compute_stats(vals, ep)
-            if s:
-                print(f"  {desc:<45} {s['cagr']:>+6.1f}% {s['mdd']:>6.1f}% "
-                      f"{s['calmar']:>6.2f} {s.get('sharpe') or 0:>5.2f} {tr:>5}")
+            params = {"z_lookback": zlb, "z_entry": ze, "z_exit": zx, "desc": desc}
+            r = sim_moc(common, ca, cb, z_lookback=zlb, z_entry=ze, z_exit=zx,
+                        instrument="SPY vs EWJ", params_dict=params)
+            r.compute()
+            sweep.add_config(params, r)
 
             # OOS
             train_end = next((i for i, e in enumerate(common) if e >= split_epoch), len(common))
             if train_end > zlb + 50 and train_end < len(common) - 50:
-                vals_oos, tr_oos, _, _ = sim_moc(
+                r_oos = sim_moc(
                     common[train_end:], ca[train_end:], cb[train_end:],
-                    z_lookback=zlb, z_entry=ze, z_exit=zx)
-                s_oos = compute_stats(vals_oos, common[train_end + zlb + 1:])
-                if s_oos:
-                    print(f"    OOS (2016+): {fmt(s_oos)}, {tr_oos} trades")
+                    z_lookback=zlb, z_entry=ze, z_exit=zx,
+                    instrument="SPY vs EWJ",
+                    params_dict={**params, "period": "OOS_2016+"})
+                r_oos.compute()
+                s_oos = r_oos.to_dict()["summary"]
+                tr_oos = s_oos.get("total_trades", 0)
+                if s_oos.get("cagr") is not None:
+                    print(f"    {desc} OOS (2016+): {_fmt_summary(s_oos)}, {tr_oos} trades")
+
+        sweep.print_leaderboard(top_n=10)
+        sweep.save("result.json", top_n=10, sort_by="calmar_ratio")
 
 
 if __name__ == "__main__":

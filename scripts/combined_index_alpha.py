@@ -18,14 +18,17 @@ import sys
 import os
 import math
 import time
+import dataclasses
 from datetime import datetime, timezone
 from dataclasses import dataclass
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if "/session" not in sys.path and os.path.isdir("/session/lib"):
+    sys.path.insert(0, "/session")
 
 from lib.cr_client import CetaResearch
+from lib.backtest_result import BacktestResult, SweepResult, MultiSweepResult
 from engine.charges import calculate_charges
-from lib.metrics import compute_metrics as compute_full_metrics
 
 
 # ── Exchange mapping (symbol → exchange for charge calculation) ───────────────
@@ -36,6 +39,9 @@ SYMBOL_EXCHANGE = {
     "SPY": "US", "QQQ": "US",
     "NIFTYBEES": "NSE", "BANKBEES": "NSE",
 }
+
+
+IS_CLOUD = os.path.isdir("/session")
 
 
 def get_exchange(symbol):
@@ -165,6 +171,24 @@ def compute_cum_return(closes, window):
     return cr
 
 
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
+def _fmt_summary(s):
+    if not s:
+        return "NO DATA"
+    cagr = (s.get("cagr") or 0) * 100
+    mdd = (s.get("max_drawdown") or 0) * 100
+    calmar = s.get("calmar_ratio") or 0
+    parts = [f"CAGR={cagr:>6.1f}%", f"MDD={mdd:>6.1f}%", f"Calmar={calmar:.2f}"]
+    sh = s.get("sharpe_ratio")
+    if sh is not None:
+        parts.append(f"Sharpe={sh:.2f}")
+    so = s.get("sortino_ratio")
+    if so is not None:
+        parts.append(f"Sortino={so:.2f}")
+    return ", ".join(parts)
+
+
 # ── Part 1: Fine-tuned Single Pair ──────────────────────────────────────────
 
 @dataclass
@@ -189,20 +213,26 @@ class PairConfig:
 
 
 def simulate_pair(epochs, data_a_list, data_b_list, cfg: PairConfig, capital=10_000_000,
-                   sym_a="^GSPC", sym_b="^NSEI"):
+                   sym_a="^GSPC", sym_b="^NSEI", instrument="", params_dict=None):
     """Enhanced pair simulation with charges, integer quantities, and full tracking.
 
-    Now includes:
-    - Exchange-specific transaction charges (STT, brokerage, SEC fees, etc.)
-    - Integer share quantities (no fractional shares)
-    - Daily return tracking for Sharpe/Sortino computation
+    Returns a BacktestResult with equity curve and trades.
     """
+    if params_dict is None:
+        params_dict = dataclasses.asdict(cfg)
+
     n = len(epochs)
     closes_a = [d["close"] for d in data_a_list]
     closes_b = [d["close"] for d in data_b_list]
 
     exchange_a = get_exchange(sym_a)
     exchange_b = get_exchange(sym_b)
+
+    if not instrument:
+        instrument = f"{sym_a} vs {sym_b}"
+
+    result = BacktestResult("combined_pair", params_dict, instrument, "US",
+                            capital, slippage_bps=0)
 
     ratios = [closes_a[i] / closes_b[i] if closes_b[i] > 0 else 1.0 for i in range(n)]
     z_scores = compute_z_scores(ratios, cfg.lookback)
@@ -217,10 +247,8 @@ def simulate_pair(epochs, data_a_list, data_b_list, cfg: PairConfig, capital=10_
 
     cash = capital
     position = None  # ("a"/"b", qty, entry_price, entry_idx)
-    trades_a = trades_b = 0
-    total_charges = 0.0
     crash_pause_until = -1
-    values = []
+    buy_ch = 0.0
 
     start = max(cfg.lookback, cfg.momentum_period if cfg.use_momentum else 0)
 
@@ -252,7 +280,13 @@ def simulate_pair(epochs, data_a_list, data_b_list, cfg: PairConfig, capital=10_
                 exch = exchange_a if side == "a" else exchange_b
                 sell_charges = trade_charges(exch, sell_value, "SELL_SIDE")
                 cash += sell_value - sell_charges
-                total_charges += sell_charges
+                result.add_trade(
+                    entry_epoch=epochs[entry_idx], exit_epoch=epochs[i],
+                    entry_price=entry_price, exit_price=curr_price,
+                    quantity=qty, side="LONG",
+                    charges=buy_ch + sell_charges, slippage=0.0,
+                )
+                buy_ch = 0.0
                 position = None
 
         # Entry logic
@@ -291,185 +325,99 @@ def simulate_pair(epochs, data_a_list, data_b_list, cfg: PairConfig, capital=10_
                     if actual_cost + buy_charges <= cash:
                         position = (buy_side, qty, buy_price, i)
                         cash -= actual_cost + buy_charges
-                        total_charges += buy_charges
-                        if buy_side == "a":
-                            trades_a += 1
-                        else:
-                            trades_b += 1
+                        buy_ch = buy_charges
 
         # Portfolio value
         if position:
             side, qty, _, _ = position
             curr = closes_a[i] if side == "a" else closes_b[i]
-            values.append(cash + qty * curr)
+            result.add_equity_point(epochs[i], cash + qty * curr)
         else:
-            values.append(cash)
+            result.add_equity_point(epochs[i], cash)
 
-    return values, trades_a, trades_b, total_charges
-
-
-def compute_stats(values, epochs_subset):
-    """Compute full metrics: CAGR, MaxDD, Calmar, Sharpe, Sortino, VaR 95%."""
-    if len(values) < 2 or len(epochs_subset) < 2:
-        return None
-    sv, ev = values[0], values[-1]
-    years = (epochs_subset[-1] - epochs_subset[0]) / (365.25 * 86400)
-    if years <= 0 or ev <= 0 or sv <= 0:
-        return None
-    tr = ev / sv
-    cagr = (tr ** (1 / years) - 1) * 100
-
-    peak = values[0]
-    max_dd = 0
-    for v in values:
-        peak = max(peak, v)
-        dd = (v - peak) / peak * 100
-        max_dd = min(max_dd, dd)
-
-    calmar = cagr / abs(max_dd) if max_dd != 0 else 0
-
-    # Daily returns for Sharpe/Sortino/VaR
-    daily_returns = []
-    for i in range(1, len(values)):
-        if values[i - 1] > 0:
-            daily_returns.append((values[i] - values[i - 1]) / values[i - 1])
-        else:
-            daily_returns.append(0.0)
-
-    sharpe = sortino = var_95 = vol = None
-    if len(daily_returns) >= 20:
-        benchmark_returns = [0.0] * len(daily_returns)
-        full = compute_full_metrics(daily_returns, benchmark_returns, periods_per_year=252)
-        port = full["portfolio"]
-        sharpe = port.get("sharpe_ratio")
-        sortino = port.get("sortino_ratio")
-        var_95 = port.get("var_95")
-        vol = port.get("annualized_volatility")
-
-    yearly = {}
-    for j, v in enumerate(values):
-        yr = datetime.fromtimestamp(epochs_subset[j], tz=timezone.utc).year
-        if yr not in yearly:
-            yearly[yr] = {"first": v, "last": v, "peak": v, "trough": v}
-        yearly[yr]["last"] = v
-        yearly[yr]["peak"] = max(yearly[yr]["peak"], v)
-        yearly[yr]["trough"] = min(yearly[yr]["trough"], v)
-
-    return {"cagr": cagr, "max_dd": max_dd, "calmar": calmar, "total_return": tr,
-            "years": years, "yearly": yearly,
-            "sharpe": sharpe, "sortino": sortino, "var_95": var_95, "vol": vol}
+    return result
 
 
 def run_fine_tuned_pair(epochs, data_a_list, data_b_list, label, sym_a="^GSPC", sym_b="^NSEI"):
     """Fine-grained sweep on a single pair with realistic charges."""
+    instrument_label = f"{sym_a} vs {sym_b}"
+    sweep = SweepResult("combined_pair", instrument_label, "US", 10_000_000,
+                        slippage_bps=0, description=f"Fine-tuned pair: {label}")
+
     configs = []
-
-    for lb in [20, 30, 45, 60, 90]:
-        for z_in in [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]:
-            for z_out in [-1.0, -0.5, 0.0, 0.5]:
-                for max_hold in [0, 40, 60, 90]:
-                    for use_mom in [False, True]:
-                        for use_dip in [False, True]:
+    if IS_CLOUD:
+        # Reduced grid for cloud container (~96 configs vs 7680)
+        for lb in [30, 60]:
+            for z_in in [0.75, 1.0, 1.5]:
+                for z_out in [-0.5, 0.0]:
+                    for max_hold in [0, 60]:
+                        for use_mom in [False, True]:
                             for use_crash in [False, True]:
-                                for invest in [0.8, 1.0]:
-                                    configs.append(PairConfig(
-                                        lookback=lb, z_entry=z_in, z_exit=z_out,
-                                        max_hold_days=max_hold,
-                                        use_momentum=use_mom,
-                                        use_dip_timing=use_dip,
-                                        rsi_threshold=40.0,
-                                        use_crash_safety=use_crash,
-                                        invest_pct=invest,
-                                    ))
+                                configs.append(PairConfig(
+                                    lookback=lb, z_entry=z_in, z_exit=z_out,
+                                    max_hold_days=max_hold,
+                                    use_momentum=use_mom,
+                                    use_crash_safety=use_crash,
+                                    invest_pct=1.0,
+                                ))
+    else:
+        for lb in [20, 30, 45, 60, 90]:
+            for z_in in [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]:
+                for z_out in [-1.0, -0.5, 0.0, 0.5]:
+                    for max_hold in [0, 40, 60, 90]:
+                        for use_mom in [False, True]:
+                            for use_dip in [False, True]:
+                                for use_crash in [False, True]:
+                                    for invest in [0.8, 1.0]:
+                                        configs.append(PairConfig(
+                                            lookback=lb, z_entry=z_in, z_exit=z_out,
+                                            max_hold_days=max_hold,
+                                            use_momentum=use_mom,
+                                            use_dip_timing=use_dip,
+                                            rsi_threshold=40.0,
+                                            use_crash_safety=use_crash,
+                                            invest_pct=invest,
+                                        ))
 
-    print(f"\n  {label}: Sweeping {len(configs)} configs (with charges)...")
-    results = []
+    print(f"\n  {label}: Sweeping {len(configs)} configs (with charges)"
+          f"{'  [cloud mode]' if IS_CLOUD else ''}...")
 
     for i, cfg in enumerate(configs):
-        start = max(cfg.lookback, cfg.momentum_period if cfg.use_momentum else 0)
-        vals, ta, tb, charges = simulate_pair(epochs, data_a_list, data_b_list, cfg,
-                                               sym_a=sym_a, sym_b=sym_b)
-        ep_sub = epochs[start:]
-        stats = compute_stats(vals, ep_sub)
-        if stats and abs(stats["max_dd"]) > 0.01:
-            results.append({"cfg": cfg, "ta": ta, "tb": tb, "charges": charges, **stats})
+        params_dict = dataclasses.asdict(cfg)
+        br = simulate_pair(epochs, data_a_list, data_b_list, cfg,
+                           sym_a=sym_a, sym_b=sym_b,
+                           instrument=instrument_label, params_dict=params_dict)
+        br.compute()
+        s = br.to_dict().get("summary", {})
+        mdd = s.get("max_drawdown")
+        if mdd is not None and abs(mdd) > 0.0001:
+            sweep.add_config(params_dict, br)
+            br.compact()
 
         if (i + 1) % 5000 == 0:
             print(f"    {i+1}/{len(configs)} done...")
 
-    results.sort(key=lambda r: r["calmar"], reverse=True)
-
-    # Print top 20
-    print(f"\n{'='*150}")
-    print(f"  {label} — TOP 20 by Calmar")
-    print(f"{'='*150}")
-    print(f"  {'#':<3} {'LB':>3} {'Z_in':>5} {'Z_out':>6} {'MaxH':>5} "
-          f"{'Mom':>3} {'Dip':>3} {'Crsh':>4} {'Inv':>4} "
-          f"{'CAGR':>7} {'MaxDD':>7} {'Calm':>6} {'Grwth':>6} {'Tr':>5}")
-    print(f"  {'-'*100}")
-
-    for i, r in enumerate(results[:20]):
-        c = r["cfg"]
-        print(f"  {i+1:<3} {c.lookback:>3} {c.z_entry:>5.2f} {c.z_exit:>6.1f} "
-              f"{c.max_hold_days:>5} "
-              f"{'Y' if c.use_momentum else 'N':>3} "
-              f"{'Y' if c.use_dip_timing else 'N':>3} "
-              f"{'Y' if c.use_crash_safety else 'N':>4} "
-              f"{c.invest_pct:>4.1f} "
-              f"{r['cagr']:>6.1f}% {r['max_dd']:>6.1f}% {r['calmar']:>6.2f} "
-              f"{r['total_return']:>5.1f}x {r['ta']+r['tb']:>5}")
-
-    # Print top 10 by CAGR (separate list)
-    by_cagr = sorted(results, key=lambda r: r["cagr"], reverse=True)
-    print(f"\n  TOP 10 by CAGR (absolute returns):")
-    print(f"  {'#':<3} {'LB':>3} {'Z_in':>5} {'Z_out':>6} {'MaxH':>5} "
-          f"{'Mom':>3} {'Dip':>3} {'Crsh':>4} {'Inv':>4} "
-          f"{'CAGR':>7} {'MaxDD':>7} {'Calm':>6} {'Grwth':>6}")
-    print(f"  {'-'*85}")
-    for i, r in enumerate(by_cagr[:10]):
-        c = r["cfg"]
-        print(f"  {i+1:<3} {c.lookback:>3} {c.z_entry:>5.2f} {c.z_exit:>6.1f} "
-              f"{c.max_hold_days:>5} "
-              f"{'Y' if c.use_momentum else 'N':>3} "
-              f"{'Y' if c.use_dip_timing else 'N':>3} "
-              f"{'Y' if c.use_crash_safety else 'N':>4} "
-              f"{c.invest_pct:>4.1f} "
-              f"{r['cagr']:>6.1f}% {r['max_dd']:>6.1f}% {r['calmar']:>6.2f} "
-              f"{r['total_return']:>5.1f}x")
+    # Leaderboards
+    sweep.print_leaderboard(top_n=20, sort_by="calmar_ratio")
 
     # Configs > 20% CAGR
-    above_20 = [r for r in results if r["cagr"] >= 20.0]
+    sorted_configs = sweep._sorted("calmar_ratio")
+    above_20 = [(p, r) for p, r in sorted_configs
+                if (r.to_dict().get("summary", {}).get("cagr") or 0) >= 0.20]
     if above_20:
-        above_20.sort(key=lambda r: r["calmar"], reverse=True)
         print(f"\n  ** {len(above_20)} configs with CAGR >= 20% **")
-        b = above_20[0]
-        print(f"  Best by Calmar: CAGR={b['cagr']:.1f}%, DD={b['max_dd']:.1f}%, "
-              f"Calmar={b['calmar']:.2f}, "
-              f"Sharpe={b.get('sharpe', 0) or 0:.2f}, Sortino={b.get('sortino', 0) or 0:.2f}")
-        c = b["cfg"]
-        print(f"  Config: lb={c.lookback}, z_in={c.z_entry}, z_out={c.z_exit}, "
-              f"max_hold={c.max_hold_days}, mom={'Y' if c.use_momentum else 'N'}, "
-              f"dip={'Y' if c.use_dip_timing else 'N'}, crash={'Y' if c.use_crash_safety else 'N'}")
-        if b.get("charges"):
-            print(f"  Total charges: {b['charges']:,.0f} ({b['charges'] / 10_000_000 * 100:.2f}% of capital)")
+        best_p, best_r = above_20[0]
+        bs = best_r.to_dict()["summary"]
+        print(f"  Best by Calmar: {_fmt_summary(bs)}")
+        print(f"  Config: {best_p}")
 
     # Year-wise for best Calmar
-    if results:
-        best = results[0]
-        sharpe_str = f", Sharpe={best.get('sharpe', 0) or 0:.2f}" if best.get('sharpe') else ""
-        sortino_str = f", Sortino={best.get('sortino', 0) or 0:.2f}" if best.get('sortino') else ""
-        print(f"\n  BEST (Calmar): CAGR={best['cagr']:.1f}%, DD={best['max_dd']:.1f}%, "
-              f"Calmar={best['calmar']:.2f}{sharpe_str}{sortino_str}")
-        yearly = best["yearly"]
-        print(f"  {'Year':<6} {'Return':>9} {'Max DD':>9}")
-        print(f"  {'-'*28}")
-        for yr in sorted(yearly.keys()):
-            y = yearly[yr]
-            ret = (y["last"] - y["first"]) / y["first"] * 100
-            dd = (y["trough"] - y["peak"]) / y["peak"] * 100 if y["peak"] > 0 else 0
-            print(f"  {yr:<6} {ret:>+8.1f}% {dd:>8.1f}%")
+    if sweep.configs:
+        best_params, best_result = sweep._sorted("calmar_ratio")[0]
+        print(f"\n  BEST (Calmar):")
+        best_result.print_summary()
 
-    return results
+    return sweep
 
 
 # ── Part 2: Multi-Pair Portfolio ─────────────────────────────────────────────
@@ -478,111 +426,125 @@ def simulate_multi_pair(pair_data, common_epochs, cfg: PairConfig, n_pairs, capi
     """Run multiple pairs simultaneously with equal capital allocation.
 
     pair_data: list of (closes_a, closes_b, label, sym_a, sym_b) for each pair
+    Returns a combined BacktestResult.
     """
     n = len(common_epochs)
     n_active = len(pair_data)
     per_pair_capital = capital / n_active
 
-    # Run each pair independently
-    pair_values = []
-    total_trades = 0
-    total_charges = 0.0
-    for closes_a_list, closes_b_list, label, sym_a, sym_b in pair_data:
-        vals, ta, tb, charges = simulate_pair(
+    params_dict = dataclasses.asdict(cfg)
+
+    # Run each pair independently, collect BacktestResults
+    pair_results = []
+    for closes_a_list, closes_b_list, plabel, sym_a, sym_b in pair_data:
+        br = simulate_pair(
             common_epochs, closes_a_list, closes_b_list, cfg,
-            capital=per_pair_capital, sym_a=sym_a, sym_b=sym_b
+            capital=per_pair_capital, sym_a=sym_a, sym_b=sym_b,
+            instrument=f"{sym_a} vs {sym_b}", params_dict=params_dict,
         )
-        pair_values.append(vals)
-        total_trades += ta + tb
-        total_charges += charges
+        pair_results.append(br)
 
-    # Combine: sum of all pair portfolio values
+    # Build combined equity by summing each pair's equity curve values
     start = max(cfg.lookback, cfg.momentum_period if cfg.use_momentum else 0)
-    combined = []
-    min_len = min(len(pv) for pv in pair_values)
-    for i in range(min_len):
-        combined.append(sum(pv[i] for pv in pair_values))
 
-    return combined, total_trades
+    # Each pair result has equity starting from 'start' index.
+    # All pairs use the same epochs and same start, so curves are aligned.
+    min_len = min(len(pr.equity_curve) for pr in pair_results)
+
+    combined_result = BacktestResult(
+        "combined_multi_pair", params_dict,
+        f"Multi({n_active} pairs)", "MIXED",
+        capital, slippage_bps=0,
+    )
+
+    for i in range(min_len):
+        epoch = pair_results[0].equity_curve[i][0]
+        total_value = sum(pr.equity_curve[i][1] for pr in pair_results)
+        combined_result.add_equity_point(epoch, total_value)
+
+    # Copy trades from all sub-pairs
+    for pr in pair_results:
+        for trade in pr.trades:
+            combined_result.trades.append(trade)
+            combined_result.costs["total_charges"] += trade.get("charges", 0)
+            combined_result.costs["total_slippage"] += trade.get("slippage", 0)
+
+    return combined_result
 
 
 def run_multi_pair_sweep(pair_data, common_epochs, label):
     """Sweep configs across all pairs simultaneously."""
+    n_active = len(pair_data)
+    sweep = SweepResult("combined_multi_pair", f"Multi({n_active} pairs): {label}",
+                        "MIXED", 10_000_000, slippage_bps=0,
+                        description=f"Multi-pair sweep: {label}")
+
     configs = []
+    if IS_CLOUD:
+        # Reduced grid for cloud container (~64 configs vs 384)
+        for lb in [30, 60]:
+            for z_in in [0.75, 1.0]:
+                for z_out in [-0.5, 0.0]:
+                    for max_hold in [0, 60]:
+                        for use_mom in [False, True]:
+                            for use_crash in [False, True]:
+                                configs.append(PairConfig(
+                                    lookback=lb, z_entry=z_in, z_exit=z_out,
+                                    max_hold_days=max_hold,
+                                    use_momentum=use_mom,
+                                    use_crash_safety=use_crash,
+                                ))
+    else:
+        for lb in [20, 30, 45, 60]:
+            for z_in in [0.5, 0.75, 1.0, 1.5]:
+                for z_out in [-0.5, 0.0, 0.5]:
+                    for max_hold in [0, 60]:
+                        for use_mom in [False, True]:
+                            for use_crash in [False, True]:
+                                configs.append(PairConfig(
+                                    lookback=lb, z_entry=z_in, z_exit=z_out,
+                                    max_hold_days=max_hold,
+                                    use_momentum=use_mom,
+                                    use_crash_safety=use_crash,
+                                ))
 
-    for lb in [20, 30, 45, 60]:
-        for z_in in [0.5, 0.75, 1.0, 1.5]:
-            for z_out in [-0.5, 0.0, 0.5]:
-                for max_hold in [0, 60]:
-                    for use_mom in [False, True]:
-                        for use_crash in [False, True]:
-                            configs.append(PairConfig(
-                                lookback=lb, z_entry=z_in, z_exit=z_out,
-                                max_hold_days=max_hold,
-                                use_momentum=use_mom,
-                                use_crash_safety=use_crash,
-                            ))
-
-    print(f"\n  Multi-pair ({label}): Sweeping {len(configs)} configs...")
-    results = []
+    print(f"\n  Multi-pair ({label}): Sweeping {len(configs)} configs"
+          f"{'  [cloud mode]' if IS_CLOUD else ''}...")
 
     for i, cfg in enumerate(configs):
-        start = max(cfg.lookback, cfg.momentum_period if cfg.use_momentum else 0)
-        combined, total_trades = simulate_multi_pair(pair_data, common_epochs, cfg, len(pair_data))
-        ep_sub = common_epochs[start:]
-        if len(combined) > len(ep_sub):
-            combined = combined[:len(ep_sub)]
-        stats = compute_stats(combined, ep_sub)
-        if stats and abs(stats["max_dd"]) > 0.01:
-            results.append({"cfg": cfg, "trades": total_trades, **stats})
+        params_dict = dataclasses.asdict(cfg)
+        combined_result = simulate_multi_pair(pair_data, common_epochs, cfg, len(pair_data))
+        combined_result.compute()
+        s = combined_result.to_dict().get("summary", {})
+        mdd = s.get("max_drawdown")
+        if mdd is not None and abs(mdd) > 0.0001:
+            sweep.add_config(params_dict, combined_result)
+            combined_result.compact()
 
         if (i + 1) % 500 == 0:
             print(f"    {i+1}/{len(configs)} done...")
 
-    results.sort(key=lambda r: r["calmar"], reverse=True)
+    # Leaderboard
+    sweep.print_leaderboard(top_n=15, sort_by="calmar_ratio")
 
-    print(f"\n{'='*130}")
-    print(f"  MULTI-PAIR {label} — TOP 15 by Calmar")
-    print(f"{'='*130}")
-    print(f"  {'#':<3} {'LB':>3} {'Z_in':>5} {'Z_out':>6} {'MaxH':>5} "
-          f"{'Mom':>3} {'Crsh':>4} "
-          f"{'CAGR':>7} {'MaxDD':>7} {'Calm':>6} {'Grwth':>6} {'Tr':>5}")
-    print(f"  {'-'*75}")
-
-    for i, r in enumerate(results[:15]):
-        c = r["cfg"]
-        print(f"  {i+1:<3} {c.lookback:>3} {c.z_entry:>5.2f} {c.z_exit:>6.1f} "
-              f"{c.max_hold_days:>5} "
-              f"{'Y' if c.use_momentum else 'N':>3} "
-              f"{'Y' if c.use_crash_safety else 'N':>4} "
-              f"{r['cagr']:>6.1f}% {r['max_dd']:>6.1f}% {r['calmar']:>6.2f} "
-              f"{r['total_return']:>5.1f}x {r['trades']:>5}")
-
-    above_20 = [r for r in results if r["cagr"] >= 20.0]
+    # Configs > 20% CAGR
+    sorted_configs = sweep._sorted("calmar_ratio")
+    above_20 = [(p, r) for p, r in sorted_configs
+                if (r.to_dict().get("summary", {}).get("cagr") or 0) >= 0.20]
     if above_20:
-        above_20.sort(key=lambda r: r["calmar"], reverse=True)
         print(f"\n  ** {len(above_20)} multi-pair configs with CAGR >= 20% **")
-        best = above_20[0]
-        c = best["cfg"]
-        print(f"  Best: CAGR={best['cagr']:.1f}%, DD={best['max_dd']:.1f}%, "
-              f"Calmar={best['calmar']:.2f}")
-        print(f"  Config: lb={c.lookback}, z_in={c.z_entry}, z_out={c.z_exit}")
+        best_p, best_r = above_20[0]
+        bs = best_r.to_dict()["summary"]
+        print(f"  Best: {_fmt_summary(bs)}")
+        print(f"  Config: {best_p}")
 
     # Year-wise for best
-    if results:
-        best = results[0]
-        yearly = best["yearly"]
-        print(f"\n  BEST: CAGR={best['cagr']:.1f}%, DD={best['max_dd']:.1f}%, "
-              f"Calmar={best['calmar']:.2f}")
-        print(f"  {'Year':<6} {'Return':>9} {'Max DD':>9}")
-        print(f"  {'-'*28}")
-        for yr in sorted(yearly.keys()):
-            y = yearly[yr]
-            ret = (y["last"] - y["first"]) / y["first"] * 100
-            dd = (y["trough"] - y["peak"]) / y["peak"] * 100 if y["peak"] > 0 else 0
-            print(f"  {yr:<6} {ret:>+8.1f}% {dd:>8.1f}%")
+    if sweep.configs:
+        best_params, best_result = sweep._sorted("calmar_ratio")[0]
+        print(f"\n  BEST:")
+        best_result.print_summary()
 
-    return results
+    return sweep
 
 
 # ── Part 3: Momentum Rotation + Pair Timing ──────────────────────────────────
@@ -590,10 +552,26 @@ def run_multi_pair_sweep(pair_data, common_epochs, label):
 def simulate_rotation_with_pairs(all_close_data, symbols, labels, common_epochs,
                                   mom_lookback=252, top_k=1, rebal_days=63,
                                   use_z_timing=False, z_lookback=30, z_threshold=1.0,
-                                  abs_momentum=False):
-    """Enhanced rotation: rank by momentum, optionally use z-score timing for entry."""
+                                  abs_momentum=False, params_dict=None):
+    """Enhanced rotation: rank by momentum, optionally use z-score timing for entry.
+
+    Returns a BacktestResult with equity points only (no individual trades).
+    """
     n = len(common_epochs)
     n_sym = len(symbols)
+
+    if params_dict is None:
+        params_dict = {
+            "mom_lookback": mom_lookback, "top_k": top_k, "rebal_days": rebal_days,
+            "use_z_timing": use_z_timing, "z_lookback": z_lookback,
+            "z_threshold": z_threshold, "abs_momentum": abs_momentum,
+        }
+
+    result = BacktestResult(
+        "rotation", params_dict,
+        f"Rotation({len(symbols)} indices)", "MIXED",
+        10_000_000, slippage_bps=0,
+    )
 
     # Build close matrix
     close_matrix = []
@@ -615,7 +593,6 @@ def simulate_rotation_with_pairs(all_close_data, symbols, labels, common_epochs,
     cash = 10_000_000
     holdings = {}
     last_rebal = -999
-    values = []
 
     for i in range(mom_lookback, n):
         pos_val = sum(holdings.get(s, 0) * close_matrix[s][i] for s in range(n_sym))
@@ -672,13 +649,18 @@ def simulate_rotation_with_pairs(all_close_data, symbols, labels, common_epochs,
             last_rebal = i
 
         pos_val = sum(holdings.get(s, 0) * close_matrix[s][i] for s in range(n_sym))
-        values.append(cash + pos_val)
+        value = cash + pos_val
+        result.add_equity_point(common_epochs[i], value)
 
-    return values
+    return result
 
 
 def run_rotation_sweep(all_close_data, symbols, labels, common_epochs):
     """Sweep enhanced rotation configs."""
+    sweep = SweepResult("rotation", f"Rotation({len(symbols)} indices)", "MIXED",
+                        10_000_000, slippage_bps=0,
+                        description=f"Momentum rotation sweep ({len(symbols)} indices)")
+
     configs = []
     for mom in [126, 252]:
         for top_k in [1, 2]:
@@ -693,60 +675,43 @@ def run_rotation_sweep(all_close_data, symbols, labels, common_epochs):
                             })
 
     print(f"\n  Rotation sweep: {len(configs)} configs...")
-    results = []
 
     for cfg in configs:
-        vals = simulate_rotation_with_pairs(
+        params_dict = {
+            "mom_lookback": cfg["mom"], "top_k": cfg["top_k"],
+            "rebal_days": cfg["rebal"], "abs_momentum": cfg["abs_mom"],
+            "use_z_timing": cfg["use_z"], "z_threshold": cfg["z_thresh"],
+        }
+        br = simulate_rotation_with_pairs(
             all_close_data, symbols, labels, common_epochs,
             mom_lookback=cfg["mom"], top_k=cfg["top_k"],
             rebal_days=cfg["rebal"], abs_momentum=cfg["abs_mom"],
             use_z_timing=cfg["use_z"], z_threshold=cfg["z_thresh"],
+            params_dict=params_dict,
         )
-        ep_sub = common_epochs[cfg["mom"]:]
-        stats = compute_stats(vals, ep_sub)
-        if stats and abs(stats["max_dd"]) > 0.01:
-            results.append({"cfg": cfg, **stats})
+        br.compute()
+        s = br.to_dict().get("summary", {})
+        mdd = s.get("max_drawdown")
+        if mdd is not None and abs(mdd) > 0.0001:
+            sweep.add_config(params_dict, br)
 
-    results.sort(key=lambda r: r["calmar"], reverse=True)
+    # Leaderboard
+    sweep.print_leaderboard(top_n=15, sort_by="calmar_ratio")
 
-    print(f"\n{'='*120}")
-    print(f"  ENHANCED ROTATION — TOP 15 by Calmar")
-    print(f"{'='*120}")
-    print(f"  {'#':<3} {'Mom':>4} {'TopK':>5} {'Reb':>4} {'Abs':>4} {'Z':>3} {'Zthr':>5} "
-          f"{'CAGR':>7} {'MaxDD':>7} {'Calm':>6} {'Grwth':>6}")
-    print(f"  {'-'*70}")
-
-    for i, r in enumerate(results[:15]):
-        c = r["cfg"]
-        print(f"  {i+1:<3} {c['mom']:>4} {c['top_k']:>5} {c['rebal']:>4} "
-              f"{'Y' if c['abs_mom'] else 'N':>4} "
-              f"{'Y' if c['use_z'] else 'N':>3} "
-              f"{c['z_thresh']:>5.1f} "
-              f"{r['cagr']:>6.1f}% {r['max_dd']:>6.1f}% {r['calmar']:>6.2f} "
-              f"{r['total_return']:>5.1f}x")
-
-    above_20 = [r for r in results if r["cagr"] >= 20.0]
+    # Configs > 20% CAGR
+    sorted_configs = sweep._sorted("calmar_ratio")
+    above_20 = [(p, r) for p, r in sorted_configs
+                if (r.to_dict().get("summary", {}).get("cagr") or 0) >= 0.20]
     if above_20:
-        above_20.sort(key=lambda r: r["calmar"], reverse=True)
         print(f"\n  ** {len(above_20)} rotation configs with CAGR >= 20% **")
 
     # Year-wise for best
-    if results:
-        best = results[0]
-        yearly = best["yearly"]
-        c = best["cfg"]
-        print(f"\n  BEST: mom={c['mom']}, top_k={c['top_k']}, rebal={c['rebal']}, "
-              f"abs_mom={'Y' if c['abs_mom'] else 'N'}, z={'Y' if c['use_z'] else 'N'}")
-        print(f"  CAGR={best['cagr']:.1f}%, DD={best['max_dd']:.1f}%, Calmar={best['calmar']:.2f}")
-        print(f"  {'Year':<6} {'Return':>9} {'Max DD':>9}")
-        print(f"  {'-'*28}")
-        for yr in sorted(yearly.keys()):
-            y = yearly[yr]
-            ret = (y["last"] - y["first"]) / y["first"] * 100
-            dd = (y["trough"] - y["peak"]) / y["peak"] * 100 if y["peak"] > 0 else 0
-            print(f"  {yr:<6} {ret:>+8.1f}% {dd:>8.1f}%")
+    if sweep.configs:
+        best_params, best_result = sweep._sorted("calmar_ratio")[0]
+        print(f"\n  BEST:")
+        best_result.print_summary()
 
-    return results
+    return sweep
 
 
 # ── Main ─────────────────────────────────────────────────────────────────────
@@ -772,6 +737,9 @@ def main():
 
     cr = CetaResearch()
 
+    multi = MultiSweepResult("combined_index_alpha",
+                             "Fine-tuned pair + multi-pair + rotation")
+
     # Fetch all data
     all_data = {}
     for sym, label, source in FETCH_LIST:
@@ -788,11 +756,14 @@ def main():
     print("  PART 1: FINE-TUNED SINGLE PAIR (US vs India)")
     print("=" * 80)
 
-    for sym_a, sym_b, label in [
+    pair_list = [
         ("^GSPC", "^NSEI", "US vs India"),
         ("^GSPC", "^FTSE", "US vs UK"),
         ("^GSPC", "^HSI", "US vs HK"),
-    ]:
+    ]
+    if IS_CLOUD:
+        pair_list = pair_list[:1]  # Just US vs India in cloud
+    for sym_a, sym_b, label in pair_list:
         if sym_a not in all_data or sym_b not in all_data:
             print(f"  Missing data for {label}")
             continue
@@ -806,7 +777,10 @@ def main():
         data_b_list = [all_data[sym_b][e] for e in common]
         print(f"  {label}: {len(common)} common days")
 
-        run_fine_tuned_pair(common, data_a_list, data_b_list, label, sym_a=sym_a, sym_b=sym_b)
+        sweep = run_fine_tuned_pair(common, data_a_list, data_b_list, label,
+                                    sym_a=sym_a, sym_b=sym_b)
+        pair_key = label.replace(" ", "_").lower()
+        multi.add_sweep(f"pair_{pair_key}", sweep)
 
     # ── Part 2: Multi-pair portfolio ──
     print("\n" + "=" * 80)
@@ -821,7 +795,8 @@ def main():
         [("^GSPC", "^NSEI"), ("^GSPC", "^FTSE"), ("^GSPC", "^GDAXI")],
     ]
 
-    for pairs in pair_combos:
+    combos_to_test = pair_combos[:1] if IS_CLOUD else pair_combos
+    for pairs in combos_to_test:
         # Check data availability
         all_syms = set()
         for a, b in pairs:
@@ -844,7 +819,8 @@ def main():
             data_b = [all_data[sym_b][e] for e in common]
             pair_data.append((data_a, data_b, f"{sym_a} vs {sym_b}", sym_a, sym_b))
 
-        run_multi_pair_sweep(pair_data, common, pair_label)
+        sweep = run_multi_pair_sweep(pair_data, common, pair_label)
+        multi.add_sweep(f"multi_{pair_label}", sweep)
 
     # ── Part 3: Enhanced Rotation ──
     print("\n" + "=" * 80)
@@ -860,11 +836,16 @@ def main():
         common = align_datasets(datasets, start_epoch)
         if len(common) >= 300:
             print(f"  {len(rot_symbols)} symbols, {len(common)} common days")
-            run_rotation_sweep(
+            sweep = run_rotation_sweep(
                 all_data, rot_symbols,
                 [rot_labels[s] for s in rot_symbols],
                 common
             )
+            multi.add_sweep("rotation", sweep)
+
+    # Save and print final leaderboard
+    multi.save("result.json", top_n=15)
+    multi.print_leaderboard(top_n=10)
 
 
 if __name__ == "__main__":

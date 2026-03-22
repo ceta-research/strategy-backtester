@@ -326,6 +326,50 @@ Cross-exchange ratios must normalize to a common currency.
 }
 ```
 
+### Multi-Sweep (`type: "multi_sweep"`)
+
+For scripts with multiple named sweeps (e.g. `alpha_variations.py` with 8 variation sweeps):
+
+```json
+{
+  "version": "1.0",
+  "type": "multi_sweep",
+  "meta": {
+    "strategy_name": "alpha_variations",
+    "description": "8 variation sweeps on SPY vs EWJ"
+  },
+  "total_sweeps": 8,
+  "sweeps": {
+    "zscore_params": {
+      "version": "1.0",
+      "type": "sweep",
+      "meta": { "strategy_name": "alpha_variations", "instrument": "SPY vs EWJ", "exchange": "US", "capital": 10000000 },
+      "sort_by": "calmar_ratio",
+      "total_configs": 144,
+      "top_n_detailed": 20,
+      "all_configs": [],
+      "detailed": []
+    },
+    "trend_filter": { "..." : "same sweep schema" }
+  }
+}
+```
+
+Use `MultiSweepResult` from `lib/backtest_result.py`:
+
+```python
+from lib.backtest_result import BacktestResult, SweepResult, MultiSweepResult
+
+multi = MultiSweepResult("alpha_variations", "8 variation sweeps")
+for name, configs in variations.items():
+    sweep = SweepResult(...)
+    for params in configs:
+        r = simulate(...)
+        sweep.add_config(params, r)
+    multi.add_sweep(name, sweep)
+multi.save("result.json")
+```
+
 ## Running Remotely
 
 ### Setup (once)
