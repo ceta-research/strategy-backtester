@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cloud entry point for ORB intraday sweep.
+"""Cloud entry point for intraday sweep (ORB, VWAP MR, etc.).
 
 Runs on CR compute. Executes the full intraday pipeline, writes results
 to results.json for file-based download (avoids stdout size limits).
@@ -22,7 +22,7 @@ def main():
         print(f"ERROR: {config_path} not found")
         sys.exit(1)
 
-    print(f"Starting ORB sweep on cloud compute (config={config_path})...")
+    print(f"Starting intraday sweep on cloud compute (config={config_path})...")
     start = time.time()
 
     results = run_intraday_pipeline(config_path)

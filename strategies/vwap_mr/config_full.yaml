@@ -1,0 +1,28 @@
+static:
+  initial_capital: 500000
+  start_date: "2022-01-01"
+  end_date: "2026-03-09"
+  strategy_type: intraday
+  strategy_name: vwap_mr
+  exchange: NSE
+  risk_free_rate: 0.065
+  chunk_months: 3
+
+scanner:
+  min_volume: [10000000]
+  min_price: [200]
+  min_range_pct: [0.015]
+
+entry:
+  warmup_bars: [30]
+  max_entry_bar: [90]
+  dip_pct: [0.015, 0.02, 0.025]
+
+exit:
+  target_pct: [0.005, 0.01, 0.015]
+  stop_pct: [0.01, 0.015, 0.02]
+  max_hold_bars: [60]
+
+simulation:
+  max_positions: [5]
+  order_value: [50000]

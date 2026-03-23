@@ -17,7 +17,10 @@ import yaml
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from engine.intraday_sql_builder import build_orb_sql, build_orb_signal_sql, build_rvol_atr_sql
+from engine.intraday_sql_builder import (
+    build_orb_sql, build_orb_signal_sql, build_rvol_atr_sql,
+    build_vwap_mr_signal_sql,
+)
 from engine.intraday_simulator import simulate_intraday
 from engine.intraday_simulator_v2 import simulate_intraday_v2
 from lib.cr_client import CetaResearch
@@ -39,11 +42,12 @@ SIM_KEYS = {"max_positions", "order_value"}
 # v2: exit logic moves from SQL to Python simulator
 SQL_BUILDERS_V2 = {
     "orb": build_orb_signal_sql,
+    "vwap_mr": build_vwap_mr_signal_sql,
 }
 
 # v2: target_pct, stop_pct, max_hold_bars are SIM keys (not SQL)
 SQL_KEYS_V2 = {"min_volume", "min_price", "min_range_pct", "or_window", "max_entry_bar",
-               "min_rvol"}
+               "min_rvol", "warmup_bars", "dip_pct"}
 
 SIM_KEYS_V2 = {"max_positions", "order_value", "target_pct", "stop_pct", "max_hold_bars",
                "trailing_stop_pct", "min_hold_bars", "use_bar_hilo",
@@ -144,8 +148,10 @@ def _run_pipeline(config_path, raw, sql_builders, sql_keys, sim_keys,
         try:
             if version_label == "v2":
                 exchange = static.get("exchange", "NSE")
-                # US markets have 5-10x more liquid stocks; use smaller chunks
-                months = 3 if exchange in ("NASDAQ", "NYSE", "AMEX") else 12
+                # US markets have 5-10x more liquid stocks; use smaller chunks.
+                # VWAP MR also benefits from smaller chunks (dense signal matrix).
+                default_months = 3 if exchange in ("NASDAQ", "NYSE", "AMEX") else 6
+                months = static.get("chunk_months", default_months)
                 query_data, row_count = _query_and_build_entries(
                     client, build_sql, full_sql_cfg, chunk_months=months)
                 # query_data is now a pre-built entries_by_date dict

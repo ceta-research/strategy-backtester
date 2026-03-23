@@ -2,6 +2,10 @@
 
 Each strategy has a build_*_sql() function that returns a complete SQL query
 to be executed on the CR compute engine. All signal logic lives in SQL CTEs.
+
+Strategies:
+    ORB (Opening Range Breakout): breakout above first N bars' high
+    VWAP MR (VWAP Mean Reversion): buy dips below intraday VWAP
 """
 
 
@@ -269,4 +273,135 @@ SELECT
 FROM atr_14 a
 LEFT JOIN rvol r ON r.symbol = a.symbol AND r.trade_date = a.trade_date
 ORDER BY a.symbol, a.trade_date
+"""
+
+
+# ------------------------------------------------------------------ #
+# VWAP Mean Reversion
+# ------------------------------------------------------------------ #
+
+def _vwap_shared_ctes(cfg: dict) -> str:
+    """Shared CTEs for VWAP MR queries: EOD filtering, bars with running VWAP."""
+    symbol_filter = cfg.get("symbol_filter", "symbol LIKE '%.NS'")
+    exchange_filter = cfg.get("exchange_filter", "m.exchange = 'NSE'")
+
+    return f"""
+-- Step 1a: All EOD data with lagged volume/range (avoids look-ahead bias)
+all_eod AS (
+    SELECT
+        symbol, date AS trade_date, open, close, high, low, volume,
+        (close - open) / NULLIF(open, 0) AS oc_return,
+        LAG(volume) OVER (PARTITION BY symbol ORDER BY date) AS prev_day_volume,
+        LAG((high - low) / NULLIF(low, 0)) OVER (PARTITION BY symbol ORDER BY date) AS prev_day_range_pct
+    FROM fmp.stock_eod
+    WHERE {symbol_filter}
+      AND date BETWEEN '{cfg["start_date"]}' AND '{cfg["end_date"]}'
+      AND close > 0
+),
+
+-- Step 1b: Filter using PREVIOUS day's metrics (no look-ahead)
+filtered_eod AS (
+    SELECT symbol, trade_date, open, close, high, low, volume, oc_return
+    FROM all_eod
+    WHERE open > {cfg["min_price"]}
+      AND prev_day_volume >= {cfg["min_volume"]}
+      AND prev_day_range_pct >= {cfg["min_range_pct"]}
+),
+
+bench AS (
+    SELECT trade_date, AVG(oc_return) AS bench_ret
+    FROM filtered_eod
+    GROUP BY trade_date
+),
+
+-- Step 2: Minute bars with running VWAP
+bars AS (
+    SELECT
+        m.symbol,
+        to_timestamp(m.dateEpoch)::DATE AS trade_date,
+        m.dateEpoch, m.open, m.high, m.low, m.close, m.volume,
+        ROW_NUMBER() OVER (
+            PARTITION BY m.symbol, to_timestamp(m.dateEpoch)::DATE
+            ORDER BY m.dateEpoch
+        ) AS bar_num,
+        -- Running VWAP: cumulative (typical_price * volume) / cumulative volume
+        SUM((m.high + m.low + m.close) / 3.0 * m.volume) OVER (
+            PARTITION BY m.symbol, to_timestamp(m.dateEpoch)::DATE
+            ORDER BY m.dateEpoch
+        ) / NULLIF(SUM(m.volume) OVER (
+            PARTITION BY m.symbol, to_timestamp(m.dateEpoch)::DATE
+            ORDER BY m.dateEpoch
+        ), 0) AS vwap
+    FROM fmp.stock_prices_minute m
+    INNER JOIN filtered_eod f
+        ON m.symbol = f.symbol
+        AND to_timestamp(m.dateEpoch)::DATE = f.trade_date
+    WHERE {exchange_filter}
+)"""
+
+
+def build_vwap_mr_signal_sql(cfg: dict) -> str:
+    """Build VWAP Mean Reversion signal matrix SQL (v2).
+
+    Entry: first bar where close drops below VWAP by dip_pct, after warmup_bars.
+    Returns all bars from entry onward for Python exit logic.
+
+    cfg keys: start_date, end_date, min_volume, min_price, min_range_pct,
+              warmup_bars, max_entry_bar, dip_pct, symbol_filter, exchange_filter
+
+    Returns: SQL string producing columns matching v2 signal matrix format:
+        symbol, trade_date, entry_bar, entry_price,
+        or_high (=VWAP at entry), or_low (=entry_price), or_range (=deviation),
+        signal_strength (=dip_pct magnitude),
+        bar_num, bar_open, bar_high, bar_low, bar_close,
+        bench_ret
+    """
+    shared = _vwap_shared_ctes(cfg)
+    warmup = cfg.get("warmup_bars", 30)
+    max_entry = cfg.get("max_entry_bar", 120)
+    dip_pct = cfg.get("dip_pct", 0.01)
+
+    return f"""
+WITH
+{shared},
+
+-- Step 3: Entry detection: close drops below VWAP by dip_pct
+-- After warmup period for VWAP to stabilize
+entry_candidates AS (
+    SELECT
+        b.symbol, b.trade_date, b.bar_num, b.close AS entry_price,
+        b.vwap,
+        (b.vwap - b.close) / NULLIF(b.vwap, 0) AS dip_magnitude,
+        f.open AS eod_open,
+        ROW_NUMBER() OVER (PARTITION BY b.symbol, b.trade_date ORDER BY b.bar_num) AS rn
+    FROM bars b
+    JOIN filtered_eod f USING (symbol, trade_date)
+    WHERE b.bar_num >= {warmup}
+      AND b.bar_num <= {max_entry}
+      AND b.close < b.vwap * (1 - {dip_pct})
+      AND b.volume > 0
+),
+
+first_entry AS (
+    SELECT symbol, trade_date, bar_num AS entry_bar, entry_price,
+           vwap AS entry_vwap, dip_magnitude
+    FROM entry_candidates
+    WHERE rn = 1
+      -- FMP minute data split-adjustment check
+      AND entry_price BETWEEN eod_open * 0.8 AND eod_open * 1.2
+)
+
+SELECT
+    e.symbol, e.trade_date, e.entry_bar, e.entry_price,
+    e.entry_vwap AS or_high,
+    e.entry_price AS or_low,
+    e.entry_vwap - e.entry_price AS or_range,
+    e.dip_magnitude AS signal_strength,
+    b.bar_num, b.open AS bar_open, b.high AS bar_high, b.low AS bar_low, b.close AS bar_close,
+    bench.bench_ret
+FROM first_entry e
+JOIN bars b ON b.symbol = e.symbol AND b.trade_date = e.trade_date
+    AND b.bar_num >= e.entry_bar
+JOIN bench ON bench.trade_date = e.trade_date
+ORDER BY e.trade_date, e.symbol, b.bar_num
 """

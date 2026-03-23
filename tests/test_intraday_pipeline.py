@@ -216,14 +216,13 @@ class TestV2KeyClassification(unittest.TestCase):
             self.assertIn(key, SIM_KEYS_V2, f"{key} should be in SIM_KEYS_V2")
             self.assertNotIn(key, SQL_KEYS_V2, f"{key} should NOT be in SQL_KEYS_V2")
 
-    def test_v2_fewer_sql_keys(self):
-        """v2 has fewer SQL keys than v1 (exit params moved to sim)."""
-        self.assertLess(len(SQL_KEYS_V2), len(SQL_KEYS))
+    def test_v2_more_sim_keys(self):
+        """v2 has more SIM keys than v1 (exit params moved to sim)."""
         self.assertGreater(len(SIM_KEYS_V2), len(SIM_KEYS))
 
     def test_v2_sql_keys_content(self):
         expected = {"min_volume", "min_price", "min_range_pct", "or_window", "max_entry_bar",
-                    "min_rvol"}
+                    "min_rvol", "warmup_bars", "dip_pct"}
         self.assertEqual(SQL_KEYS_V2, expected)
 
     def test_v2_sim_keys_content(self):
@@ -372,6 +371,25 @@ class TestV2PipelineWithMockClient(unittest.TestCase):
 
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["trade_count"], 2)
+
+
+class TestVwapMrRegistration(unittest.TestCase):
+
+    def test_vwap_mr_in_sql_builders_v2(self):
+        from engine.intraday_pipeline import SQL_BUILDERS_V2
+        self.assertIn("vwap_mr", SQL_BUILDERS_V2)
+
+    def test_vwap_mr_builder_callable(self):
+        from engine.intraday_pipeline import SQL_BUILDERS_V2
+        builder = SQL_BUILDERS_V2["vwap_mr"]
+        cfg = {
+            "start_date": "2024-01-01", "end_date": "2024-03-31",
+            "min_volume": 5000000, "min_price": 100, "min_range_pct": 0.01,
+            "warmup_bars": 30, "max_entry_bar": 120, "dip_pct": 0.01,
+        }
+        sql = builder(cfg)
+        self.assertIsInstance(sql, str)
+        self.assertIn("vwap", sql)
 
 
 if __name__ == "__main__":
