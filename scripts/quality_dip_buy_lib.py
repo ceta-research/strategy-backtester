@@ -536,6 +536,91 @@ def compute_rsi_series(closes, period=14):
     return rsi
 
 
+# ── Sector Daily Returns ────────────────────────────────────────────────────
+
+def compute_sector_daily_returns(price_data, sector_map):
+    """Compute average daily return per sector per day.
+
+    For each trading day, computes the mean of (close/prev_close - 1)
+    across all stocks in each sector.
+
+    Returns:
+        dict[epoch, dict[sector, float]] -- sector average daily return per day
+    """
+    # Build per-symbol daily returns
+    sym_returns = {}
+    for sym, bars in price_data.items():
+        if len(bars) < 2:
+            continue
+        rets = {}
+        for i in range(1, len(bars)):
+            prev_close = bars[i - 1]["close"]
+            if prev_close > 0:
+                rets[bars[i]["epoch"]] = bars[i]["close"] / prev_close - 1.0
+        if rets:
+            sym_returns[sym] = rets
+
+    # Group symbols by sector
+    sector_stocks = {}
+    for sym in sym_returns:
+        sector = sector_map.get(sym, "Unknown")
+        if sector not in sector_stocks:
+            sector_stocks[sector] = []
+        sector_stocks[sector].append(sym)
+
+    # Compute average daily return per sector per epoch
+    all_epochs = set()
+    for rets in sym_returns.values():
+        all_epochs.update(rets.keys())
+
+    sector_returns = {}
+    for epoch in all_epochs:
+        day_sectors = {}
+        for sector, stocks in sector_stocks.items():
+            day_rets = [sym_returns[s][epoch] for s in stocks if epoch in sym_returns[s]]
+            if day_rets:
+                day_sectors[sector] = sum(day_rets) / len(day_rets)
+        if day_sectors:
+            sector_returns[epoch] = day_sectors
+
+    n_sectors = len(sector_stocks)
+    print(f"  Sector daily returns: {n_sectors} sectors, {len(sector_returns)} days")
+    return sector_returns
+
+
+# ── Volume Ratios ───────────────────────────────────────────────────────────
+
+def compute_volume_ratios(price_data, lookback=20):
+    """Compute volume / SMA(volume, lookback) for each symbol per day.
+
+    Returns:
+        dict[symbol, dict[epoch, float]] -- volume ratio (>1 means above average)
+    """
+    volume_ratios = {}
+    for sym, bars in price_data.items():
+        if len(bars) < lookback:
+            continue
+        ratios = {}
+        volumes = [b["volume"] for b in bars]
+        epochs = [b["epoch"] for b in bars]
+
+        running_sum = 0.0
+        for i in range(len(bars)):
+            running_sum += volumes[i]
+            if i >= lookback:
+                running_sum -= volumes[i - lookback]
+            if i >= lookback - 1:
+                avg_vol = running_sum / lookback
+                if avg_vol > 0:
+                    ratios[epochs[i]] = volumes[i] / avg_vol
+
+        if ratios:
+            volume_ratios[sym] = ratios
+
+    print(f"  Volume ratios: {len(volume_ratios)} symbols (lookback={lookback}d)")
+    return volume_ratios
+
+
 # ── Multi-Position Portfolio Simulator ───────────────────────────────────────
 
 def simulate_portfolio(
