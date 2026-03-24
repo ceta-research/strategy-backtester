@@ -6,7 +6,7 @@ How to write, run, and analyze backtests in this repo.
 
 ```bash
 # Local
-source /Users/swas/Desktop/Swas/Kite/ATO_SUITE/.venv/bin/activate
+source .venv/bin/activate
 python scripts/buy_2day_high.py          # writes result.json
 
 # Remote (cloud compute)

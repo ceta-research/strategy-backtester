@@ -6,7 +6,6 @@ Usage:
     python scripts/run_bb_mean_reversion.py --variant us       # US only (FMP API)
     python scripts/run_bb_mean_reversion.py --variant nse_fmp  # NSE via FMP API
     python scripts/run_bb_mean_reversion.py --variant nse_native  # NSE via nse_charting_day
-    python scripts/run_bb_mean_reversion.py --variant nse_kite    # NSE via local Kite parquet
 """
 
 import argparse
@@ -24,8 +23,6 @@ from engine.pipeline import run_pipeline
 from engine.constants import SECONDS_IN_ONE_DAY
 from lib.cr_client import CetaResearch
 
-
-KITE_PARQUET = "/Users/swas/Desktop/Swas/Kite/ATO_SUITE/data/tick_data/data_source=kite/granularity=day/exchange=NSE/1747083733.767452.parquet"
 
 STRATEGIES_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "strategies", "bb_mean_reversion")
 
@@ -67,40 +64,6 @@ class NseChartingDataProvider:
         return df
 
 
-class LocalKiteDataProvider:
-    """NSE data from local Kite parquet."""
-    def fetch_ohlcv(self, exchanges, symbols=None, start_epoch=None, end_epoch=None, prefetch_days=400):
-        fetch_start = start_epoch - (prefetch_days * SECONDS_IN_ONE_DAY)
-        df = pl.read_parquet(KITE_PARQUET)
-        print(f"  Local Kite parquet: {df.height:,} rows, {df['symbol'].n_unique()} symbols")
-        df = df.filter(
-            (pl.col("date_epoch").cast(pl.Int64) >= fetch_start)
-            & (pl.col("date_epoch").cast(pl.Int64) <= end_epoch)
-        )
-        if symbols:
-            df = df.filter(pl.col("symbol").is_in(symbols))
-        keep_cols = ["date_epoch", "open", "high", "low", "close", "average_price", "volume", "symbol"]
-        df = df.select([c for c in keep_cols if c in df.columns])
-        df = df.with_columns([
-            pl.col("symbol").cast(pl.Utf8),
-            pl.lit("NSE").alias("exchange"),
-        ])
-        df = df.with_columns(
-            (pl.lit("NSE:") + pl.col("symbol")).alias("instrument")
-        )
-        df = df.with_columns([
-            pl.col("date_epoch").cast(pl.Int64),
-            pl.col("open").cast(pl.Float64),
-            pl.col("high").cast(pl.Float64),
-            pl.col("low").cast(pl.Float64),
-            pl.col("close").cast(pl.Float64),
-            pl.col("average_price").cast(pl.Float64),
-            pl.col("volume").cast(pl.Float64),
-        ]).sort(["instrument", "date_epoch"])
-        print(f"  Filtered: {df.height:,} rows, {df['instrument'].n_unique()} instruments")
-        return df
-
-
 VARIANTS = {
     "us_etf": {
         "config": os.path.join(STRATEGIES_DIR, "config_us_etf.yaml"),
@@ -121,11 +84,6 @@ VARIANTS = {
         "config": os.path.join(STRATEGIES_DIR, "config_nse_native.yaml"),
         "provider": NseChartingDataProvider,
         "label": "NSE (nse_charting_day)",
-    },
-    "nse_kite": {
-        "config": os.path.join(STRATEGIES_DIR, "config_nse_kite.yaml"),
-        "provider": LocalKiteDataProvider,
-        "label": "NSE (Kite parquet)",
     },
 }
 
