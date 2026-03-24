@@ -1,0 +1,38 @@
+static:
+  start_margin: 1000000
+  start_epoch: 946684800          # 2000-01-01
+  end_epoch: 1741219200           # 2025-03-06
+  prefetch_days: 100
+  data_granularity: day
+  strategy_type: low_pe
+
+scanner:
+  instruments:
+    - [{exchange: NSE, symbols: []}]
+  price_threshold: [10]           # INR 10 minimum
+  avg_day_transaction_threshold:
+    - {period: 50, threshold: 5000000}    # INR 50L avg daily turnover
+  n_day_gain_threshold:
+    - {n: 30, threshold: -999}
+
+entry:
+  pe_max: [15]
+  pe_min: [0]
+  roe_min: [0.10]
+  de_max: [1.0]
+  mktcap_min: [20000000000]       # INR 20B (₹2000Cr)
+  max_stocks: [30]
+  min_stocks: [10]
+
+exit:
+  stop_loss_pct: [0]
+
+simulation:
+  default_sorting_type: [top_gainer]
+  order_sorting_type: [top_gainer]
+  order_ranking_window_days: [1]
+  max_positions: [30]
+  max_positions_per_instrument: [1]
+  order_value_multiplier: [1]
+  max_order_value:
+    - {type: fixed, value: 50000}
