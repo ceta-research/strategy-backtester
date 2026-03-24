@@ -5,7 +5,6 @@ Runs on CR compute. Executes the full EOD pipeline (signal gen + simulation),
 writes results to results.json.
 """
 
-import json
 import os
 import sys
 import time
@@ -24,19 +23,13 @@ def main():
     print(f"Starting EOD sweep on cloud compute (config={config_path})...")
     start = time.time()
 
-    results = run_pipeline(config_path)
+    sweep = run_pipeline(config_path)
 
     elapsed = round(time.time() - start, 1)
-    print(f"\nSweep complete: {len(results)} configs in {elapsed}s")
+    print(f"\nSweep complete: {len(sweep.configs)} configs in {elapsed}s")
 
-    # Strip day_wise_log to keep results.json small
-    for r in results:
-        r.pop("day_wise_log", None)
-
-    with open("results.json", "w") as f:
-        json.dump(results, f, default=str)
-
-    print(f"Results written to results.json ({len(results)} configs)")
+    sweep.save("results.json")
+    print(f"Results written to results.json ({len(sweep.configs)} configs)")
 
 
 if __name__ == "__main__":

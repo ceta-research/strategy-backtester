@@ -2,7 +2,6 @@
 """CLI entry point for strategy-backtester."""
 
 import argparse
-import json
 import os
 import sys
 
@@ -78,24 +77,15 @@ def main():
 
     if strategy_type == "intraday":
         from engine.intraday_pipeline import run_intraday_pipeline
-        results = run_intraday_pipeline(config_path)
+        sweep = run_intraday_pipeline(config_path)
     else:
-        results = run_pipeline(config_path)
+        sweep = run_pipeline(config_path)
 
-    if args.output and results:
-        # Serialize results (exclude day_wise_log for JSON output)
-        output_results = []
-        for r in results:
-            r_copy = {k: v for k, v in r.items() if k != "day_wise_log"}
-            # Remove non-serializable config dicts
-            for key in ["scanner_config", "entry_config", "exit_config", "simulation_config"]:
-                if key in r_copy:
-                    r_copy[key] = str(r_copy[key])
-            output_results.append(r_copy)
-
-        with open(args.output, "w") as f:
-            json.dump(output_results, f, indent=2, default=str)
+    if args.output and sweep.configs:
+        sweep.save(args.output)
         print(f"\nResults written to: {args.output}")
+    elif sweep.configs:
+        sweep.print_leaderboard()
 
 
 if __name__ == "__main__":

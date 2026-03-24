@@ -413,11 +413,11 @@ python run_remote.py scripts/buy_2day_high.py -o results/niftybees_sweep.json
 
 ### Resource defaults
 
-| Resource | Default | For heavy sweeps |
-|----------|---------|-----------------|
-| RAM | 4096 MB | 8192 MB |
-| Disk | 1024 MB | 2048 MB |
-| Timeout | 600s | 600s |
+| Resource | run_remote.py | cloud_sweep (intraday) | cloud_sweep_eod |
+|----------|--------------|----------------------|----------------|
+| CPU | -- | 16 | 16 |
+| RAM | 4096 MB | 61440 MB (60GB) | 61440 MB (60GB) |
+| Timeout | 600s | 43200s (12hr) | 43200s (12hr) |
 
 ## File Size Estimates
 
@@ -443,9 +443,209 @@ Size stays manageable because only top 20 configs get full equity curves and tra
 - [ ] stdout kept under 50 KB (use `print_summary()`, not huge tables)
 - [ ] For sweeps: use `SweepResult` with `top_n=20`
 
-## Reference Implementation
+## Reference Implementations
 
-`scripts/buy_2day_high.py` is the canonical example. Copy it and modify the entry/exit logic.
+- **Standalone script:** `scripts/buy_2day_high.py` (copy and modify entry/exit logic)
+- **Pipeline signal generator:** `engine/signals/ibs_reversion.py` (simplest full example)
+- **Pipeline wrapper:** `engine/signals/eod_technical.py` (wraps existing scanner/order_gen)
+
+---
+
+## Pipeline Approach (EOD)
+
+The pipeline approach is the main path for UI integration. Strategies are YAML-configured, run via `run.py`, and output standardized SweepResult JSON. Use this for strategies that need config sweeps, multi-exchange support, or will be exposed in the UI.
+
+### Architecture
+
+```
+strategies/my_strategy/config.yaml   <- YAML config (sweepable params)
+    |
+engine/signals/my_strategy.py        <- Signal generator (entry/exit logic)
+    |
+engine/pipeline.py                   <- Orchestrator (data fetch -> signals -> rank -> simulate)
+    |
+engine/simulator.py                  <- Position-level simulator (charges, margin, trade log)
+    |
+lib/backtest_result.py               <- SweepResult output (metrics, equity curves, trades)
+```
+
+### Step 1: Create the signal generator
+
+Create `engine/signals/my_strategy.py`:
+
+```python
+"""My Strategy signal generator.
+
+Entry: <describe entry condition>
+Exit: <describe exit condition>
+"""
+
+import time
+import polars as pl
+
+from engine.config_loader import (
+    get_scanner_config_iterator,
+    get_entry_config_iterator,
+    get_exit_config_iterator,
+)
+from engine.signals.base import register_strategy, apply_liquidity_filter, add_next_day_values
+
+
+class MyStrategySignalGenerator:
+
+    def generate_orders(self, context: dict, df_tick_data: pl.DataFrame) -> pl.DataFrame:
+        print("\n--- My Strategy Signal Generation ---")
+        t0 = time.time()
+
+        # Phase 1: Scanner (liquidity filter -- shared utility)
+        df = apply_liquidity_filter(df_tick_data, context)
+
+        # Phase 2: Compute indicators (using prefetch period for warmup)
+        df = add_next_day_values(df)
+
+        # Phase 3: Generate orders for each entry x exit config combo
+        all_orders = []
+
+        for entry_cfg in get_entry_config_iterator(context):
+            for exit_cfg in get_exit_config_iterator(context):
+                # Your entry/exit logic here.
+                # Filter df to rows matching entry conditions.
+                # Set exit_epoch/exit_price based on exit conditions.
+                #
+                # Each order must have:
+                #   instrument, entry_epoch, exit_epoch,
+                #   entry_price, exit_price,
+                #   scanner_config_ids, entry_config_ids, exit_config_ids
+
+                df_signals = df.filter(
+                    pl.col("scanner_config_ids").is_not_null()
+                    # & <your entry condition>
+                )
+
+                df_orders = df_signals.select([
+                    pl.col("instrument"),
+                    pl.col("next_epoch").alias("entry_epoch"),
+                    # exit_epoch: computed from your exit logic
+                    pl.col("next_open").alias("entry_price"),
+                    # exit_price: computed from your exit logic
+                    pl.col("scanner_config_ids"),
+                    pl.lit(str(entry_cfg["id"])).alias("entry_config_ids"),
+                    pl.lit(str(exit_cfg["id"])).alias("exit_config_ids"),
+                ])
+
+                all_orders.append(df_orders)
+
+        if not all_orders:
+            return pl.DataFrame()
+
+        result = pl.concat(all_orders, how="diagonal")
+        print(f"  Signal gen: {result.height} orders in {round(time.time() - t0, 2)}s")
+        return result
+
+
+# Register so pipeline.py can find it via strategy_type
+register_strategy("my_strategy", MyStrategySignalGenerator)
+```
+
+### Step 2: Register the import in pipeline.py
+
+Add one line to `engine/pipeline.py` imports (around line 47):
+
+```python
+import engine.signals.my_strategy  # noqa: F401
+```
+
+### Step 3: Create the YAML config
+
+Create `strategies/my_strategy/config.yaml`:
+
+```yaml
+static:
+  strategy_type: my_strategy     # must match register_strategy() name
+  start_margin: 1000000
+  start_epoch: 1262304000        # 2010-01-01
+  end_epoch: 1735689600          # 2025-01-01
+  prefetch_days: 400             # warmup for indicators
+  data_granularity: day
+
+scanner:
+  instruments:
+    - [{exchange: NSE, symbols: []}]   # empty = all symbols on exchange
+  price_threshold: [50]
+  avg_day_transaction_threshold:
+    - {period: 125, threshold: 70000000}
+  n_day_gain_threshold:
+    - {n: 360, threshold: 0}
+
+entry:
+  my_param_1: [10, 20]          # list = sweep these values
+  my_param_2: [0.05]            # single-element list = fixed
+
+exit:
+  stop_pct: [0.05, 0.08]
+  max_hold_days: [10, 20]
+
+simulation:
+  default_sorting_type: [top_gainer]
+  order_sorting_type: [top_gainer]
+  order_ranking_window_days: [30]
+  max_positions: [10]
+  max_positions_per_instrument: [1]
+  order_value_multiplier: [1]
+  max_order_value:
+    - {type: fixed, value: 50000}
+```
+
+Every list value is swept. The pipeline runs all combinations:
+`scanner x entry x exit x simulation` configs.
+
+### Step 4: Run
+
+```bash
+# Local
+python run.py --strategy my_strategy
+python run.py --strategy my_strategy --output results/my_strategy.json
+
+# Cloud (EOD)
+python scripts/cloud_sweep_eod.py strategies/my_strategy/config.yaml
+
+# Custom config file
+python run.py --config path/to/custom_config.yaml
+```
+
+### Step 5: Add tests
+
+Add a mock test to `tests/test_intraday_pipeline.py` (for intraday) or create `tests/test_my_strategy.py`:
+
+```python
+def test_my_strategy_generates_orders():
+    """Verify signal generator produces valid orders from synthetic data."""
+    # Create synthetic OHLCV DataFrame
+    # Load config, build context
+    # Call signal_gen.generate_orders(context, df)
+    # Assert orders have required columns and non-zero height
+```
+
+### Pipeline vs Standalone: When to use which
+
+| | Pipeline (`run.py`) | Standalone (`scripts/`) |
+|---|---|---|
+| Config sweeps | YAML-driven, automatic | Manual loops |
+| UI integration | Yes (SweepResult output) | Yes (same output) |
+| Multi-exchange | Built-in scanner | Manual |
+| Simulator | Position-level with charges | You write the loop |
+| Best for | Stock-picking strategies with scanner filters | Index/ETF, cross-asset, custom sim logic |
+
+### Pipeline Checklist
+
+- [ ] Signal generator in `engine/signals/my_strategy.py`
+- [ ] `register_strategy("my_strategy", MyClass)` at bottom of file
+- [ ] Import added to `engine/pipeline.py`
+- [ ] `strategies/my_strategy/config.yaml` with `strategy_type: my_strategy`
+- [ ] Orders have all required columns (instrument, entry/exit epoch/price, config IDs)
+- [ ] Entry uses next-day open (`next_open`), not same-day close (MOC execution)
+- [ ] Tests added
+- [ ] Works locally: `python run.py --strategy my_strategy`
 
 ## Metrics Reference
 

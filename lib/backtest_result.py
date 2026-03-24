@@ -46,7 +46,7 @@ class BacktestResult:
     """
 
     def __init__(self, strategy_name, params, instrument, exchange,
-                 capital, slippage_bps=5, description=""):
+                 capital, slippage_bps=5, description="", risk_free_rate=0.02):
         self.strategy = {
             "name": strategy_name,
             "description": description,
@@ -55,7 +55,9 @@ class BacktestResult:
             "exchange": exchange,
             "capital": capital,
             "slippage_bps": slippage_bps,
+            "risk_free_rate": risk_free_rate,
         }
+        self._risk_free_rate = risk_free_rate
         self.equity_curve = []       # [(epoch, value)]
         self.trades = []             # [trade_dict]
         self.benchmark_values = []   # [(epoch, value)]
@@ -123,7 +125,8 @@ class BacktestResult:
             bench_returns = [0.0] * len(daily_returns)
 
         # Core metrics via lib/metrics.py
-        core = compute_metrics(daily_returns, bench_returns, periods_per_year=252)
+        core = compute_metrics(daily_returns, bench_returns, periods_per_year=252,
+                               risk_free_rate=self._risk_free_rate)
 
         # Time-series breakdowns (cached for reuse)
         monthly = self._monthly_returns()

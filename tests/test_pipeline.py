@@ -155,11 +155,11 @@ def test_end_to_end():
     if df_config_orders.height > 0:
         df_config_orders = sort_orders(df_config_orders, sim_cfg, df, epoch_wise_stats)
 
-    day_wise_log, order_ids, snapshot, positions = simulator.process(
+    day_wise_log, order_ids, snapshot, positions, trade_log = simulator.process(
         context, df_config_orders, epoch_wise_stats, {}, sim_cfg, config_id
     )
 
-    print(f"  Simulation: {len(day_wise_log)} days logged, {len(order_ids)} orders executed")
+    print(f"  Simulation: {len(day_wise_log)} days logged, {len(order_ids)} orders executed, {len(trade_log)} trades")
 
     # Verify invariants
     for day in day_wise_log:
@@ -177,8 +177,131 @@ def test_end_to_end():
             f"{instrument}: {len(inst_positions)} positions > max {sim_cfg['max_positions_per_instrument']}"
         )
 
+    # Verify trade_log structure
+    for t in trade_log:
+        assert "instrument" in t, "trade_log entry missing 'instrument'"
+        assert "entry_epoch" in t, "trade_log entry missing 'entry_epoch'"
+        assert "exit_epoch" in t, "trade_log entry missing 'exit_epoch'"
+        assert "entry_price" in t, "trade_log entry missing 'entry_price'"
+        assert "exit_price" in t, "trade_log entry missing 'exit_price'"
+        assert "quantity" in t, "trade_log entry missing 'quantity'"
+        assert "entry_charges" in t, "trade_log entry missing 'entry_charges'"
+        assert "sell_charges" in t, "trade_log entry missing 'sell_charges'"
+        assert t["quantity"] > 0, f"Trade quantity must be > 0: {t['quantity']}"
+        assert t["entry_charges"] >= 0, f"Entry charges must be >= 0: {t['entry_charges']}"
+        assert t["sell_charges"] >= 0, f"Sell charges must be >= 0: {t['sell_charges']}"
+
     print("End-to-end test passed!")
+
+
+def test_simulator_trade_log_fields():
+    """Verify simulator.process() returns trade_log with correct schema."""
+    from engine.constants import SECONDS_IN_ONE_DAY
+
+    base_epoch = 1577836800
+    # 2 instruments, 10 days: enough to trigger entries and exits
+    rows = []
+    for sym, base_price in [("SYM0", 100), ("SYM1", 150)]:
+        for d in range(10):
+            epoch = base_epoch + d * SECONDS_IN_ONE_DAY
+            price = base_price + d * 0.5
+            rows.append({
+                "date_epoch": epoch,
+                "open": price - 0.5, "high": price + 1.5,
+                "low": price - 1.5, "close": price,
+                "average_price": price, "volume": 2000000,
+                "symbol": sym, "instrument": f"NSE:{sym}", "exchange": "NSE",
+            })
+
+    df = pl.DataFrame(rows)
+    epoch_wise_stats = create_epoch_wise_instrument_stats(df)
+
+    # Two orders: first exits day 5, second enters day 7 (extends simulator end_epoch)
+    entry1 = base_epoch + SECONDS_IN_ONE_DAY
+    exit1 = base_epoch + 5 * SECONDS_IN_ONE_DAY
+    entry2 = base_epoch + 7 * SECONDS_IN_ONE_DAY
+    exit2 = base_epoch + 9 * SECONDS_IN_ONE_DAY
+    orders = pl.DataFrame([
+        {
+            "instrument": "NSE:SYM0",
+            "entry_epoch": entry1, "exit_epoch": exit1,
+            "entry_price": 100.5, "exit_price": 102.5,
+            "scanner_config_ids": "s0", "entry_config_ids": "e0", "exit_config_ids": "x0",
+        },
+        {
+            "instrument": "NSE:SYM1",
+            "entry_epoch": entry2, "exit_epoch": exit2,
+            "entry_price": 153.5, "exit_price": 154.5,
+            "scanner_config_ids": "s0", "entry_config_ids": "e0", "exit_config_ids": "x0",
+        },
+    ])
+
+    sim_cfg = {
+        "max_positions": 5,
+        "max_positions_per_instrument": 1,
+    }
+    context = {
+        "start_margin": 1000000,
+        "start_epoch": base_epoch,
+        "end_epoch": base_epoch + 10 * SECONDS_IN_ONE_DAY,
+    }
+
+    day_wise_log, order_ids, snapshot, positions, trade_log = simulator.process(
+        context, orders, epoch_wise_stats, {}, sim_cfg, "test_config"
+    )
+
+    # At least the first order should complete (exit at day 5, simulator runs to day 7+)
+    assert len(trade_log) >= 1, f"Expected at least 1 trade, got {len(trade_log)}"
+
+    # Verify all required fields on every trade
+    required = {"instrument", "entry_epoch", "exit_epoch", "entry_price",
+                "exit_price", "quantity", "entry_charges", "sell_charges"}
+    for t in trade_log:
+        assert required.issubset(t.keys()), f"Missing fields: {required - t.keys()}"
+        assert t["quantity"] > 0, f"Quantity must be > 0: {t['quantity']}"
+        assert t["entry_charges"] >= 0, f"Entry charges must be >= 0: {t['entry_charges']}"
+        assert t["sell_charges"] >= 0, f"Sell charges must be >= 0: {t['sell_charges']}"
+
+    # First trade should be SYM0
+    t0 = trade_log[0]
+    assert t0["instrument"] == "NSE:SYM0"
+    assert t0["entry_epoch"] == entry1
+    assert t0["exit_epoch"] == exit1
+
+
+def test_risk_free_rate_passthrough():
+    """Verify BacktestResult passes risk_free_rate to compute_metrics."""
+    from lib.backtest_result import BacktestResult
+
+    # Two results with different risk_free_rate, same equity curve
+    r1 = BacktestResult("test", {}, "X", "NSE", 100000, risk_free_rate=0.0)
+    r2 = BacktestResult("test", {}, "X", "NSE", 100000, risk_free_rate=0.10)
+
+    # 10 days of mild positive returns
+    for i in range(10):
+        val = 100000 + i * 500
+        r1.add_equity_point(1000000 + i * 86400, val)
+        r2.add_equity_point(1000000 + i * 86400, val)
+
+    r1.compute()
+    r2.compute()
+
+    s1 = r1.to_dict()["summary"]
+    s2 = r2.to_dict()["summary"]
+
+    # Higher risk_free_rate -> lower Sharpe ratio
+    assert s1["sharpe_ratio"] is not None
+    assert s2["sharpe_ratio"] is not None
+    assert s1["sharpe_ratio"] > s2["sharpe_ratio"], (
+        f"Sharpe with rfr=0 ({s1['sharpe_ratio']}) should be > Sharpe with rfr=0.10 ({s2['sharpe_ratio']})"
+    )
+
+    # risk_free_rate stored in strategy dict
+    assert r1.to_dict()["strategy"]["risk_free_rate"] == 0.0
+    assert r2.to_dict()["strategy"]["risk_free_rate"] == 0.10
 
 
 if __name__ == "__main__":
     test_end_to_end()
+    test_simulator_trade_log_fields()
+    test_risk_free_rate_passthrough()

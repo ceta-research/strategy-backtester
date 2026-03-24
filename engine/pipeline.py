@@ -24,7 +24,7 @@ from engine.data_provider import CRDataProvider
 from engine import simulator
 from engine.ranking import sort_orders
 from engine.utils import create_epoch_wise_instrument_stats, create_config_df_loc_lookup
-from lib.metrics import compute_metrics
+from lib.backtest_result import BacktestResult, SweepResult
 
 # Import signal generators to trigger registration
 import engine.signals.eod_technical  # noqa: F401
@@ -56,7 +56,7 @@ def run_pipeline(config_path, data_provider=None):
         data_provider: optional data provider instance (defaults to CRDataProvider)
 
     Returns:
-        list of result dicts sorted by Calmar ratio (descending)
+        SweepResult with BacktestResult per config
     """
     pipeline_start = time.time()
     print(f"Loading config: {config_path}")
@@ -76,10 +76,23 @@ def run_pipeline(config_path, data_provider=None):
     print(f"Config combinations: {scanner_total} scanner x {entry_total} entry x "
           f"{exit_total} exit x {sim_total} sim = {total_configs} total")
 
+    start_margin = static["start_margin"]
+
+    # Extract exchange from scanner config for SweepResult
+    exchange = "UNKNOWN"
+    for scanner_cfg in get_scanner_config_iterator(config):
+        for inst in scanner_cfg["instruments"]:
+            exchange = inst["exchange"]
+            break
+        break
+
+    sweep = SweepResult(strategy_type, "PORTFOLIO", exchange, start_margin,
+                        description=f"EOD {strategy_type} sweep")
+
     # Build context (matches ATO_Simulator's context dict structure)
     context = {
         **config,
-        "start_margin": static["start_margin"],
+        "start_margin": start_margin,
         "start_epoch": static["start_epoch"],
         "end_epoch": static["end_epoch"],
         "prefetch_days": static["prefetch_days"],
@@ -116,21 +129,21 @@ def run_pipeline(config_path, data_provider=None):
 
     if df_tick_data.is_empty():
         print("No data fetched. Aborting.")
-        return []
+        return sweep
 
     # Signal generation (strategy-specific scanner + order gen)
     df_orders = signal_gen.generate_orders(context, df_tick_data)
 
     if df_orders.is_empty():
         print("No orders generated. Aborting.")
-        return []
+        return sweep
 
     # Sanitize orders: remove zero-price entries only (no return cap - matches ATO_Simulator)
     df_orders = sanitize_orders(df_orders, max_return_mult=999.0)
 
     if df_orders.is_empty():
         print("All orders removed by sanitization. Aborting.")
-        return []
+        return sweep
 
     # Build epoch-wise instrument stats (used by simulator + ranking)
     print("\n--- Building Instrument Stats ---")
@@ -143,7 +156,6 @@ def run_pipeline(config_path, data_provider=None):
 
     # Simulate each config combination sequentially
     print(f"\n--- Simulation ({total_configs} configs) ---")
-    all_results = []
     config_num = 0
 
     for scanner_cfg in get_scanner_config_iterator(config):
@@ -171,86 +183,45 @@ def run_pipeline(config_path, data_provider=None):
 
                     # Run simulator
                     sim_start = time.time()
-                    day_wise_log, config_order_ids, snapshot, day_wise_positions = simulator.process(
+                    day_wise_log, config_order_ids, snapshot, day_wise_positions, trade_log = simulator.process(
                         context, df_config_orders, epoch_wise_instrument_stats,
                         {}, sim_cfg, config_id
                     )
                     sim_elapsed = round(time.time() - sim_start, 2)
 
-                    # Compute metrics from day_wise_log
-                    result = _compute_result_metrics(
-                        day_wise_log, config_id, scanner_cfg, entry_cfg, exit_cfg, sim_cfg, context
-                    )
+                    # Build BacktestResult
+                    params = {"config_id": config_id}
+                    br = BacktestResult(strategy_type, params, "PORTFOLIO", exchange, start_margin)
 
-                    cagr_pct = result.get("cagr", 0) * 100 if result.get("cagr") else 0
-                    max_dd_pct = result.get("max_drawdown", 0) * 100 if result.get("max_drawdown") else 0
+                    for day in day_wise_log:
+                        br.add_equity_point(day["log_date_epoch"],
+                                            day["invested_value"] + day["margin_available"])
+
+                    for t in trade_log:
+                        total_charges = t.get("entry_charges", 0) + t.get("sell_charges", 0)
+                        br.add_trade(t["entry_epoch"], t["exit_epoch"],
+                                     t["entry_price"], t["exit_price"],
+                                     t["quantity"], charges=total_charges)
+
+                    sweep.add_config(params, br)
+
+                    s = br.to_dict().get("summary", {})
+                    cagr_pct = (s.get("cagr") or 0) * 100
+                    max_dd_pct = (s.get("max_drawdown") or 0) * 100
                     print(
                         f"  config {config_num}/{total_configs}: {config_id} | "
                         f"{len(df_config_orders)} orders, {len(day_wise_log)} days | "
                         f"CAGR={cagr_pct:.1f}% MaxDD={max_dd_pct:.1f}% | {sim_elapsed}s"
                     )
 
-                    all_results.append(result)
-
-    # Sort by Calmar ratio (descending)
-    all_results.sort(key=lambda r: r.get("calmar_ratio") or 0, reverse=True)
-
     elapsed = round(time.time() - pipeline_start, 2)
     print(f"\n--- Pipeline Complete: {elapsed}s ---")
-    if all_results:
-        best = all_results[0]
-        print(f"  Best config: {best['config_id']}")
-        print(f"  CAGR: {best.get('cagr', 0) * 100:.2f}%")
-        print(f"  Max Drawdown: {best.get('max_drawdown', 0) * 100:.2f}%")
-        print(f"  Calmar: {best.get('calmar_ratio', 'N/A')}")
+    if sweep.configs:
+        best_params, best_result = sweep._sorted("calmar_ratio")[0]
+        bs = best_result.to_dict()["summary"]
+        print(f"  Best config: {best_params.get('config_id', best_params)}")
+        print(f"  CAGR: {(bs.get('cagr') or 0) * 100:.2f}%")
+        print(f"  Max Drawdown: {(bs.get('max_drawdown') or 0) * 100:.2f}%")
+        print(f"  Calmar: {bs.get('calmar_ratio', 'N/A')}")
 
-    return all_results
-
-
-def _compute_result_metrics(day_wise_log, config_id, scanner_cfg, entry_cfg, exit_cfg, sim_cfg, context):
-    """Convert day_wise_log into metrics dict."""
-    result = {
-        "config_id": config_id,
-        "scanner_config": scanner_cfg,
-        "entry_config": entry_cfg,
-        "exit_config": exit_cfg,
-        "simulation_config": sim_cfg,
-        "num_trading_days": len(day_wise_log),
-    }
-
-    if len(day_wise_log) < 2:
-        result.update({"cagr": None, "max_drawdown": None, "calmar_ratio": None, "total_return": None})
-        return result
-
-    # Compute daily returns from account values
-    account_values = [d["invested_value"] + d["margin_available"] for d in day_wise_log]
-    daily_returns = []
-    for i in range(1, len(account_values)):
-        if account_values[i - 1] > 0:
-            daily_returns.append((account_values[i] - account_values[i - 1]) / account_values[i - 1])
-        else:
-            daily_returns.append(0.0)
-
-    if not daily_returns:
-        result.update({"cagr": None, "max_drawdown": None, "calmar_ratio": None, "total_return": None})
-        return result
-
-    benchmark_returns = [0.0] * len(daily_returns)
-    metrics = compute_metrics(daily_returns, benchmark_returns, periods_per_year=252)
-
-    port = metrics["portfolio"]
-    result.update({
-        "cagr": port.get("cagr"),
-        "total_return": port.get("total_return"),
-        "max_drawdown": port.get("max_drawdown"),
-        "calmar_ratio": port.get("calmar_ratio"),
-        "sharpe_ratio": port.get("sharpe_ratio"),
-        "sortino_ratio": port.get("sortino_ratio"),
-        "annualized_volatility": port.get("annualized_volatility"),
-        "var_95": port.get("var_95"),
-        "start_value": account_values[0],
-        "end_value": account_values[-1],
-        "day_wise_log": day_wise_log,
-    })
-
-    return result
+    return sweep

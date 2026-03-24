@@ -43,6 +43,7 @@ LIB_FILES = [
     "lib/__init__.py",
     "lib/cr_client.py",
     "lib/metrics.py",
+    "lib/backtest_result.py",
 ]
 
 CODE_FILES = [
@@ -166,9 +167,19 @@ def split_config_into_batches(raw_config, batch_size):
 # ------------------------------------------------------------------ #
 
 def download_results(cr, run_id):
-    """Download results.json from a completed run via the file API."""
+    """Download results.json from a completed run via the file API.
+
+    Returns list of config summaries (extracted from SweepResult JSON).
+    """
     content = cr.get_execution_files(run_id, path="results.json")
-    return json.loads(content)
+    data = json.loads(content)
+    # SweepResult format: extract all_configs list
+    if isinstance(data, dict) and data.get("type") == "sweep":
+        return data.get("all_configs", [])
+    # Legacy flat list format (backward compat)
+    if isinstance(data, list):
+        return data
+    return []
 
 
 def submit_batch(cr, project_id, batch_config, batch_num, total,
@@ -290,10 +301,10 @@ def main():
     parser = argparse.ArgumentParser(description="Run ORB sweep on CR cloud compute")
     parser.add_argument("--output", type=str,
                         help="Output JSON path (default: results/orb_sweep_YYYY-MM-DD.json)")
-    parser.add_argument("--timeout", type=int, default=1800,
-                        help="Per-batch execution timeout in seconds (default: 1800)")
-    parser.add_argument("--cpu", type=int, default=2, help="CPU count (default: 2)")
-    parser.add_argument("--ram", type=int, default=4096, help="RAM in MB (default: 4096)")
+    parser.add_argument("--timeout", type=int, default=43200,
+                        help="Per-batch execution timeout in seconds (default: 43200)")
+    parser.add_argument("--cpu", type=int, default=16, help="CPU count (default: 16)")
+    parser.add_argument("--ram", type=int, default=61440, help="RAM in MB (default: 61440)")
     parser.add_argument("--batch-size", type=int, default=48,
                         help="Max SQL configs per batch (default: 48)")
     parser.add_argument("--parallel", type=int, default=1,

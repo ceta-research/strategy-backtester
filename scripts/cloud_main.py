@@ -5,7 +5,6 @@ Runs on CR compute. Executes the full intraday pipeline, writes results
 to results.json for file-based download (avoids stdout size limits).
 """
 
-import json
 import os
 import sys
 import time
@@ -25,16 +24,13 @@ def main():
     print(f"Starting intraday sweep on cloud compute (config={config_path})...")
     start = time.time()
 
-    results = run_intraday_pipeline(config_path)
+    sweep = run_intraday_pipeline(config_path)
 
     elapsed = round(time.time() - start, 1)
-    print(f"\nSweep complete: {len(results)} configs in {elapsed}s")
+    print(f"\nSweep complete: {len(sweep.configs)} configs in {elapsed}s")
 
-    # Write full results to file (no field stripping needed with file output)
-    with open("results.json", "w") as f:
-        json.dump(results, f, default=str)
-
-    print(f"Results written to results.json ({len(results)} configs)")
+    sweep.save("results.json")
+    print(f"Results written to results.json ({len(sweep.configs)} configs)")
 
 
 if __name__ == "__main__":

@@ -21,10 +21,10 @@ from engine.intraday_sql_builder import (
     build_orb_sql, build_orb_signal_sql, build_rvol_atr_sql,
     build_vwap_mr_signal_sql,
 )
-from engine.intraday_simulator import simulate_intraday
+from engine.intraday_simulator import simulate_intraday, _date_to_epoch
 from engine.intraday_simulator_v2 import simulate_intraday_v2
+from lib.backtest_result import BacktestResult, SweepResult
 from lib.cr_client import CetaResearch
-from lib.metrics import compute_metrics
 
 
 # Map strategy_name -> SQL builder function
@@ -66,14 +66,14 @@ EXCHANGE_SQL_DEFAULTS = {
 }
 
 
-def run_intraday_pipeline(config_path: str) -> list:
+def run_intraday_pipeline(config_path: str) -> SweepResult:
     """Run intraday backtesting pipeline (dispatches to v1 or v2).
 
     Args:
         config_path: path to YAML config file
 
     Returns:
-        list of result dicts sorted by Calmar ratio (descending)
+        SweepResult with BacktestResult per config
     """
     with open(config_path) as f:
         raw = yaml.safe_load(f)
@@ -99,13 +99,16 @@ def _run_pipeline(config_path, raw, sql_builders, sql_keys, sim_keys,
     build_sql = sql_builders.get(strategy_name)
     if not build_sql:
         print(f"Unknown intraday strategy: {strategy_name}")
-        return []
+        return SweepResult(strategy_name, "PORTFOLIO", "UNKNOWN", 0)
 
     risk_free_rate = static.get("risk_free_rate", 0.065)
     initial_capital = static.get("initial_capital", 500_000)
     exchange = static.get("exchange", "NSE")
 
     exchange_defaults = EXCHANGE_SQL_DEFAULTS.get(exchange, EXCHANGE_SQL_DEFAULTS["NSE"])
+
+    sweep = SweepResult(strategy_name, "PORTFOLIO", exchange, initial_capital,
+                        description=f"Intraday {version_label} sweep")
 
     # Build all param combos from scanner + entry + exit + simulation sections
     all_params = {}
@@ -131,7 +134,6 @@ def _run_pipeline(config_path, raw, sql_builders, sql_keys, sim_keys,
 
     client = CetaResearch()
 
-    all_results = []
     config_num = 0
 
     for sql_idx, sql_cfg in enumerate(sql_combos):
@@ -191,84 +193,49 @@ def _run_pipeline(config_path, raw, sql_builders, sql_keys, sim_keys,
 
             sim_result = simulate_fn(query_data, full_sim_cfg)
             daily_rets = sim_result["daily_returns"]
-            bench_rets = sim_result["bench_returns"]
 
             config_id = _make_config_id(sql_cfg, sim_cfg)
+            params = {**sql_cfg, **sim_cfg}
 
-            if len(daily_rets) < 2:
-                result = {
-                    "config_id": config_id,
-                    "sql_config": sql_cfg,
-                    "sim_config": sim_cfg,
-                    "trade_count": sim_result["trade_count"],
-                    "active_days": len(daily_rets),
-                    "cagr": None, "max_drawdown": None, "calmar_ratio": None,
-                }
-                all_results.append(result)
-                print(f"    config {config_num}/{total_configs}: {config_id} | "
-                      f"<2 active days, skipping metrics")
-                continue
+            # Build BacktestResult
+            br = BacktestResult(strategy_name, params, "PORTFOLIO", exchange,
+                                initial_capital, risk_free_rate=risk_free_rate)
 
-            metrics = compute_metrics(
-                daily_rets, bench_rets,
-                periods_per_year=252,
-                risk_free_rate=risk_free_rate,
-            )
+            # Feed equity points
+            for day in sim_result["day_wise_log"]:
+                br.add_equity_point(day["log_date_epoch"], day["margin_available"])
 
-            port = metrics["portfolio"]
-            comp = metrics["comparison"]
+            # Feed trades
+            for t in sim_result["trade_log"]:
+                trade_epoch = _date_to_epoch(t["trade_date"])
+                ov = t.get("order_value") or full_sim_cfg.get("order_value", initial_capital)
+                qty = max(int(ov / t["entry_price"]), 1) if t["entry_price"] > 0 else 1
+                br.add_trade(trade_epoch, trade_epoch, t["entry_price"], t["exit_price"],
+                             qty, charges=t.get("charges", 0))
 
-            cagr = port.get("cagr") or 0
-            max_dd = port.get("max_drawdown") or 0
-            calmar = port.get("calmar_ratio")
-            win_rate = (sim_result["win_count"] / sim_result["trade_count"] * 100
-                        if sim_result["trade_count"] > 0 else 0)
+            sweep.add_config(params, br)
 
-            start_value = full_sim_cfg["initial_capital"]
-            end_value = sim_result["day_wise_log"][-1]["margin_available"] if sim_result["day_wise_log"] else start_value
-
-            result = {
-                "config_id": config_id,
-                "sql_config": sql_cfg,
-                "sim_config": sim_cfg,
-                "trade_count": sim_result["trade_count"],
-                "win_count": sim_result["win_count"],
-                "win_rate": round(win_rate, 1),
-                "active_days": len(daily_rets),
-                "cagr": port.get("cagr"),
-                "total_return": port.get("total_return"),
-                "max_drawdown": port.get("max_drawdown"),
-                "calmar_ratio": calmar,
-                "sharpe_ratio": port.get("sharpe_ratio"),
-                "sortino_ratio": port.get("sortino_ratio"),
-                "annualized_volatility": port.get("annualized_volatility"),
-                "var_95": port.get("var_95"),
-                "excess_cagr": comp.get("excess_cagr"),
-                "start_value": start_value,
-                "end_value": end_value,
-                "day_wise_log": sim_result["day_wise_log"],
-                "trade_log": sim_result["trade_log"],
-                "full_metrics": metrics,
-            }
-            all_results.append(result)
-
+            # Console output
+            s = br.to_dict().get("summary", {})
+            cagr = (s.get("cagr") or 0) * 100
+            max_dd = (s.get("max_drawdown") or 0) * 100
+            calmar = s.get("calmar_ratio")
             calmar_str = f" Calmar={calmar:.3f}" if calmar else ""
             print(f"    config {config_num}/{total_configs}: {config_id} | "
                   f"{sim_result['trade_count']} trades, {len(daily_rets)} days | "
-                  f"CAGR={cagr * 100:.1f}% MaxDD={max_dd * 100:.1f}%{calmar_str}")
-
-    all_results.sort(key=lambda r: r.get("calmar_ratio") or 0, reverse=True)
+                  f"CAGR={cagr:.1f}% MaxDD={max_dd:.1f}%{calmar_str}")
 
     elapsed = round(time.time() - pipeline_start, 1)
     print(f"\n--- Intraday Pipeline {version_label} Complete: {elapsed}s ---")
-    if all_results and all_results[0].get("cagr") is not None:
-        best = all_results[0]
-        print(f"  Best config: {best['config_id']}")
-        print(f"  CAGR: {best['cagr'] * 100:.2f}%")
-        print(f"  Max Drawdown: {best['max_drawdown'] * 100:.2f}%")
-        print(f"  Calmar: {best.get('calmar_ratio', 'N/A')}")
+    if sweep.configs:
+        best_params, best_result = sweep._sorted("calmar_ratio")[0]
+        bs = best_result.to_dict()["summary"]
+        print(f"  Best config: {best_params}")
+        print(f"  CAGR: {(bs.get('cagr') or 0) * 100:.2f}%")
+        print(f"  Max Drawdown: {(bs.get('max_drawdown') or 0) * 100:.2f}%")
+        print(f"  Calmar: {bs.get('calmar_ratio', 'N/A')}")
 
-    return all_results
+    return sweep
 
 
 def _date_chunks(start_date: str, end_date: str, months: int = 12) -> list:

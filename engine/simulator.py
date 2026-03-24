@@ -25,7 +25,7 @@ def process(context, df_orders, epoch_wise_instrument_stats, current_snapshot, s
         config_id: string identifier for this config combination
 
     Returns:
-        tuple of (day_wise_log, config_order_ids, current_snapshot, day_wise_positions)
+        tuple of (day_wise_log, config_order_ids, current_snapshot, day_wise_positions, trade_log)
     """
     pay_out_config = sim_config.get("pay_out", {})
     max_positions = sim_config["max_positions"]
@@ -78,6 +78,7 @@ def process(context, df_orders, epoch_wise_instrument_stats, current_snapshot, s
     day_wise_log = []
     config_order_ids = []
     day_wise_positions = {}
+    trade_log = []
 
     for simulation_date_epoch in processing_dates:
         if simulation_date_epoch < current_snapshot["simulation_date"]:
@@ -169,6 +170,7 @@ def process(context, df_orders, epoch_wise_instrument_stats, current_snapshot, s
                         "exit_price": entry_order["exit_price"],
                         "quantity": order_quantity,
                         "last_close_price": entry_order["entry_price"],
+                        "entry_charges": charges,
                     }
 
                     current_positions.setdefault(entry_order["instrument"], {})[order_id] = this_order
@@ -185,15 +187,25 @@ def process(context, df_orders, epoch_wise_instrument_stats, current_snapshot, s
                     position = current_positions[exit_order["instrument"]][order_id]
                     exchange = exit_order["instrument"].split(":")[0]
                     current_positions_count -= 1
-                    margin_available += position["quantity"] * position["exit_price"] - (
-                        calculate_charges(
-                            exchange,
-                            position["quantity"] * position["exit_price"],
-                            segment="EQUITY",
-                            trade_type="DELIVERY",
-                            which_side="SELL_SIDE",
-                        )
+                    sell_charges = calculate_charges(
+                        exchange,
+                        position["quantity"] * position["exit_price"],
+                        segment="EQUITY",
+                        trade_type="DELIVERY",
+                        which_side="SELL_SIDE",
                     )
+                    margin_available += position["quantity"] * position["exit_price"] - sell_charges
+
+                    trade_log.append({
+                        "instrument": position["instrument"],
+                        "entry_epoch": position["entry_epoch"],
+                        "exit_epoch": position["exit_epoch"],
+                        "entry_price": position["entry_price"],
+                        "exit_price": position["exit_price"],
+                        "quantity": position["quantity"],
+                        "entry_charges": position.get("entry_charges", 0),
+                        "sell_charges": sell_charges,
+                    })
 
                     del current_positions[exit_order["instrument"]][order_id]
                     if len(current_positions[exit_order["instrument"]]) == 0:
@@ -233,4 +245,4 @@ def process(context, df_orders, epoch_wise_instrument_stats, current_snapshot, s
     current_snapshot["max_account_value"] = max_account_value
     current_snapshot["current_positions"] = current_positions
 
-    return day_wise_log, config_order_ids, current_snapshot, day_wise_positions
+    return day_wise_log, config_order_ids, current_snapshot, day_wise_positions, trade_log

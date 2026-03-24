@@ -134,7 +134,7 @@ class TestPipelineWithMockClient(unittest.TestCase):
 
     @patch("engine.intraday_pipeline.CetaResearch")
     def test_pipeline_produces_sorted_results(self, MockCR):
-        """Mock CR query -> verify full pipeline produces sorted results."""
+        """Mock CR query -> verify full pipeline produces SweepResult."""
         mock_trades = [
             {"symbol": "TEST.NS", "trade_date": "2024-01-15",
              "entry_price": 100.0, "exit_price": 102.0,
@@ -155,17 +155,18 @@ class TestPipelineWithMockClient(unittest.TestCase):
 
         config_path = self._make_config_file(None)
         try:
-            results = run_intraday_pipeline(config_path)
+            sweep = run_intraday_pipeline(config_path)
         finally:
             os.unlink(config_path)
 
-        self.assertEqual(len(results), 1)  # 1 SQL combo x 1 sim combo
-        r = results[0]
-        self.assertIn("cagr", r)
-        self.assertIn("trade_count", r)
-        self.assertEqual(r["trade_count"], 3)
-        self.assertIn("trade_log", r)
-        self.assertEqual(len(r["trade_log"]), 3)
+        from lib.backtest_result import SweepResult
+        self.assertIsInstance(sweep, SweepResult)
+        self.assertEqual(len(sweep.configs), 1)  # 1 SQL combo x 1 sim combo
+        params, result = sweep.configs[0]
+        d = result.to_dict()
+        self.assertIn("cagr", d["summary"])
+        self.assertEqual(d["summary"]["total_trades"], 3)
+        self.assertEqual(len(d["trades"]), 3)
 
     @patch("engine.intraday_pipeline.CetaResearch")
     def test_pipeline_us_exchange_passes_to_sim(self, MockCR):
@@ -186,15 +187,16 @@ class TestPipelineWithMockClient(unittest.TestCase):
 
         config_path = self._make_config_file(None, exchange="NASDAQ")
         try:
-            results = run_intraday_pipeline(config_path)
+            sweep = run_intraday_pipeline(config_path)
         finally:
             os.unlink(config_path)
 
-        self.assertEqual(len(results), 1)
-        r = results[0]
-        # US charges are much lower, so trade_log charges should be small
-        for tl in r["trade_log"]:
-            self.assertLess(tl["charges"], 5.0, "US charges should be <$5")
+        self.assertEqual(len(sweep.configs), 1)
+        params, result = sweep.configs[0]
+        d = result.to_dict()
+        # US charges are much lower, so trade charges should be small
+        for t in d["trades"]:
+            self.assertLess(t["charges"], 5.0, "US charges should be <$5")
 
         # Verify SQL used NASDAQ exchange filter
         call_args = mock_client.query.call_args
@@ -280,7 +282,7 @@ class TestV2PipelineWithMockClient(unittest.TestCase):
 
     @patch("engine.intraday_pipeline.CetaResearch")
     def test_v2_pipeline_produces_results(self, MockCR):
-        """Mock CR query -> v2 pipeline produces results."""
+        """Mock CR query -> v2 pipeline produces SweepResult."""
         # Signal matrix rows: 2 entries, each with 5 bars
         mock_signal_matrix = []
         for bar_num in range(16, 21):
@@ -314,15 +316,17 @@ class TestV2PipelineWithMockClient(unittest.TestCase):
 
         config_path = self._make_v2_config_file()
         try:
-            results = run_intraday_pipeline(config_path)
+            sweep = run_intraday_pipeline(config_path)
         finally:
             os.unlink(config_path)
 
-        self.assertEqual(len(results), 1)
-        r = results[0]
-        self.assertIn("trade_count", r)
-        self.assertGreater(r["trade_count"], 0)
-        self.assertIn("trade_log", r)
+        from lib.backtest_result import SweepResult
+        self.assertIsInstance(sweep, SweepResult)
+        self.assertEqual(len(sweep.configs), 1)
+        params, result = sweep.configs[0]
+        d = result.to_dict()
+        self.assertGreater(d["summary"]["total_trades"], 0)
+        self.assertGreater(len(d["trades"]), 0)
 
     @patch("engine.intraday_pipeline.CetaResearch")
     def test_v1_dispatch(self, MockCR):
@@ -365,12 +369,15 @@ class TestV2PipelineWithMockClient(unittest.TestCase):
         MockCR.return_value = mock_client
 
         try:
-            results = run_intraday_pipeline(path)
+            sweep = run_intraday_pipeline(path)
         finally:
             os.unlink(path)
 
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["trade_count"], 2)
+        from lib.backtest_result import SweepResult
+        self.assertIsInstance(sweep, SweepResult)
+        self.assertEqual(len(sweep.configs), 1)
+        params, result = sweep.configs[0]
+        self.assertEqual(result.to_dict()["summary"]["total_trades"], 2)
 
 
 class TestVwapMrRegistration(unittest.TestCase):
@@ -390,6 +397,91 @@ class TestVwapMrRegistration(unittest.TestCase):
         sql = builder(cfg)
         self.assertIsInstance(sql, str)
         self.assertIn("vwap", sql)
+
+
+class TestSweepResultStructure(unittest.TestCase):
+    """Verify SweepResult from pipeline has correct structure."""
+
+    @patch("engine.intraday_pipeline.CetaResearch")
+    def test_sweep_result_has_meta_and_configs(self, MockCR):
+        """SweepResult has .meta with strategy info and .configs with BacktestResults."""
+        mock_trades = [
+            {"symbol": "TEST.NS", "trade_date": "2024-01-15",
+             "entry_price": 100.0, "exit_price": 102.0,
+             "exit_type": "signal", "signal_strength": 0.05,
+             "bench_ret": 0.001, "entry_bar": 16},
+            {"symbol": "TEST.NS", "trade_date": "2024-01-16",
+             "entry_price": 101.0, "exit_price": 103.0,
+             "exit_type": "signal", "signal_strength": 0.04,
+             "bench_ret": 0.002, "entry_bar": 17},
+        ]
+        mock_client = MagicMock()
+        mock_client.query.return_value = mock_trades
+        MockCR.return_value = mock_client
+
+        config_path = TestPipelineWithMockClient._make_config_file(self, None)
+        try:
+            sweep = run_intraday_pipeline(config_path)
+        finally:
+            os.unlink(config_path)
+
+        # Meta fields
+        self.assertEqual(sweep.meta["strategy_name"], "orb")
+        self.assertEqual(sweep.meta["exchange"], "NSE")
+        self.assertEqual(sweep.meta["capital"], 500000)
+
+        # Config BacktestResult has equity_curve, trades, summary
+        params, br = sweep.configs[0]
+        d = br.to_dict()
+        self.assertEqual(d["type"], "single")
+        self.assertIn("equity_curve", d)
+        self.assertIn("trades", d)
+        self.assertIn("monthly_returns", d)
+        self.assertIn("yearly_returns", d)
+        self.assertIn("costs", d)
+
+        # Summary has standard metric keys
+        for key in ("cagr", "max_drawdown", "sharpe_ratio", "total_trades"):
+            self.assertIn(key, d["summary"], f"Missing metric: {key}")
+
+    @patch("engine.intraday_pipeline.CetaResearch")
+    def test_sweep_save_produces_valid_json(self, MockCR):
+        """SweepResult.save() writes parseable JSON with correct schema."""
+        import json
+        import tempfile
+
+        mock_trades = [
+            {"symbol": "TEST.NS", "trade_date": "2024-01-15",
+             "entry_price": 100.0, "exit_price": 102.0,
+             "exit_type": "signal", "signal_strength": 0.05,
+             "bench_ret": 0.001, "entry_bar": 16},
+        ]
+        mock_client = MagicMock()
+        mock_client.query.return_value = mock_trades
+        MockCR.return_value = mock_client
+
+        config_path = TestPipelineWithMockClient._make_config_file(self, None)
+        try:
+            sweep = run_intraday_pipeline(config_path)
+        finally:
+            os.unlink(config_path)
+
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+            out_path = f.name
+
+        try:
+            sweep.save(out_path)
+            with open(out_path) as f:
+                data = json.load(f)
+
+            self.assertEqual(data["type"], "sweep")
+            self.assertEqual(data["total_configs"], 1)
+            self.assertIn("all_configs", data)
+            self.assertIn("detailed", data)
+            self.assertEqual(len(data["detailed"]), 1)
+            self.assertIn("equity_curve", data["detailed"][0])
+        finally:
+            os.unlink(out_path)
 
 
 if __name__ == "__main__":

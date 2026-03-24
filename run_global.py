@@ -159,7 +159,7 @@ def run_single(strategy: str, exchange: str) -> dict:
         tmp_path = f.name
 
     try:
-        results = run_pipeline(tmp_path)
+        sweep = run_pipeline(tmp_path)
     except Exception as e:
         print(f"  ERROR: {strategy} on {exchange}: {e}")
         return {
@@ -175,19 +175,20 @@ def run_single(strategy: str, exchange: str) -> dict:
     finally:
         os.unlink(tmp_path)
 
-    if results:
-        best = results[0]
+    if sweep.configs:
+        best_params, best_result = sweep._sorted("calmar_ratio")[0]
+        s = best_result.to_dict()["summary"]
         return {
             "strategy": strategy,
             "exchange": exchange,
             "label": EXCHANGES[exchange]["label"],
-            "cagr": best.get("cagr"),
-            "max_dd": best.get("max_drawdown"),
-            "calmar": best.get("calmar_ratio"),
-            "sharpe": best.get("sharpe_ratio"),
-            "sortino": best.get("sortino_ratio"),
-            "orders": best.get("num_trading_days", 0),
-            "total_return": best.get("total_return"),
+            "cagr": s.get("cagr"),
+            "max_dd": s.get("max_drawdown"),
+            "calmar": s.get("calmar_ratio"),
+            "sharpe": s.get("sharpe_ratio"),
+            "sortino": s.get("sortino_ratio"),
+            "orders": s.get("total_trades", 0),
+            "total_return": s.get("total_return"),
             "error": None,
         }
     else:

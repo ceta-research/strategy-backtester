@@ -48,6 +48,7 @@ LIB_FILES = [
     "lib/__init__.py",
     "lib/cr_client.py",
     "lib/metrics.py",
+    "lib/backtest_result.py",
 ]
 
 TERMINAL_STATUSES = {"completed", "failed", "execution_timed_out",
@@ -128,10 +129,10 @@ def main():
     parser = argparse.ArgumentParser(description="Run EOD strategy sweep on CR cloud")
     parser.add_argument("config", help="Path to YAML config file")
     parser.add_argument("--output", type=str, help="Output JSON path")
-    parser.add_argument("--timeout", type=int, default=1800,
-                        help="Execution timeout in seconds (default: 1800)")
-    parser.add_argument("--cpu", type=int, default=4, help="CPU count (default: 4)")
-    parser.add_argument("--ram", type=int, default=8192, help="RAM in MB (default: 8192)")
+    parser.add_argument("--timeout", type=int, default=43200,
+                        help="Execution timeout in seconds (default: 43200)")
+    parser.add_argument("--cpu", type=int, default=16, help="CPU count (default: 16)")
+    parser.add_argument("--ram", type=int, default=61440, help="RAM in MB (default: 61440)")
     args = parser.parse_args()
 
     config_path = os.path.join(ROOT, args.config) if not os.path.isabs(args.config) else args.config
@@ -187,7 +188,14 @@ def main():
         print(f"\nRun completed. Downloading results...")
         try:
             content = cr.get_execution_files(run_id, path="results.json")
-            all_results = json.loads(content)
+            data = json.loads(content)
+            # SweepResult format: extract all_configs list
+            if isinstance(data, dict) and data.get("type") == "sweep":
+                all_results = data.get("all_configs", [])
+            elif isinstance(data, list):
+                all_results = data  # Legacy flat list
+            else:
+                all_results = []
         except Exception as e:
             print(f"  Download failed: {e}")
             print(f"  Stdout:\n{stdout[-2000:]}")
