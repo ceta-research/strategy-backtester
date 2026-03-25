@@ -387,6 +387,84 @@ def compute_quality_universe(price_data, consecutive_years, min_yearly_return,
     return quality_universe
 
 
+def compute_momentum_universe(price_data, lookback_days, top_percentile,
+                               rescreen_days=63, start_epoch=None):
+    """Compute which symbols are in the top momentum percentile at each rescreen.
+
+    Momentum = trailing total return over lookback_days trading days.
+
+    Args:
+        price_data: dict[symbol, list[{epoch, close}]]
+        lookback_days: trading days for return computation (e.g., 126 = ~6 months)
+        top_percentile: fraction to keep (e.g., 0.20 = top 20%)
+        rescreen_days: days between full rescreens (default 63)
+        start_epoch: only compute from this epoch forward
+
+    Returns:
+        dict[epoch, set[symbol]] -- momentum-qualified universe at each rescreen.
+    """
+    min_bars = lookback_days + 10
+
+    # Collect all unique epochs across all symbols (post start_epoch)
+    all_epochs = set()
+    for sym, bars in price_data.items():
+        for b in bars:
+            if start_epoch is None or b["epoch"] >= start_epoch:
+                all_epochs.add(b["epoch"])
+    sorted_epochs = sorted(all_epochs)
+
+    if not sorted_epochs:
+        return {}
+
+    # Pre-filter symbols with enough bars
+    sym_bar_lists = {}
+    for sym, bars in price_data.items():
+        if len(bars) >= min_bars:
+            sym_bar_lists[sym] = bars
+
+    momentum_universe = {}
+    last_screen_epoch = None
+    rescreen_interval = rescreen_days * 86400
+
+    for epoch in sorted_epochs:
+        if last_screen_epoch is not None and (epoch - last_screen_epoch) < rescreen_interval:
+            momentum_universe[epoch] = momentum_universe[last_screen_epoch]
+            continue
+
+        # Compute momentum for all eligible symbols at this epoch
+        mom_scores = []
+        for sym, bars in sym_bar_lists.items():
+            idx = _find_epoch_idx(bars, epoch)
+            if idx is None or idx < lookback_days:
+                continue
+            older_idx = idx - lookback_days
+            if older_idx < 0:
+                continue
+            current_close = bars[idx]["close"]
+            older_close = bars[older_idx]["close"]
+            if older_close <= 0:
+                continue
+            momentum = current_close / older_close - 1.0
+            mom_scores.append((sym, momentum))
+
+        # Rank and keep top percentile
+        if mom_scores:
+            mom_scores.sort(key=lambda x: x[1], reverse=True)
+            cutoff = max(1, int(len(mom_scores) * top_percentile))
+            top_set = set(sym for sym, _ in mom_scores[:cutoff])
+        else:
+            top_set = set()
+
+        momentum_universe[epoch] = top_set
+        last_screen_epoch = epoch
+
+    pool_sizes = [len(v) for v in momentum_universe.values() if v]
+    avg_pool = sum(pool_sizes) / len(pool_sizes) if pool_sizes else 0
+    print(f"  Momentum filter: {lookback_days}d, top {top_percentile*100:.0f}%, "
+          f"avg pool={avg_pool:.0f} stocks")
+    return momentum_universe
+
+
 def _find_epoch_idx(bars, target_epoch):
     """Binary search for the closest bar at or before target_epoch."""
     lo, hi = 0, len(bars) - 1
@@ -621,6 +699,58 @@ def compute_volume_ratios(price_data, lookback=20):
     return volume_ratios
 
 
+# ── Realized Volatility ───────────────────────────────────────────────────────
+
+def compute_realized_vol(price_data, lookback=60):
+    """Compute rolling daily realized volatility per symbol per epoch.
+
+    Uses standard deviation of log returns over a rolling window.
+    Returns DAILY vol (not annualized). To annualize, multiply by sqrt(252).
+
+    Returns:
+        dict[symbol, dict[epoch, float]] -- daily vol (e.g., 0.019 = 1.9% daily)
+    """
+    import math
+
+    vol_data = {}
+    min_bars = lookback + 1
+
+    for sym, bars in price_data.items():
+        if len(bars) < min_bars:
+            continue
+
+        closes = [b["close"] for b in bars]
+        epochs = [b["epoch"] for b in bars]
+
+        # Pre-compute log returns
+        log_rets = []
+        for i in range(1, len(closes)):
+            if closes[i] > 0 and closes[i - 1] > 0:
+                log_rets.append(math.log(closes[i] / closes[i - 1]))
+            else:
+                log_rets.append(0.0)
+
+        # Rolling std over lookback window
+        sym_vol = {}
+        for i in range(lookback - 1, len(log_rets)):
+            window = log_rets[i - lookback + 1 : i + 1]
+            n = len(window)
+            if n < 2:
+                continue
+            mean = sum(window) / n
+            variance = sum((r - mean) ** 2 for r in window) / (n - 1)
+            daily_vol = math.sqrt(variance)
+            # epochs index is offset by 1 from log_rets (log_rets[0] = return from bar 0->1)
+            epoch = epochs[i + 1]
+            sym_vol[epoch] = daily_vol
+
+        if sym_vol:
+            vol_data[sym] = sym_vol
+
+    print(f"  Realized vol: {len(vol_data)} symbols (lookback={lookback}d)")
+    return vol_data
+
+
 # ── Multi-Position Portfolio Simulator ───────────────────────────────────────
 
 def simulate_portfolio(
@@ -849,6 +979,7 @@ def simulate_portfolio(
                 "reached_peak": False,
                 "buy_charges": buy_ch,
                 "buy_slippage": buy_sl,
+                "tsl_pct": entry.get("per_entry_tsl", tsl_pct),
             }
 
             if max_per_sector > 0 and sector_map:
@@ -886,8 +1017,9 @@ def simulate_portfolio(
 
             hold_days = (epoch - pos["entry_epoch"]) / 86400
             should_exit = False
+            pos_tsl = pos.get("tsl_pct", tsl_pct)
 
-            if tsl_pct == 0:
+            if pos_tsl == 0:
                 # Peak recovery exit
                 if close >= pos["peak_price"]:
                     should_exit = True
@@ -896,7 +1028,7 @@ def simulate_portfolio(
             else:
                 if close >= pos["peak_price"]:
                     pos["reached_peak"] = True
-                if pos["reached_peak"] and close <= pos["trail_high"] * (1 - tsl_pct / 100.0):
+                if pos["reached_peak"] and close <= pos["trail_high"] * (1 - pos_tsl / 100.0):
                     should_exit = True
                 if max_hold_days > 0 and hold_days >= max_hold_days:
                     should_exit = True

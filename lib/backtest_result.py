@@ -276,13 +276,19 @@ class BacktestResult:
         if len(self.equity_curve) < 2:
             return []
         yearly = {}
+        yearly_mdd = {}
         for epoch, value in self.equity_curve:
             yr = datetime.fromtimestamp(epoch, tz=timezone.utc).year
             if yr not in yearly:
-                yearly[yr] = {"first": value, "last": value, "peak": value, "trough": value}
+                yearly[yr] = {"first": value, "last": value}
+                yearly_mdd[yr] = {"peak": value, "max_dd": 0.0}
             yearly[yr]["last"] = value
-            yearly[yr]["peak"] = max(yearly[yr]["peak"], value)
-            yearly[yr]["trough"] = min(yearly[yr]["trough"], value)
+            # Proper peak-then-trough MDD: track running peak within year
+            if value > yearly_mdd[yr]["peak"]:
+                yearly_mdd[yr]["peak"] = value
+            dd = (yearly_mdd[yr]["peak"] - value) / yearly_mdd[yr]["peak"] if yearly_mdd[yr]["peak"] > 0 else 0
+            if dd > yearly_mdd[yr]["max_dd"]:
+                yearly_mdd[yr]["max_dd"] = dd
 
         result = []
         sorted_years = sorted(yearly.keys())
@@ -293,7 +299,7 @@ class BacktestResult:
             else:
                 base = yearly[sorted_years[i - 1]]["last"]
             ret = y["last"] / base - 1 if base > 0 else 0
-            mdd = (y["trough"] - y["peak"]) / y["peak"] if y["peak"] > 0 else 0
+            mdd = -yearly_mdd[yr]["max_dd"]
             trades = sum(
                 1 for t in self.trades
                 if datetime.fromtimestamp(t["entry_epoch"], tz=timezone.utc).year == yr
