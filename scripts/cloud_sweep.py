@@ -78,10 +78,10 @@ def find_or_create_project(cr):
     )
 
 
-def make_batch_wrapper(api_key, config_filename):
-    """Build per-batch entry point that sets API key and config path."""
+def make_batch_wrapper(config_filename):
+    """Build per-batch entry point that sets config path.
+    CR_API_KEY is injected by Nomad Variables in container env."""
     return f"""import sys, os
-os.environ["CR_API_KEY"] = {api_key!r}
 os.environ["CONFIG_FILE"] = {config_filename!r}
 sys.path.insert(0, os.getcwd())
 exec(open("cloud_main.py").read())
@@ -183,7 +183,7 @@ def download_results(cr, run_id):
 
 
 def submit_batch(cr, project_id, batch_config, batch_num, total,
-                 timeout, cpu, ram, api_key):
+                 timeout, cpu, ram):
     """Upload per-batch config + wrapper, submit run. Returns run_id."""
     config_name = f"config_{batch_num}.yaml"
     wrapper_name = f"_run_{batch_num}.py"
@@ -191,7 +191,7 @@ def submit_batch(cr, project_id, batch_config, batch_num, total,
     config_yaml = yaml.dump(batch_config, default_flow_style=False)
     cr.upsert_file(project_id, config_name, config_yaml)
 
-    wrapper = make_batch_wrapper(api_key, config_name)
+    wrapper = make_batch_wrapper(config_name)
     cr.upsert_file(project_id, wrapper_name, wrapper)
 
     n_sql = count_sql_combos(batch_config)
@@ -213,7 +213,7 @@ def submit_batch(cr, project_id, batch_config, batch_num, total,
 
 
 def run_batches(cr, project_id, batches, timeout, cpu, ram,
-                api_key, max_parallel):
+                max_parallel):
     """Submit batches with parallelism, poll until all complete.
 
     Submits up to max_parallel batches at once. As runs complete, submits
@@ -238,7 +238,7 @@ def run_batches(cr, project_id, batches, timeout, cpu, ram,
             try:
                 run_id = submit_batch(
                     cr, project_id, batches[next_idx],
-                    batch_num, total, timeout, cpu, ram, api_key,
+                    batch_num, total, timeout, cpu, ram,
                 )
                 active[run_id] = batch_num
             except Exception as e:
@@ -340,7 +340,7 @@ def main():
     all_results = run_batches(
         cr, project_id, batches,
         timeout=args.timeout, cpu=args.cpu, ram=args.ram,
-        api_key=cr.api_key, max_parallel=args.parallel,
+        max_parallel=args.parallel,
     )
 
     if not all_results:

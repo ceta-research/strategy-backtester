@@ -87,7 +87,7 @@ def discover_signal_files():
     return files
 
 
-def upload_all_files(cr, project_id, config_path, api_key):
+def upload_all_files(cr, project_id, config_path):
     """Upload engine, lib, signals, config, and entry point."""
     signal_files = discover_signal_files()
     all_files = ENGINE_FILES + signal_files + LIB_FILES
@@ -111,9 +111,8 @@ def upload_all_files(cr, project_id, config_path, api_key):
     cr.upsert_file(project_id, "config.yaml", config_content)
     print(f"  Uploading config.yaml ({len(config_content)} bytes)")
 
-    # Upload wrapper that sets API key
-    wrapper = f"""import sys, os
-os.environ["CR_API_KEY"] = {api_key!r}
+    # Upload wrapper (CR_API_KEY injected by Nomad Variables in container env)
+    wrapper = """import sys, os
 os.environ["CONFIG_FILE"] = "config.yaml"
 sys.path.insert(0, os.getcwd())
 exec(open("cloud_main_eod.py").read())
@@ -149,7 +148,7 @@ def main():
     project_id = project["id"]
 
     print(f"\nUploading code + config...")
-    upload_all_files(cr, project_id, config_path, cr.api_key)
+    upload_all_files(cr, project_id, config_path)
 
     print(f"\nSubmitting run (timeout={args.timeout}s, cpu={args.cpu}, ram={args.ram}MB)...")
     result = cr.run_project(
