@@ -7,13 +7,18 @@ Updated: 2026-03-25
 
 | Strategy | Best Calmar | CAGR | MDD | Market | Trades | Status |
 |----------|-------------|------|-----|--------|--------|--------|
-| Quality dip-buy + fundamentals | **0.64** | +23.8% | -37.0% | NSE | ~200 | **Champion** |
-| Forced-selling dip (1a) | **0.64** | +21.4% | -33.6% | NSE | ~180 | Done |
+| **Momentum-dip + D/E<1.0 (5+DE)** | **1.01** | +23.7% | -23.3% | NSE | 244 | **Champion** |
+| Momentum-dip (5) | 0.90 | +26.3% | -29.1% | NSE | 236 | Done |
+| Momentum-dip + vol-adj exits (5+6) | 0.87 | +31.7% | -36.5% | NSE | 92 | Done -- vol-adj hurts momentum-dip |
+| Vol-adjusted exits (6) | 0.70 | +25.4% | -36.5% | NSE | 91 | Done -- helps quality dip-buy only |
+| Quality dip-buy + fundamentals | 0.64 | +23.8% | -37.0% | NSE | ~200 | Beaten |
+| Forced-selling dip (1a) | 0.64 | +21.4% | -33.6% | NSE | ~180 | Done |
 | Quality dip-buy | 0.58 | +22.6% | -39.1% | US | ~200 | Done |
 | Intraday dip-buy (3e, 8yr) | 0.44 | +14.0% | -31.7% | NSE | 90 | Done -- open best |
 | Earnings surprise (2a) | 0.44 | +5.7% | -12.9% | NSE | 30 | Done -- too sparse |
 | Forced-selling dip (1a) | 0.39 | +5.6% | -14.1% | US | 66 | Done |
 | SPY vs EWJ dual-z MOC | 0.39 | +9.6% | -25.0% | US | - | Done |
+| Momentum-dip (5) | 0.37 | +17.0% | -45.9% | US | 167 | Done |
 | NIFTYBEES 3d-high + TSL | 0.32 | +13.3% | -41.0% | NSE | - | Done |
 | Earnings volume confirm (2c) | 0.26 | +3.0% | -11.5% | NSE | 11 | Dead -- 11 trades in 16yr |
 | Earnings volume confirm (2c) | 0.24 | +5.7% | -23.7% | US | 117 | Marginal |
@@ -27,63 +32,54 @@ Updated: 2026-03-25
 ## Key Learnings (from P0 + P1)
 
 1. **Quality dip-buy + fundamentals is the core alpha source.** ROE>15% + PE<25 filter is the single biggest improvement (Calmar 0.33 -> 0.64).
-2. **Intraday execution doesn't help.** Open is optimal. VWAP/near-low/midpoint all underperform.
-3. **Calendar strategies don't work.** Fixed hold periods expose you to crash drawdowns.
-4. **Earnings signals are too sparse on NSE.** Only 1,022 symbols have earnings data, combined with quality + fundamental filters = ~10-30 trades in 16 years.
-5. **Volume confirmation helps risk but kills signal count.** Better MDD but far fewer trades.
-6. **ORB is dead after bias correction.** The original Calmar 5.36 was entirely from same-bar entry bias.
-7. **Same-bar entry bias inflates returns by 15-20pp CAGR.** All strategies must use MOC (next-day open).
+2. **Momentum filter (63d) is the second biggest improvement.** Top 30% momentum + quality intersection: Calmar 0.64 -> 0.90. Only 33% overlap with quality-only, catches different stocks.
+3. **D/E<1.0 filter is the third biggest improvement.** Calmar 0.90 -> 1.01. MDD drops from -29.1% to -23.3% by excluding leveraged companies.
+4. **Vol-adjusted exits help quality dip-buy but HURT momentum-dip.** On quality dip-buy: Calmar 0.54 -> 0.70 (+30%). On momentum-dip: Calmar 0.90 -> 0.87 (-3%). Momentum-selected stocks are already calibrated for 10% TSL.
+5. **Short momentum (63d) dominates on NSE.** 3-month momentum rank is most predictive. 6-month and 12-month are worse.
+6. **10 positions consistently beats 5.** Diversification helps across all configurations.
+7. **Intraday execution doesn't help.** Open is optimal. VWAP/near-low/midpoint all underperform.
+8. **Calendar strategies don't work.** Fixed hold periods expose you to crash drawdowns.
+9. **Earnings signals are too sparse on NSE.** Only 1,022 symbols have earnings data, combined with quality + fundamental filters = ~10-30 trades in 16 years.
+10. **ORB is dead after bias correction.** The original Calmar 5.36 was entirely from same-bar entry bias.
+11. **Same-bar entry bias inflates returns by 15-20pp CAGR.** All strategies must use MOC (next-day open).
 
 ---
 
 ## Path to 30% CAGR
 
-The best honest result is 23.8% CAGR. Closing the gap to 30% requires structural changes, not parameter tuning.
+The best risk-adjusted result is Calmar 1.01 (+23.7% CAGR, -23.3% MDD). The highest raw CAGR is +31.7% (vol-adjusted, 126d momentum, 5 positions) but with -36.5% MDD. Closing the gap to 30% CAGR with sub-25% MDD requires structural changes.
 
-### Strategy 4: Combined Portfolio Allocator (NEW -- P0)
+### Strategy 4: Combined Portfolio Allocator (P0 -- next)
 
-**Thesis**: Our strategies fire at different times. Quality dip-buy capital sits in cash 40-60% of the time. Running multiple uncorrelated strategies on a shared capital pool reduces cash drag and diversifies alpha sources.
+**Thesis**: Not "reduce cash drag" (champion is 87% deployed), but "diversify alpha sources to reduce MDD." Quality dip-buy and momentum-dip catch different stocks (33% overlap). Running both on shared capital diversifies drawdown exposure.
 
 **Implementation**: Single script with shared capital pool. On each trading day:
-1. Check all signal sources (quality dip-buy, forced-selling, momentum-dip)
-2. Rank all pending entries by expected alpha (dip magnitude, signal strength)
-3. Allocate from shared capital to top N signals regardless of strategy source
-4. Unified exit logic (TSL + max hold)
+1. Check both signal sources (quality dip-buy, momentum-dip)
+2. Rank entries by expected alpha (dip magnitude, momentum rank)
+3. Allocate from shared capital to top N signals regardless of source
+4. Unified exit logic (10% TSL + 504d max hold)
 
-**Expected improvement**: If idle cash currently earns 0% and could earn ~12% (benchmark), the combined CAGR could be 5-8pp higher. The always-invested adjustment already hints at this.
+**Key question**: Does combining signal sources reduce MDD below -23.3% (current champion)?
 
 **Sweep**: allocation weights, max positions per strategy, shared vs split capital
 
-### Strategy 5: Momentum-Dip (NEW -- P0)
+### Strategy 5: Momentum-Dip -- DONE
 
-**Thesis**: "Buy weakness in strong stocks." Stocks in the top 20% of 6-12 month momentum that then dip 5%+ have the strongest mean-reversion. This catches different stocks than quality dip-buy (which uses 2yr trailing returns, not recent momentum).
+**Result**: Calmar 0.90 (+26.3% CAGR, -29.1% MDD) without D/E. **Calmar 1.01 (+23.7%, -23.3%) with D/E<1.0.**
 
-**Signal**:
-1. Compute 6-month momentum rank across universe (return over trailing 126 days)
-2. Filter to top 20% by momentum (strong uptrend)
-3. Quality gate: ROE>15%, PE<25
-4. Dip: 5%+ from rolling peak
-5. Entry: next-day open
+**Best config**: 63d momentum, top 30% percentile, 5% dip, 10 positions, ROE>15%, D/E<1.0, PE<25, fixed 10% TSL.
 
-**Data**: Same as quality dip-buy -- no new data sources needed.
+**Files**: `scripts/momentum_dip_buy.py`, `scripts/momentum_dip_vol_exits.py`
 
-**Sweep**:
-```python
-product(
-    [63, 126, 252],   # momentum_lookback (3mo, 6mo, 12mo)
-    [0.20, 0.30],     # momentum_percentile (top 20%, top 30%)
-    [5, 7],           # dip_threshold_pct
-    [5, 10],          # max_positions
-)
-```
+### Strategy 6: Vol-Adjusted Exits -- DONE (mixed results)
 
-### Strategy 6: Volatility-Adjusted Exits (NEW -- P1)
+**Result on quality dip-buy**: Calmar 0.70 (+25.4%, -36.5%) vs fixed baseline 0.54. Genuine improvement for quality-only signal.
 
-**Thesis**: The 10% TSL is a one-size-fits-all exit. Low-volatility stocks should have tighter stops (they rarely dip 10%), while high-volatility stocks need wider stops (they dip 10% regularly without it meaning anything). Calibrating stops to realized volatility should let winners run longer and cut losers faster.
+**Result on momentum-dip**: Vol-adjusted HURTS. Best vol-adj Calmar 0.87 vs fixed 0.90-1.01. The 10% TSL is already well-calibrated for momentum-selected stocks.
 
-**Implementation**: Replace fixed TSL with `tsl_pct = k * realized_vol(60d)` where k is a sweep parameter.
+**Conclusion**: Vol-adjusted exits are useful for quality dip-buy but should NOT be applied to momentum-dip.
 
-**Sweep**: k = [1.0, 1.5, 2.0, 2.5] (so a stock with 20% annualized vol gets 3-5% TSL, while a stock with 40% vol gets 6-10% TSL)
+**Files**: `scripts/vol_adjusted_exits.py`
 
 ---
 
@@ -104,9 +100,9 @@ product(
 
 | Priority | Strategy | Est. Effort | Expected Impact | Rationale |
 |----------|----------|-------------|-----------------|-----------|
-| **P0** | 5. Momentum-dip | 2-3 hrs | High | New signal source, catches different stocks than quality dip-buy |
-| **P0** | 4. Combined portfolio allocator | 3-4 hrs | High | Reduces cash drag, combines uncorrelated alpha |
-| P1 | 6. Volatility-adjusted exits | 1-2 hrs | Medium | Better exit calibration, lets winners run |
+| ~~P0~~ | ~~5. Momentum-dip~~ | ~~2-3 hrs~~ | ~~High~~ | **DONE** -- Calmar 1.01 with D/E<1.0 |
+| ~~P1~~ | ~~6. Vol-adjusted exits~~ | ~~1-2 hrs~~ | ~~Medium~~ | **DONE** -- helps quality dip-buy (0.70), hurts momentum-dip |
+| **P0** | 4. Combined portfolio allocator | 3-4 hrs | Medium | Diversify alpha sources, might reduce MDD below -23.3% |
 | P2 | 3d. Volume-weighted close | 2 hrs | Medium | New daily signal from minute data |
 | P2 | 1e. Volume anomaly no-news | 2 hrs | Medium | Better forced-selling isolation |
 | P3 | Backlog items | Varies | Uncertain | See backlog section below |
