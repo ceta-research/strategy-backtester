@@ -1,0 +1,43 @@
+name: connors_rsi
+display_name: Connors RSI
+description: Mean-reversion strategy using short-period RSI with trend filter. Buys extreme oversold, exits on MA cross.
+category: mean_reversion
+source: book
+theory: "Based on Larry Connors' research. Uses 2-period RSI to identify oversold conditions within an uptrend (above 200-day SMA). Exits when price crosses above short MA."
+
+entry:
+  - name: rsi_period
+    label: RSI Period
+    type: int
+    default: 2
+    range: [2, 14]
+    hint: RSI calculation period (2 is standard Connors)
+
+  - name: rsi_entry_threshold
+    label: RSI Entry Threshold
+    type: int
+    default: 10
+    range: [1, 50]
+    hint: Enter when RSI drops below this level
+
+  - name: sma_trend_period
+    label: Trend Filter SMA
+    type: int
+    default: 200
+    range: [0, 400]
+    hint: Only enter if price above this SMA (0 = no filter)
+
+exit:
+  - name: exit_sma_period
+    label: Exit SMA Period
+    type: int
+    default: 5
+    range: [2, 50]
+    hint: Exit when price crosses above this SMA
+
+  - name: max_hold_days
+    label: Max Hold Days
+    type: int
+    default: 10
+    range: [1, 60]
+    hint: Force exit after this many days

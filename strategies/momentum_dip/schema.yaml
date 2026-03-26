@@ -1,0 +1,50 @@
+name: momentum_dip
+display_name: Momentum Dip Buy
+description: Buys momentum leaders on RSI dips. Combines long-term momentum ranking with short-term oversold entry.
+category: momentum
+source: custom
+theory: "Rank stocks by 6-12 month momentum, then buy the top-ranked on RSI pullbacks. Captures dips in strong uptrends."
+
+entry:
+  - name: rsi_threshold
+    label: RSI Threshold
+    type: int
+    default: 30
+    range: [10, 50]
+    hint: Enter when RSI drops below this level
+
+  - name: momentum_lookback_days
+    label: Momentum Lookback
+    type: int
+    default: 252
+    range: [63, 504]
+    hint: Days for momentum ranking (252 = 1 year)
+
+  - name: top_n
+    label: Universe Size
+    type: int
+    default: 50
+    range: [10, 200]
+    hint: Number of top momentum stocks to consider
+
+  - name: rerank_interval_days
+    label: Rerank Interval
+    type: int
+    default: 21
+    range: [5, 63]
+    hint: Days between momentum re-ranking
+
+exit:
+  - name: profit_target_pct
+    label: Profit Target %
+    type: float
+    default: 0.05
+    range: [0.01, 0.2]
+    hint: Take profit percentage (0.05 = 5%)
+
+  - name: max_hold_days
+    label: Max Hold Days
+    type: int
+    default: 15
+    range: [3, 60]
+    hint: Force exit after this many days

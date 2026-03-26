@@ -1,0 +1,43 @@
+name: index_dip_buy
+display_name: Index Dip Buy
+description: Buys index ETFs on dips below short-term MA while above long-term MA. Simple trend-following with dip entry.
+category: index
+source: custom
+theory: "Buy the index when price pulls back below short MA but remains above long MA (uptrend intact). Simple and effective for index investing."
+
+entry:
+  - name: sma_short
+    label: Fast SMA
+    type: int
+    default: 10
+    range: [3, 30]
+    hint: Short-term MA for dip detection
+
+  - name: sma_long
+    label: Slow SMA
+    type: int
+    default: 200
+    range: [50, 400]
+    hint: Long-term MA for trend filter
+
+  - name: rsi_threshold
+    label: RSI Threshold
+    type: int
+    default: 0
+    range: [0, 60]
+    hint: Additional RSI filter (0 = disabled)
+
+exit:
+  - name: max_hold_days
+    label: Max Hold Days
+    type: int
+    default: 20
+    range: [3, 120]
+    hint: Force exit after this many days
+
+  - name: stop_loss_pct
+    label: Stop Loss %
+    type: float
+    default: 0.0
+    range: [0.0, 0.2]
+    hint: Hard stop loss (0 = disabled)

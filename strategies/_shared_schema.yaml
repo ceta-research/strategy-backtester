@@ -1,0 +1,102 @@
+# Shared configuration sections used by all strategies
+static:
+  - name: start_margin
+    label: Starting Capital
+    type: int
+    default: 1000000
+    range: [10000, 100000000]
+    hint: Initial capital in base currency
+
+  - name: start_epoch
+    label: Start Date
+    type: date
+    default: "2020-01-01"
+    hint: Backtest start date (converted to epoch internally)
+
+  - name: end_epoch
+    label: End Date
+    type: date
+    default: "2025-01-01"
+    hint: Backtest end date (converted to epoch internally)
+
+  - name: prefetch_days
+    label: Prefetch Days
+    type: int
+    default: 400
+    range: [30, 1000]
+    hint: Warmup period for indicator calculation
+
+scanner:
+  - name: instruments
+    label: Instruments
+    type: exchange_symbols
+    default: {exchange: "NSE", symbols: []}
+    hint: Exchange and optional symbol filter. Empty symbols = full universe.
+
+  - name: price_threshold
+    label: Min Price
+    type: float
+    default: 50
+    range: [0, 100000]
+    hint: Minimum stock price filter
+
+  - name: avg_day_transaction_threshold
+    label: Liquidity Filter
+    type: dict
+    default: {period: 125, threshold: 70000000}
+    hint: "Average daily turnover filter: {period} day average above {threshold}"
+
+  - name: n_day_gain_threshold
+    label: Momentum Pre-filter
+    type: dict
+    default: {n: 360, threshold: 0}
+    hint: "N-day return threshold: stocks must have >{threshold}% return over {n} days"
+
+simulation:
+  - name: max_positions
+    label: Max Positions
+    type: int
+    default: 20
+    range: [1, 200]
+    hint: Maximum concurrent positions in portfolio
+
+  - name: max_positions_per_instrument
+    label: Max Per Stock
+    type: int
+    default: 1
+    range: [1, 10]
+    hint: Maximum positions per single instrument
+
+  - name: default_sorting_type
+    label: Entry Sort
+    type: enum
+    options: [top_gainer, top_performer, gap_size, volume, random]
+    default: top_gainer
+    hint: How to rank candidates when more signals than slots
+
+  - name: order_sorting_type
+    label: Order Sort
+    type: enum
+    options: [top_gainer, top_performer, gap_size, volume, random]
+    default: top_performer
+    hint: How to prioritize order execution
+
+  - name: order_ranking_window_days
+    label: Ranking Window
+    type: int
+    default: 180
+    range: [5, 504]
+    hint: Lookback days for performance ranking
+
+  - name: order_value_multiplier
+    label: Position Size Multiplier
+    type: float
+    default: 1.0
+    range: [0.1, 10.0]
+    hint: Multiplier for position sizing (1.0 = default)
+
+  - name: max_order_value
+    label: Max Order Value
+    type: dict
+    default: {type: "percentage_of_instrument_avg_txn", value: 4.5}
+    hint: "Cap per order: fixed amount or % of avg daily turnover"

@@ -1,0 +1,63 @@
+name: factor_composite
+display_name: Factor Composite
+description: Multi-factor portfolio ranking using momentum, profitability, and value. Periodic rebalancing with regime and volatility filters.
+category: factor
+source: academic
+theory: "Combines classic factors (momentum, gross profitability, value) into a composite score. Weights are customizable. Regime filter avoids bear markets."
+
+entry:
+  - name: momentum_lookback_days
+    label: Momentum Lookback
+    type: int
+    default: 252
+    range: [63, 504]
+    hint: Days for momentum calculation (252 = 1 year)
+
+  - name: momentum_skip_days
+    label: Momentum Skip
+    type: int
+    default: 21
+    range: [0, 63]
+    hint: Skip recent days to avoid short-term reversal
+
+  - name: factor_weights
+    label: Factor Weights
+    type: dict
+    default: {momentum: 0.4, gross_profitability: 0.3, value: 0.3}
+    hint: "Factor weights (sum to 1.0): momentum, gross_profitability, value"
+
+  - name: regime_filter_sma
+    label: Regime Filter SMA
+    type: int
+    default: 200
+    range: [0, 400]
+    hint: Market regime SMA (0 = no regime filter)
+
+  - name: top_n_stocks
+    label: Portfolio Size
+    type: int
+    default: 30
+    range: [5, 100]
+    hint: Number of top-ranked stocks to hold
+
+exit:
+  - name: vol_target_annual
+    label: Vol Target (Annual)
+    type: float
+    default: 0.15
+    range: [0.05, 0.5]
+    hint: Target annualized volatility for sizing (0.15 = 15%)
+
+  - name: vol_lookback_days
+    label: Vol Lookback
+    type: int
+    default: 126
+    range: [21, 252]
+    hint: Days for volatility estimation
+
+  - name: stop_loss_pct
+    label: Hard Stop %
+    type: float
+    default: 0.15
+    range: [0.05, 0.5]
+    hint: Per-position hard stop loss (0.15 = 15%)

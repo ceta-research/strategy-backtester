@@ -1,0 +1,57 @@
+name: swing_master
+display_name: Swing Master
+description: Multi-indicator swing trading. Uses dual SMA crossover for trend + pullback entry with profit target and stop loss.
+category: technical
+source: custom
+theory: "Enter on pullbacks within an uptrend (fast SMA > slow SMA). Exit at profit target, stop loss, or trailing stop."
+
+entry:
+  - name: sma_short
+    label: Fast SMA
+    type: int
+    default: 10
+    range: [3, 30]
+    hint: Short-term moving average period
+
+  - name: sma_long
+    label: Slow SMA
+    type: int
+    default: 20
+    range: [10, 100]
+    hint: Long-term moving average period
+
+  - name: pullback_days
+    label: Pullback Days
+    type: int
+    default: 3
+    range: [1, 10]
+    hint: Number of consecutive down days for pullback signal
+
+exit:
+  - name: target_pct
+    label: Profit Target %
+    type: float
+    default: 0.07
+    range: [0.01, 0.3]
+    hint: Take profit percentage (0.07 = 7%)
+
+  - name: stop_pct
+    label: Stop Loss %
+    type: float
+    default: 0.04
+    range: [0.01, 0.2]
+    hint: Hard stop loss percentage (0.04 = 4%)
+
+  - name: max_hold_days
+    label: Max Hold Days
+    type: int
+    default: 20
+    range: [5, 60]
+    hint: Force exit after this many days
+
+  - name: trailing_buffer_pct
+    label: Trailing Buffer %
+    type: float
+    default: 0.002
+    range: [0.0, 0.05]
+    hint: Buffer for trailing stop activation (0.002 = 0.2%)

@@ -1,0 +1,35 @@
+name: overnight_hold
+display_name: Overnight Hold
+description: Captures overnight drift by buying at close and selling at next open. Exploits the overnight return premium.
+category: mean_reversion
+source: academic
+theory: "Research shows stocks tend to gain more overnight than intraday. Buy at close, sell at next open. Optional filters for down-day entry and RSI."
+
+entry:
+  - name: buy_on_down_day
+    label: Down Day Only
+    type: bool
+    default: false
+    hint: Only enter if today was a down day (close < open)
+
+  - name: min_rsi_14
+    label: Min RSI(14)
+    type: int
+    default: 0
+    range: [0, 70]
+    hint: Minimum RSI to enter (0 = no filter)
+
+exit:
+  - name: exit_at
+    label: Exit Timing
+    type: enum
+    options: [next_open]
+    default: next_open
+    hint: Always exit at next day open
+
+  - name: max_hold_days
+    label: Max Hold Days
+    type: int
+    default: 1
+    range: [1, 1]
+    hint: Always 1 day (overnight strategy)

@@ -1,0 +1,57 @@
+name: squeeze
+display_name: Squeeze Momentum
+description: Bollinger Bands + Keltner Channel squeeze detector. Enters when bands contract inside Keltner, fires on expansion with momentum.
+category: technical
+source: classic
+theory: "When BB contracts inside KC, volatility is compressed (squeeze). Entry on squeeze release with positive momentum. Popularized by John Carter."
+
+entry:
+  - name: bb_period
+    label: BB Period
+    type: int
+    default: 20
+    range: [5, 50]
+    hint: Bollinger Bands lookback period
+
+  - name: bb_std
+    label: BB Std Dev
+    type: float
+    default: 2.0
+    range: [1.0, 4.0]
+    hint: Bollinger Bands standard deviation multiplier
+
+  - name: kc_period
+    label: KC Period
+    type: int
+    default: 20
+    range: [5, 50]
+    hint: Keltner Channel lookback period
+
+  - name: kc_mult
+    label: KC ATR Multiplier
+    type: float
+    default: 1.5
+    range: [0.5, 3.0]
+    hint: Keltner Channel ATR multiplier
+
+  - name: mom_period
+    label: Momentum Period
+    type: int
+    default: 12
+    range: [3, 30]
+    hint: Momentum oscillator lookback
+
+exit:
+  - name: stop_pct
+    label: Stop Loss %
+    type: float
+    default: 0.05
+    range: [0.01, 0.2]
+    hint: Hard stop loss percentage (0.05 = 5%)
+
+  - name: max_hold_days
+    label: Max Hold Days
+    type: int
+    default: 30
+    range: [5, 60]
+    hint: Force exit after this many days

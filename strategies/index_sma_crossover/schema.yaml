@@ -1,0 +1,36 @@
+name: index_sma_crossover
+display_name: Index SMA Crossover
+description: Classic dual moving average crossover on index ETFs. Long when fast crosses above slow.
+category: index
+source: classic
+theory: "The golden cross (fast SMA crosses above slow SMA) is one of the oldest trend-following signals. Simple but effective for long-term trend capture."
+
+entry:
+  - name: sma_short
+    label: Fast SMA
+    type: int
+    default: 10
+    range: [3, 50]
+    hint: Short-term moving average period
+
+  - name: sma_long
+    label: Slow SMA
+    type: int
+    default: 50
+    range: [20, 400]
+    hint: Long-term moving average period
+
+exit:
+  - name: stop_loss_pct
+    label: Stop Loss %
+    type: float
+    default: 0.05
+    range: [0.0, 0.3]
+    hint: Hard stop loss (0 = disabled)
+
+  - name: max_hold_days
+    label: Max Hold Days
+    type: int
+    default: 0
+    range: [0, 504]
+    hint: Force exit after this many days (0 = no limit, hold until cross)

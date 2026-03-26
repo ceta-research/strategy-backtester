@@ -1,0 +1,64 @@
+name: low_pe
+display_name: Low P/E Screen
+description: Classic value screen buying lowest P/E stocks with quality filters (ROE, debt). Periodic rebalancing.
+category: factor
+source: classic
+theory: "Low P/E stocks have historically outperformed. Filter for quality (ROE, debt) to avoid value traps. Annual rebalancing."
+
+entry:
+  - name: pe_max
+    label: Max P/E
+    type: float
+    default: 15
+    range: [3, 50]
+    hint: Maximum P/E ratio to buy
+
+  - name: pe_min
+    label: Min P/E
+    type: float
+    default: 0
+    range: [0, 20]
+    hint: Minimum P/E (filters negative earnings)
+
+  - name: roe_min
+    label: Min ROE
+    type: float
+    default: 0.1
+    range: [0.0, 0.5]
+    hint: Minimum return on equity (0 = no filter)
+
+  - name: de_max
+    label: Max Debt/Equity
+    type: float
+    default: 1.0
+    range: [0.0, 5.0]
+    hint: Maximum debt-to-equity ratio
+
+  - name: mktcap_min
+    label: Min Market Cap
+    type: float
+    default: 20000000000
+    range: [0, 1000000000000]
+    hint: Minimum market cap (currency-dependent)
+
+  - name: max_stocks
+    label: Max Holdings
+    type: int
+    default: 30
+    range: [5, 100]
+    hint: Maximum number of stocks in portfolio
+
+  - name: min_stocks
+    label: Min Holdings
+    type: int
+    default: 10
+    range: [1, 50]
+    hint: Minimum stocks required (skip rebalance if too few)
+
+exit:
+  - name: stop_loss_pct
+    label: Stop Loss %
+    type: float
+    default: 0.0
+    range: [0.0, 0.3]
+    hint: Per-position stop loss (0 = disabled, hold until rebalance)

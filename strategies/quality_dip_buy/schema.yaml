@@ -1,0 +1,84 @@
+name: quality_dip_buy
+display_name: Quality Dip Buy
+description: Buys quality stocks (consistent positive returns, fundamental filters) on price dips from peak. Exits on recovery or trailing stop.
+category: factor
+source: custom
+theory: "Screen for quality companies with consistent annual returns, then buy on significant price dips from recent peak. Combines fundamental quality with technical entry."
+
+entry:
+  - name: consecutive_positive_years
+    label: Positive Years
+    type: int
+    default: 3
+    range: [1, 10]
+    hint: Required consecutive years of positive returns
+
+  - name: min_yearly_return_pct
+    label: Min Yearly Return %
+    type: float
+    default: 0.0
+    range: [0.0, 0.3]
+    hint: Minimum average yearly return (0 = no minimum)
+
+  - name: dip_threshold_pct
+    label: Dip Threshold %
+    type: float
+    default: 10.0
+    range: [2, 40]
+    hint: Minimum dip from peak to trigger entry
+
+  - name: peak_lookback_days
+    label: Peak Lookback Days
+    type: int
+    default: 126
+    range: [21, 504]
+    hint: Days to look back for peak price
+
+  - name: rescreen_interval_days
+    label: Rescreen Interval
+    type: int
+    default: 63
+    range: [7, 252]
+    hint: Days between re-screening quality universe
+
+  - name: max_per_sector
+    label: Max Per Sector
+    type: int
+    default: 0
+    range: [0, 20]
+    hint: Max positions per sector (0 = unlimited)
+
+  - name: rsi_threshold
+    label: RSI Filter
+    type: int
+    default: 0
+    range: [0, 60]
+    hint: Additional RSI filter (0 = disabled)
+
+  - name: regime_instrument
+    label: Regime Index
+    type: string
+    default: ""
+    hint: "Index symbol for regime filter (empty = no regime filter)"
+
+  - name: regime_sma_period
+    label: Regime SMA Period
+    type: int
+    default: 0
+    range: [0, 400]
+    hint: SMA period for regime filter (0 = disabled)
+
+exit:
+  - name: tsl_pct
+    label: Trailing Stop %
+    type: float
+    default: 5.0
+    range: [0.0, 25.0]
+    hint: Trailing stop from peak (0 = exit at recovery only)
+
+  - name: max_hold_days
+    label: Max Hold Days
+    type: int
+    default: 504
+    range: [0, 2000]
+    hint: Force exit after this many days (0 = no limit)

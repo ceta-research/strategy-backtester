@@ -1,0 +1,36 @@
+name: gap_fill
+display_name: Gap Fill
+description: Buys stocks that gap down at open, expecting the gap to fill by close. Intraday mean-reversion play.
+category: mean_reversion
+source: classic
+theory: "Stocks that open significantly below previous close tend to recover during the day. Enter on gap down, exit at close."
+
+entry:
+  - name: min_gap_down_pct
+    label: Min Gap Down %
+    type: float
+    default: 0.01
+    range: [0.001, 0.1]
+    hint: Minimum gap down to trigger entry (0.01 = 1%)
+
+  - name: max_gap_down_pct
+    label: Max Gap Down %
+    type: float
+    default: 0.04
+    range: [0.01, 0.2]
+    hint: Maximum gap down (filter out extreme events)
+
+exit:
+  - name: exit_at
+    label: Exit Timing
+    type: enum
+    options: [close]
+    default: close
+    hint: When to exit (close = end of day)
+
+  - name: max_hold_days
+    label: Max Hold Days
+    type: int
+    default: 1
+    range: [1, 1]
+    hint: Always 1 for gap fill (intraday strategy)

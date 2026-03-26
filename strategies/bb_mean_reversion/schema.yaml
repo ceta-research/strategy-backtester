@@ -1,0 +1,36 @@
+name: bb_mean_reversion
+display_name: Bollinger Band Reversion
+description: Mean-reversion at Bollinger Band extremes. Buys when price touches lower band in uptrend, exits on mean recovery.
+category: mean_reversion
+source: classic
+theory: "Price tends to revert to the Bollinger Band mean after touching the lower band. Trend filter ensures we only buy dips in uptrends."
+
+entry:
+  - name: bb_period
+    label: BB Period
+    type: int
+    default: 20
+    range: [5, 50]
+    hint: Bollinger Bands lookback period
+
+  - name: bb_std
+    label: BB Std Dev
+    type: float
+    default: 2.0
+    range: [1.0, 4.0]
+    hint: Standard deviation multiplier for bands
+
+  - name: sma_trend_period
+    label: Trend Filter SMA
+    type: int
+    default: 200
+    range: [0, 400]
+    hint: Only enter if price above this SMA (0 = no filter)
+
+exit:
+  - name: max_hold_days
+    label: Max Hold Days
+    type: int
+    default: 400
+    range: [10, 1000]
+    hint: Maximum hold period (mean reversion can be slow)

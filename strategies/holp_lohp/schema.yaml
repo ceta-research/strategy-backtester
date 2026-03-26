@@ -1,0 +1,29 @@
+name: holp_lohp
+display_name: HOLP/LOHP
+description: High of Low Period / Low of High Period. Enters on reversal at period extremes with trailing exit.
+category: mean_reversion
+source: book
+theory: "HOLP = highest price of the lowest N-day period. Captures reversals at multi-day lows. Based on Jeff Greenblatt's work."
+
+entry:
+  - name: lookback_period
+    label: Lookback Period
+    type: int
+    default: 20
+    range: [5, 100]
+    hint: Days to look back for period extreme
+
+exit:
+  - name: trailing_start_day
+    label: Trailing Start Day
+    type: int
+    default: 3
+    range: [1, 10]
+    hint: Day after entry to activate trailing stop
+
+  - name: max_hold_days
+    label: Max Hold Days
+    type: int
+    default: 30
+    range: [5, 120]
+    hint: Force exit after this many days

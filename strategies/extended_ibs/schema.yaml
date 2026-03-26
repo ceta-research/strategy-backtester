@@ -1,0 +1,50 @@
+name: extended_ibs
+display_name: Extended IBS
+description: Enhanced IBS mean-reversion with trend and volatility filters. Extended hold period with optional stop loss.
+category: mean_reversion
+source: custom
+theory: "Extended version of IBS reversion with additional filters (trend SMA, VEI). Holds longer than classic IBS for larger moves."
+
+entry:
+  - name: ibs_threshold
+    label: IBS Threshold
+    type: float
+    default: 0.3
+    range: [0.05, 0.5]
+    hint: Enter when IBS drops below this (lower = more extreme)
+
+  - name: sma_trend_period
+    label: Trend Filter SMA
+    type: int
+    default: 200
+    range: [0, 400]
+    hint: Only enter if price above this SMA (0 = no filter)
+
+  - name: vei_max
+    label: VEI Max
+    type: int
+    default: 0
+    range: [0, 10]
+    hint: Volume expansion index limit (0 = no filter)
+
+exit:
+  - name: max_hold_days
+    label: Max Hold Days
+    type: int
+    default: 20
+    range: [3, 60]
+    hint: Force exit after this many days
+
+  - name: stop_loss_pct
+    label: Stop Loss %
+    type: float
+    default: 0.0
+    range: [0.0, 0.3]
+    hint: Hard stop loss (0 = disabled)
+
+  - name: trailing_stop_pct
+    label: Trailing Stop %
+    type: float
+    default: 0.0
+    range: [0.0, 0.3]
+    hint: Trailing stop (0 = disabled)

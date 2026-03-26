@@ -1,0 +1,42 @@
+name: eod_technical
+display_name: EOD Technical
+description: End-of-day technical breakout strategy using moving averages and N-day highs with direction scoring.
+category: technical
+source: custom
+theory: Enters when price breaks above N-day high with positive short-term direction. Exits via trailing stop loss after optional minimum hold period.
+
+entry:
+  - name: n_day_ma
+    label: MA Period
+    type: int
+    default: 3
+    range: [2, 20]
+    hint: Moving average period for direction calculation
+
+  - name: n_day_high
+    label: Breakout Lookback
+    type: int
+    default: 2
+    range: [1, 10]
+    hint: Number of days for high breakout signal
+
+  - name: direction_score
+    label: Direction Score
+    type: dict
+    default: {n_day_ma: 3, score: 0.54}
+    hint: "Direction filter: {n_day_ma}-day MA direction must exceed {score}"
+
+exit:
+  - name: min_hold_time_days
+    label: Min Hold Days
+    type: int
+    default: 0
+    range: [0, 30]
+    hint: Minimum days to hold before exit allowed
+
+  - name: trailing_stop_loss
+    label: Trailing Stop %
+    type: float
+    default: 15
+    range: [2, 50]
+    hint: Trailing stop loss percentage from peak

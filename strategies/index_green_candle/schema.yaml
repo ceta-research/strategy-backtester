@@ -1,0 +1,36 @@
+name: index_green_candle
+display_name: Index Green Candle
+description: Momentum entry on consecutive green (up) candles. Exits on red candle streak or stop/target.
+category: index
+source: custom
+theory: "Consecutive up days signal short-term momentum. Enter after N green candles, exit on red candles or target/stop hit."
+
+entry:
+  - name: green_candles
+    label: Green Candles
+    type: int
+    default: 2
+    range: [1, 7]
+    hint: Consecutive up days required for entry
+
+exit:
+  - name: red_candles_exit
+    label: Red Candles Exit
+    type: int
+    default: 1
+    range: [1, 5]
+    hint: Consecutive down days to trigger exit
+
+  - name: take_profit_pct
+    label: Take Profit %
+    type: float
+    default: 0.0
+    range: [0.0, 0.3]
+    hint: Profit target (0 = disabled)
+
+  - name: stop_loss_pct
+    label: Stop Loss %
+    type: float
+    default: 0.0
+    range: [0.0, 0.2]
+    hint: Hard stop loss (0 = disabled)

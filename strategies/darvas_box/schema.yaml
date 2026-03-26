@@ -1,0 +1,36 @@
+name: darvas_box
+display_name: Darvas Box
+description: Breakout strategy based on Nicolas Darvas' box theory. Identifies consolidation boxes and trades the breakout.
+category: technical
+source: book
+theory: "Price forms a 'box' during consolidation. When price breaks above the box with volume confirmation, enter long. Trail stop at box bottom."
+
+entry:
+  - name: box_min_days
+    label: Min Box Days
+    type: int
+    default: 15
+    range: [5, 60]
+    hint: Minimum days of consolidation to form a box
+
+  - name: volume_breakout_mult
+    label: Volume Multiplier
+    type: float
+    default: 1.2
+    range: [0.5, 3.0]
+    hint: Required volume as multiple of average for breakout confirmation
+
+exit:
+  - name: trailing_stop_pct
+    label: Trailing Stop %
+    type: float
+    default: 0.08
+    range: [0.02, 0.3]
+    hint: Trailing stop percentage from peak (0.08 = 8%)
+
+  - name: max_hold_days
+    label: Max Hold Days
+    type: int
+    default: 40
+    range: [10, 120]
+    hint: Force exit after this many days

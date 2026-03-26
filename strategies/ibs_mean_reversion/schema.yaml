@@ -1,0 +1,36 @@
+name: ibs_mean_reversion
+display_name: IBS Mean Reversion
+description: Internal Bar Strength mean-reversion. Buys when IBS is extremely low (close near low of day), sells when IBS recovers.
+category: mean_reversion
+source: academic
+theory: "IBS = (Close - Low) / (High - Low). Low IBS indicates selling pressure that tends to reverse. Trend filter ensures only trading in uptrends."
+
+entry:
+  - name: ibs_entry_threshold
+    label: IBS Entry Threshold
+    type: float
+    default: 0.15
+    range: [0.01, 0.5]
+    hint: Enter when IBS drops below this (lower = more extreme)
+
+  - name: sma_trend_period
+    label: Trend Filter SMA
+    type: int
+    default: 200
+    range: [0, 400]
+    hint: Only enter if price above this SMA (0 = no filter)
+
+exit:
+  - name: ibs_exit_threshold
+    label: IBS Exit Threshold
+    type: float
+    default: 0.8
+    range: [0.5, 1.0]
+    hint: Exit when IBS rises above this level
+
+  - name: max_hold_days
+    label: Max Hold Days
+    type: int
+    default: 5
+    range: [1, 30]
+    hint: Force exit after this many days
