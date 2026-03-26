@@ -3,3 +3,4 @@ numpy>=1.24
 polars>=1.0
 pyyaml>=6.0
 requests>=2.28
+scikit-learn>=1.3
