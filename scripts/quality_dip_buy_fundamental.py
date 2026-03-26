@@ -43,6 +43,8 @@ def fetch_fundamentals(cr, exchange):
     """
     if exchange == "NSE":
         suffix_filter = "symbol LIKE '%.NS'"
+    elif exchange == "LSE":
+        suffix_filter = "symbol LIKE '%.L'"
     else:
         suffix_filter = "1=1"
 
@@ -69,6 +71,8 @@ def fetch_fundamentals(cr, exchange):
         sym = r["symbol"]
         if exchange == "NSE" and sym.endswith(".NS"):
             sym = sym[:-3]
+        elif exchange == "LSE" and sym.endswith(".L"):
+            sym = sym[:-2]
 
         epoch = int(r.get("dateEpoch") or 0)
         if epoch <= 0:

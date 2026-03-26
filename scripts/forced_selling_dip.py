@@ -175,8 +175,16 @@ def main():
         capital = 10_000_000       # $10M
         description = ("Forced-selling dip on US: idiosyncratic dip + volume spike "
                        "on quality stocks with fundamental overlay.")
+    elif market == "lse":
+        exchange = "LSE"
+        start_epoch = 1262304000   # 2010-01-01
+        end_epoch = 1773878400     # 2026-03-19
+        benchmark_sym = "ISF.L"
+        capital = 10_000_000       # 10M GBP
+        description = ("Forced-selling dip on LSE: idiosyncratic dip + volume spike "
+                       "on quality stocks with fundamental overlay.")
     else:
-        print(f"Unknown market: {market}. Use --market nse or --market us")
+        print(f"Unknown market: {market}. Use --market nse, --market us, or --market lse")
         return
 
     cr = CetaResearch()

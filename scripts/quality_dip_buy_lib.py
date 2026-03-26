@@ -53,6 +53,9 @@ def fetch_universe(cr, exchange, start_epoch, end_epoch,
     elif exchange in ("US", "NASDAQ", "NYSE"):
         return _fetch_us_universe(cr, warmup_epoch, end_epoch,
                                   mktcap_threshold or 1_000_000_000)
+    elif exchange == "LSE":
+        return _fetch_lse_universe(cr, warmup_epoch, end_epoch,
+                                   mktcap_threshold or 500_000_000)
     else:
         raise ValueError(f"Unsupported exchange: {exchange}")
 
@@ -208,6 +211,65 @@ def _fetch_us_universe(cr, start_epoch, end_epoch, mktcap_threshold):
                              open_col="open", volume_col="volume")
 
 
+def _fetch_lse_universe(cr, start_epoch, end_epoch, mktcap_threshold):
+    """Fetch LSE universe from fmp.stock_eod + fmp.profile (.L suffix symbols)."""
+    # Pass 1: get qualifying symbols from profile
+    print("  Pass 1: finding qualifying LSE symbols...")
+    sql = f"""
+    SELECT symbol
+    FROM fmp.profile
+    WHERE exchange = 'LSE'
+      AND isActivelyTrading = true
+      AND marketCap > {mktcap_threshold}
+    ORDER BY marketCap DESC
+    """
+    results = cr.query(sql, timeout=120, limit=100000, verbose=True,
+                       memory_mb=8192, threads=4)
+    if not results:
+        print("  No qualifying LSE symbols found")
+        return {}
+
+    symbols = [r["symbol"] for r in results]
+    print(f"  Found {len(symbols)} qualifying symbols")
+
+    # Pass 2: fetch OHLCV -- limit to top 500 by market cap
+    if len(symbols) > 500:
+        symbols = symbols[:500]
+        print(f"  Trimmed to top {len(symbols)} by market cap")
+
+    # Batch symbols to stay under 50K char query limit
+    BATCH_SIZE = 200
+    all_results = []
+    for batch_start in range(0, len(symbols), BATCH_SIZE):
+        batch = symbols[batch_start:batch_start + BATCH_SIZE]
+        sym_list = ", ".join(f"'{s}'" for s in batch)
+        print(f"  Pass 2: fetching OHLCV batch {batch_start//BATCH_SIZE + 1} "
+              f"({len(batch)} symbols)...")
+        sql = f"""
+        SELECT symbol, CAST(dateEpoch AS BIGINT) AS dateEpoch, open, adjClose, volume
+        FROM fmp.stock_eod
+        WHERE symbol IN ({sym_list})
+          AND CAST(dateEpoch AS BIGINT) >= {start_epoch}
+          AND CAST(dateEpoch AS BIGINT) <= {end_epoch}
+        ORDER BY symbol, dateEpoch
+        """
+        batch_results = cr.query(sql, timeout=600, limit=10000000, verbose=True,
+                                 memory_mb=16384, threads=6)
+        if batch_results:
+            all_results.extend(batch_results)
+
+    if not all_results:
+        return {}
+
+    # Strip .L suffix from symbols to match lib convention
+    for r in all_results:
+        if r["symbol"].endswith(".L"):
+            r["symbol"] = r["symbol"][:-2]
+
+    return _build_price_data(all_results, epoch_col="dateEpoch", close_col="adjClose",
+                             open_col="open", volume_col="volume")
+
+
 def _build_price_data(results, epoch_col, close_col, open_col, volume_col):
     """Convert query results to dict[symbol, list[dict]]."""
     price_data = {}
@@ -283,6 +345,8 @@ def fetch_sector_map(cr, exchange):
         sql = "SELECT symbol, sector FROM fmp.profile WHERE symbol LIKE '%.NS'"
     elif exchange in ("US", "NASDAQ", "NYSE"):
         sql = "SELECT symbol, sector FROM fmp.profile WHERE exchange IN ('NASDAQ', 'NYSE')"
+    elif exchange == "LSE":
+        sql = "SELECT symbol, sector FROM fmp.profile WHERE exchange = 'LSE'"
     else:
         return {}
 
@@ -296,6 +360,8 @@ def fetch_sector_map(cr, exchange):
         sector = row.get("sector") or "Unknown"
         if exchange == "NSE" and sym.endswith(".NS"):
             sym = sym[:-3]
+        elif exchange == "LSE" and sym.endswith(".L"):
+            sym = sym[:-2]
         sector_map[sym] = sector
 
     print(f"  Sector data: {len(sector_map)} stocks, "

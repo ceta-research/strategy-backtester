@@ -88,8 +88,16 @@ def main():
         capital = 10_000_000       # $10M
         description = ("Extended momentum dip-buy sweep on US: "
                        "D/E filter, extended positions, sector limits.")
+    elif market == "lse":
+        exchange = "LSE"
+        start_epoch = 1262304000   # 2010-01-01
+        end_epoch = 1773878400     # 2026-03-19
+        benchmark_sym = "ISF.L"
+        capital = 10_000_000       # 10M GBP
+        description = ("Extended momentum dip-buy sweep on LSE: "
+                       "D/E filter, extended positions, sector limits.")
     else:
-        print(f"Unknown market: {market}. Use --market nse or --market us")
+        print(f"Unknown market: {market}. Use --market nse, --market us, or --market lse")
         return
 
     cr = CetaResearch()
