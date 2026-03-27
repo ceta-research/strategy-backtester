@@ -960,6 +960,8 @@ def simulate_portfolio(
                     side="LONG",
                     charges=pos["buy_charges"] + sell_ch,
                     slippage=pos["buy_slippage"] + sell_sl,
+                    symbol=pos["symbol"],
+                    exit_reason=pos.get("exit_reason", ""),
                 )
 
                 if max_per_sector > 0 and sector_map:
@@ -1082,24 +1084,25 @@ def simulate_portfolio(
                 pos["trail_high"] = close
 
             hold_days = (epoch - pos["entry_epoch"]) / 86400
-            should_exit = False
+            exit_reason = ""
             pos_tsl = pos.get("tsl_pct", tsl_pct)
 
             if pos_tsl == 0:
                 # Peak recovery exit
                 if close >= pos["peak_price"]:
-                    should_exit = True
+                    exit_reason = "peak_recovery"
                 if max_hold_days > 0 and hold_days >= max_hold_days:
-                    should_exit = True
+                    exit_reason = "max_hold"
             else:
                 if close >= pos["peak_price"]:
                     pos["reached_peak"] = True
                 if pos["reached_peak"] and close <= pos["trail_high"] * (1 - pos_tsl / 100.0):
-                    should_exit = True
+                    exit_reason = "tsl"
                 if max_hold_days > 0 and hold_days >= max_hold_days:
-                    should_exit = True
+                    exit_reason = "max_hold"
 
-            if should_exit:
+            if exit_reason:
+                pos["exit_reason"] = exit_reason
                 pending_sells.append(key)
 
     # Close any remaining positions at last day's close
@@ -1119,6 +1122,8 @@ def simulate_portfolio(
             side="LONG",
             charges=pos["buy_charges"] + sell_ch,
             slippage=pos["buy_slippage"] + sell_sl,
+            symbol=pos["symbol"],
+            exit_reason="end_of_sim",
         )
 
     # Set benchmark

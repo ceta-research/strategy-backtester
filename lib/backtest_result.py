@@ -69,8 +69,15 @@ class BacktestResult:
         self.equity_curve.append((int(epoch), float(value)))
 
     def add_trade(self, entry_epoch, exit_epoch, entry_price, exit_price,
-                  quantity, side="LONG", charges=0.0, slippage=0.0):
-        """Record a completed trade."""
+                  quantity, side="LONG", charges=0.0, slippage=0.0,
+                  symbol="", exit_reason=""):
+        """Record a completed trade.
+
+        Args:
+            symbol: Instrument symbol (e.g. "INFY", "TCS").
+            exit_reason: Why the trade was closed ("tsl", "max_hold", "end_of_sim",
+                         "peak_recovery", etc.).
+        """
         if side == "LONG":
             gross_pnl = (exit_price - entry_price) * quantity
             pnl_pct = (exit_price / entry_price - 1) * 100 if entry_price > 0 else 0
@@ -81,7 +88,7 @@ class BacktestResult:
         net_pnl = gross_pnl - charges - slippage
         hold_days = (exit_epoch - entry_epoch) / 86400
 
-        self.trades.append({
+        trade = {
             "entry_epoch": int(entry_epoch),
             "exit_epoch": int(exit_epoch),
             "entry_date": _epoch_to_date(entry_epoch),
@@ -96,7 +103,12 @@ class BacktestResult:
             "hold_days": round(hold_days, 1),
             "charges": round(charges, 2),
             "slippage": round(slippage, 2),
-        })
+        }
+        if symbol:
+            trade["symbol"] = symbol
+        if exit_reason:
+            trade["exit_reason"] = exit_reason
+        self.trades.append(trade)
         self.costs["total_charges"] += charges
         self.costs["total_slippage"] += slippage
 
@@ -202,6 +214,21 @@ class BacktestResult:
             json.dump(self._computed, f, indent=2)
         size_kb = os.path.getsize(path) / 1024
         print(f"  Saved {path} ({size_kb:.0f} KB)")
+
+        # Append summary to catalog
+        try:
+            meta = {
+                "strategy_name": self.strategy["name"],
+                "exchange": self.strategy["exchange"],
+                "capital": self.strategy["capital"],
+                "slippage_bps": self.strategy.get("slippage_bps", 0),
+            }
+            entry = {"params": self.strategy["params"],
+                     **self._computed["summary"]}
+            _append_to_catalog(meta, [entry], result_file=path)
+        except Exception as e:
+            print(f"  Warning: catalog append failed: {e}")
+
         return path
 
     def print_summary(self):
@@ -491,6 +518,14 @@ class SweepResult:
         size_mb = os.path.getsize(path) / (1024 * 1024)
         print(f"  Saved {path} ({size_mb:.1f} MB, {len(self.configs)} configs, "
               f"top {min(top_n, len(self.configs))} detailed)")
+
+        # Append top-10 summaries to catalog
+        try:
+            _append_to_catalog(self.meta, output["all_configs"], sort_by,
+                               result_file=path)
+        except Exception as e:
+            print(f"  Warning: catalog append failed: {e}")
+
         return path
 
     def print_leaderboard(self, top_n=20, sort_by="calmar_ratio"):
@@ -563,7 +598,61 @@ class MultiSweepResult:
             json.dump(output, f)
         size_mb = os.path.getsize(path) / (1024 * 1024)
         print(f"  Saved {path} ({size_mb:.1f} MB, {len(self.sweeps)} sweeps)")
+
+        # Append each sweep's top-10 to catalog
+        for name, sr in self.sweeps.items():
+            try:
+                meta = {**sr.meta, "strategy_name": f"{self.meta['strategy_name']}:{name}"}
+                sweep_dict = sr._to_dict(top_n, sort_by)
+                _append_to_catalog(meta, sweep_dict["all_configs"], sort_by,
+                                   result_file=path)
+            except Exception as e:
+                print(f"  Warning: catalog append for {name} failed: {e}")
+
         return path
+
+
+# ── Result Catalog ───────────────────────────────────────────────────────
+
+CATALOG_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                            "results", "catalog.jsonl")
+
+CATALOG_FIELDS = [
+    "cagr", "total_return", "max_drawdown", "sharpe_ratio", "sortino_ratio",
+    "calmar_ratio", "total_trades", "win_rate", "avg_hold_days", "profit_factor",
+    "final_value", "worst_year",
+]
+
+
+def _append_to_catalog(meta, configs_with_params, sort_by="calmar_ratio",
+                       result_file=None, top_n=10):
+    """Append a run summary to results/catalog.jsonl.
+
+    Each line is one run: meta + top-N configs with params and key metrics.
+    Lightweight (~1 KB per config), append-only, easy to grep/query.
+    """
+    top = configs_with_params[:top_n]
+    entry = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "strategy": meta.get("strategy_name", ""),
+        "exchange": meta.get("exchange", ""),
+        "capital": meta.get("capital", 0),
+        "slippage_bps": meta.get("slippage_bps", 0),
+        "total_configs": len(configs_with_params),
+        "sort_by": sort_by,
+        "result_file": result_file,
+        "top": [],
+    }
+    for item in top:
+        params = item.get("params", {})
+        row = {"params": params}
+        for f in CATALOG_FIELDS:
+            row[f] = item.get(f)
+        entry["top"].append(row)
+
+    os.makedirs(os.path.dirname(CATALOG_PATH), exist_ok=True)
+    with open(CATALOG_PATH, "a") as f:
+        f.write(json.dumps(entry, separators=(",", ":")) + "\n")
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────
