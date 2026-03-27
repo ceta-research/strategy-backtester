@@ -23,65 +23,85 @@ python run_remote.py scripts/momentum_dip_buy.py --env MARKET=jpx --timeout 900 
 | XETRA | xetra | FMP | EXS1.DE | >500M EUR |
 | KSC | ksc | FMP | 069500.KS | >500B KRW |
 | TSX | tsx | FMP | XIU.TO | >500M CAD |
-| ASX | asx | FMP | STW.AX | >500M AUD |
-| TAI | tai | FMP | EWT | >10B TWD |
 
 ## Run Matrix
 
-Legend: `--` = not applicable, blank = pending, `Cal X.XX` = completed
+Legend: blank = pending, `0.XX` = best Calmar from run
 
-### momentum_dip:base (`scripts/momentum_dip_buy.py`)
+### momentum_dip:base (`momentum_dip_buy.py`)
 
-| Exchange | Status | Calmar | CAGR | MDD | Trades |
-|----------|--------|--------|------|-----|--------|
-| NSE | Cal 0.90 | 0.90 | +26.3% | -29.1% | 236 |
-| US | Cal 0.37 | 0.37 | +17.0% | -45.9% | 167 |
-| LSE | Cal 0.18 | 0.18 | +5.4% | -30.4% | 223 |
-| JPX | | | | | |
-| HKSE | | | | | |
-| XETRA | | | | | |
-| KSC | | | | | |
-| TSX | | | | | |
+| NSE | US | LSE | JPX | HKSE | XETRA | KSC | TSX |
+|:---:|:--:|:---:|:---:|:----:|:-----:|:---:|:---:|
+| 0.90 | 0.37 | 0.18 | | | | | |
 
-### momentum_dip:de_filter (`scripts/momentum_dip_de_positions.py`)
+### momentum_dip:de_filter (`momentum_dip_de_positions.py`)
 
-| Exchange | Status | Calmar | CAGR | MDD | Trades |
-|----------|--------|--------|------|-----|--------|
-| NSE | Cal 1.01 | 1.01 | +23.7% | -23.3% | 244 |
-| US | Cal 0.37 | 0.37 | +14.1% | -37.8% | 345 |
-| LSE | Cal 0.22 | 0.22 | +5.2% | -24.0% | 135 |
-| JPX | | | | | |
-| HKSE | | | | | |
-| XETRA | | | | | |
-| KSC | | | | | |
-| TSX | | | | | |
+| NSE | US | LSE | JPX | HKSE | XETRA | KSC | TSX |
+|:---:|:--:|:---:|:---:|:----:|:-----:|:---:|:---:|
+| 1.01 | 0.37 | 0.22 | | | | | |
 
-### forced_selling:base (`scripts/forced_selling_dip.py`)
+### momentum_dip:vol_exits (`momentum_dip_vol_exits.py`)
 
-| Exchange | Status | Calmar | CAGR | MDD | Trades |
-|----------|--------|--------|------|-----|--------|
-| NSE | Cal 0.64 | 0.64 | +21.4% | -33.6% | 90 |
-| US | Cal 0.39 | 0.39 | +5.6% | -14.1% | 66 |
-| LSE | Cal 0.08 | 0.08 | +3.0% | -38.1% | 40 |
-| JPX | | | | | |
-| HKSE | | | | | |
-| XETRA | | | | | |
-| KSC | | | | | |
-| TSX | | | | | |
+| NSE | US | LSE | JPX | HKSE | XETRA | KSC | TSX |
+|:---:|:--:|:---:|:---:|:----:|:-----:|:---:|:---:|
+| 1.01 | | | | | | | |
+
+### quality_dip:vol_exits (`vol_adjusted_exits.py`)
+
+| NSE | US | LSE | JPX | HKSE | XETRA | KSC | TSX |
+|:---:|:--:|:---:|:---:|:----:|:-----:|:---:|:---:|
+| 0.70 | | | | | | | |
+
+### quality_dip:fundamental (`quality_dip_buy_fundamental.py`)
+
+| NSE | US | LSE | JPX | HKSE | XETRA | KSC | TSX |
+|:---:|:--:|:---:|:---:|:----:|:-----:|:---:|:---:|
+| 0.64 | 0.58 | | | | | | |
+
+### quality_dip:baseline (`quality_dip_buy_nse.py`)
+
+| NSE | US | LSE | JPX | HKSE | XETRA | KSC | TSX |
+|:---:|:--:|:---:|:---:|:----:|:-----:|:---:|:---:|
+| 0.33 | 0.48 | | | | | | |
+
+### forced_selling:base (`forced_selling_dip.py`)
+
+| NSE | US | LSE | JPX | HKSE | XETRA | KSC | TSX |
+|:---:|:--:|:---:|:---:|:----:|:-----:|:---:|:---:|
+| 0.64 | 0.39 | 0.08 | | | | | |
+
+### earnings_surprise:base (`earnings_surprise_dip.py`)
+
+| NSE | US | LSE | JPX | HKSE | XETRA | KSC | TSX |
+|:---:|:--:|:---:|:---:|:----:|:-----:|:---:|:---:|
+| 0.44 | 0.23 | | | | | | |
+
+## Summary
+
+- **8 strategies × 8 exchanges = 64 total runs**
+- **Completed: 16** (NSE: 8, US: 5, LSE: 3)
+- **Remaining: 48**
 
 ## Run Order
 
-Run sequentially on CR compute. Priority: highest-Calmar strategies first, largest exchanges first.
+Priority: highest-Calmar strategies first, largest exchanges first.
 
+**Batch 1** (top 3 strategies × 5 new exchanges = 15 runs):
 1. momentum_dip:base × JPX, HKSE, XETRA, KSC, TSX
 2. momentum_dip:de_filter × JPX, HKSE, XETRA, KSC, TSX
-3. forced_selling:base × JPX, HKSE, XETRA, KSC, TSX
+3. momentum_dip:vol_exits × US, JPX, HKSE, XETRA, KSC
 
-Total: ~15 runs remaining. Each takes 5-15 min on CR compute.
+**Batch 2** (remaining strategies × key exchanges):
+4. quality_dip:vol_exits × US, JPX, HKSE
+5. quality_dip:fundamental × JPX, HKSE, XETRA
+6. forced_selling:base × JPX, HKSE, XETRA, KSC, TSX
+7. earnings_surprise:base × JPX, HKSE
+8. quality_dip:baseline × JPX, HKSE
 
 ## Notes
 
 - NSE uses native data (nse.nse_charting_day), all others use FMP (fmp.stock_eod with adjClose)
 - All runs use 5 bps slippage, real charges (NSE: STT+stamp+GST, US: SEC+FINRA, others: flat 0.1%)
 - Market cap thresholds in local currency — adjusted per exchange to get ~500 liquid stocks
-- JPX/KSC/TAI thresholds are high because prices are in JPY/KRW/TWD (not USD)
+- JPX/KSC thresholds are high because market cap is in JPY/KRW (not USD)
+- Results auto-append to results/catalog.jsonl (last 5 per strategy:exchange kept)

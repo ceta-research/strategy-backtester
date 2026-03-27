@@ -35,11 +35,37 @@ DESCRIPTION = ("Quality dip-buy on NSE: buy dips in stocks with 2+ years of "
 
 
 def main():
-    start_epoch = 1262304000   # 2010-01-01
-    end_epoch = 1773878400     # 2026-03-19
+    market = os.environ.get("MARKET", "nse").lower()
+    if "--market" in sys.argv:
+        idx = sys.argv.index("--market")
+        if idx + 1 < len(sys.argv):
+            market = sys.argv[idx + 1].lower()
 
-    # Data source: "fmp" to validate against pipeline v3, "native" for real runs
-    source = "native"
+    from scripts.quality_dip_buy_lib import FMP_EXCHANGES
+
+    MARKET_CONFIGS = {
+        "nse": {"exchange": "NSE", "start": 1262304000, "benchmark": "NIFTYBEES", "capital": 10_000_000},
+        "us":  {"exchange": "US",  "start": 1104537600, "benchmark": "SPY",       "capital": 10_000_000},
+    }
+    for exch, cfg in FMP_EXCHANGES.items():
+        MARKET_CONFIGS[exch.lower()] = {
+            "exchange": exch, "start": 1262304000, "benchmark": cfg["benchmark"],
+            "capital": 10_000_000,
+        }
+
+    if market not in MARKET_CONFIGS:
+        print(f"Unknown market: {market}. Supported: {', '.join(MARKET_CONFIGS.keys())}")
+        return
+
+    mc = MARKET_CONFIGS[market]
+    exchange = mc["exchange"]
+    start_epoch = mc["start"]
+    end_epoch = 1773878400     # 2026-03-19
+    benchmark_sym = mc["benchmark"]
+    capital = mc["capital"]
+
+    # Data source: "fmp" to validate against pipeline v3, "native" for NSE real runs
+    source = "native" if exchange == "NSE" else "fmp"
     if "--fmp" in sys.argv:
         source = "fmp"
 
@@ -47,21 +73,21 @@ def main():
 
     # ── Fetch data ──
     print("=" * 80)
-    print(f"  {STRATEGY_NAME}: fetching data (source={source})")
+    print(f"  {STRATEGY_NAME} ({market.upper()}): fetching data (source={source})")
     print("=" * 80)
 
-    print(f"\nFetching NSE universe ({source})...")
-    price_data = fetch_universe(cr, "NSE", start_epoch, end_epoch, source=source)
+    print(f"\nFetching {exchange} universe ({source})...")
+    price_data = fetch_universe(cr, exchange, start_epoch, end_epoch, source=source)
     if not price_data:
         print("No data. Aborting.")
         return
 
-    print(f"\nFetching NIFTYBEES benchmark ({source})...")
-    benchmark = fetch_benchmark(cr, "NIFTYBEES", "NSE", start_epoch, end_epoch,
+    print(f"\nFetching {benchmark_sym} benchmark ({source})...")
+    benchmark = fetch_benchmark(cr, benchmark_sym, exchange, start_epoch, end_epoch,
                                 warmup_days=250, source=source)
 
     print("\nFetching sector data...")
-    sector_map = fetch_sector_map(cr, "NSE")
+    sector_map = fetch_sector_map(cr, exchange)
 
     # ── Pre-compute RSI for all symbols ──
     print("\nComputing RSI(14) for all symbols...")
@@ -89,7 +115,7 @@ def main():
     print(f"  MOC execution | Real NSE charges | 5bps slippage")
     print(f"{'='*80}")
 
-    sweep = SweepResult(STRATEGY_NAME, "PORTFOLIO", "NSE", CAPITAL,
+    sweep = SweepResult(STRATEGY_NAME, "PORTFOLIO", exchange, capital,
                         slippage_bps=5, description=DESCRIPTION)
 
     for idx, (yrs, min_ret, dip, peak, regime_sma, rsi_thresh,
@@ -120,11 +146,11 @@ def main():
         # Run simulation
         r, dwl = simulate_portfolio(
             entries, price_data, benchmark,
-            capital=CAPITAL,
+            capital=capital,
             max_positions=pos,
             tsl_pct=tsl,
             max_hold_days=hold,
-            exchange="NSE",
+            exchange=exchange,
             regime_epochs=regime_epochs if regime_sma > 0 else None,
             rsi_data=rsi_data if rsi_thresh > 0 else None,
             rsi_threshold=rsi_thresh,
@@ -159,7 +185,7 @@ def main():
         dwl = getattr(r, '_day_wise_log', None)
         if not dwl:
             continue
-        adj = compute_always_invested(dwl, benchmark, CAPITAL)
+        adj = compute_always_invested(dwl, benchmark, capital)
         if adj:
             s = r.to_dict()["summary"]
             print(f"  #{i+1} | Original: CAGR={s.get('cagr',0)*100:+.1f}% "

@@ -193,27 +193,53 @@ def filter_entries_by_fundamentals(entries, fundamentals, roe_threshold, de_thre
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
-    start_epoch = 1262304000   # 2010-01-01
+    market = os.environ.get("MARKET", "nse").lower()
+    if "--market" in sys.argv:
+        idx = sys.argv.index("--market")
+        if idx + 1 < len(sys.argv):
+            market = sys.argv[idx + 1].lower()
+
+    from scripts.quality_dip_buy_lib import FMP_EXCHANGES
+
+    MARKET_CONFIGS = {
+        "nse": {"exchange": "NSE", "start": 1262304000, "benchmark": "NIFTYBEES", "capital": 10_000_000},
+        "us":  {"exchange": "US",  "start": 1104537600, "benchmark": "SPY",       "capital": 10_000_000},
+    }
+    for exch, cfg in FMP_EXCHANGES.items():
+        MARKET_CONFIGS[exch.lower()] = {
+            "exchange": exch, "start": 1262304000, "benchmark": cfg["benchmark"],
+            "capital": 10_000_000,
+        }
+
+    if market not in MARKET_CONFIGS:
+        print(f"Unknown market: {market}. Supported: {', '.join(MARKET_CONFIGS.keys())}")
+        return
+
+    mc = MARKET_CONFIGS[market]
+    exchange = mc["exchange"]
+    start_epoch = mc["start"]
     end_epoch = 1773878400     # 2026-03-19
+    benchmark_sym = mc["benchmark"]
+    capital = mc["capital"]
 
     cr = CetaResearch()
 
     print("=" * 80)
-    print(f"  {STRATEGY_NAME}: fetching data")
+    print(f"  {STRATEGY_NAME} ({market.upper()}): fetching data")
     print("=" * 80)
 
-    print("\nFetching NSE universe...")
-    price_data = fetch_universe(cr, "NSE", start_epoch, end_epoch)
+    print(f"\nFetching {exchange} universe...")
+    price_data = fetch_universe(cr, exchange, start_epoch, end_epoch)
     if not price_data:
         print("No data. Aborting.")
         return
 
-    print("\nFetching NIFTYBEES benchmark...")
-    benchmark = fetch_benchmark(cr, "NIFTYBEES", "NSE", start_epoch, end_epoch,
+    print(f"\nFetching {benchmark_sym} benchmark...")
+    benchmark = fetch_benchmark(cr, benchmark_sym, exchange, start_epoch, end_epoch,
                                 warmup_days=250)
 
     print("\nFetching fundamentals...")
-    fundamentals = fetch_fundamentals(cr, "NSE")
+    fundamentals = fetch_fundamentals(cr, exchange)
 
     # Fixed best params from NSE baseline
     consecutive_years = 2
@@ -254,7 +280,7 @@ def main():
           f"regime={regime_sma}, TSL={tsl_pct}%, hold={max_hold_days}d")
     print(f"{'='*80}")
 
-    sweep = SweepResult(STRATEGY_NAME, "PORTFOLIO", "NSE", CAPITAL,
+    sweep = SweepResult(STRATEGY_NAME, "PORTFOLIO", exchange, capital,
                         slippage_bps=5, description=DESCRIPTION)
 
     for idx, (roe, de, pe, pos, missing) in enumerate(param_grid):
@@ -272,11 +298,11 @@ def main():
 
         r, dwl = simulate_portfolio(
             filtered_entries, price_data, benchmark,
-            capital=CAPITAL,
+            capital=capital,
             max_positions=pos,
             tsl_pct=tsl_pct,
             max_hold_days=max_hold_days,
-            exchange="NSE",
+            exchange=exchange,
             regime_epochs=regime_epochs,
             strategy_name=STRATEGY_NAME,
             description=DESCRIPTION,

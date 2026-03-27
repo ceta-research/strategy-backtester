@@ -260,31 +260,36 @@ def compute_post_earnings_dip_entries(
 # ── Main ────────────────────────────────────────────────────────────────────
 
 def main():
-    market = "nse"
+    market = os.environ.get("MARKET", "nse").lower()
     if "--market" in sys.argv:
         idx = sys.argv.index("--market")
         if idx + 1 < len(sys.argv):
             market = sys.argv[idx + 1].lower()
 
-    if market == "nse":
-        exchange = "NSE"
-        start_epoch = 1262304000   # 2010-01-01
-        end_epoch = 1773878400     # 2026-03-17
-        benchmark_sym = "NIFTYBEES"
-        capital = 10_000_000       # 1 Cr
-        description = ("Earnings surprise + post-earnings dip on NSE: buy quality "
-                       "stocks that beat earnings and then dip.")
-    elif market == "us":
-        exchange = "US"
-        start_epoch = 1104537600   # 2005-01-01
-        end_epoch = 1773878400     # 2026-03-17
-        benchmark_sym = "SPY"
-        capital = 10_000_000       # $10M
-        description = ("Earnings surprise + post-earnings dip on US: buy quality "
-                       "stocks that beat earnings and then dip.")
-    else:
-        print(f"Unknown market: {market}. Use --market nse or --market us")
+    from scripts.quality_dip_buy_lib import FMP_EXCHANGES
+
+    MARKET_CONFIGS = {
+        "nse": {"exchange": "NSE", "start": 1262304000, "benchmark": "NIFTYBEES", "capital": 10_000_000},
+        "us":  {"exchange": "US",  "start": 1104537600, "benchmark": "SPY",       "capital": 10_000_000},
+    }
+    for exch, cfg in FMP_EXCHANGES.items():
+        MARKET_CONFIGS[exch.lower()] = {
+            "exchange": exch, "start": 1262304000, "benchmark": cfg["benchmark"],
+            "capital": 10_000_000,
+        }
+
+    if market not in MARKET_CONFIGS:
+        print(f"Unknown market: {market}. Supported: {', '.join(MARKET_CONFIGS.keys())}")
         return
+
+    mc = MARKET_CONFIGS[market]
+    exchange = mc["exchange"]
+    start_epoch = mc["start"]
+    end_epoch = 1773878400     # 2026-03-19
+    benchmark_sym = mc["benchmark"]
+    capital = mc["capital"]
+    description = (f"Earnings surprise + post-earnings dip on {exchange}: buy quality "
+                   "stocks that beat earnings and then dip.")
 
     cr = CetaResearch()
 
