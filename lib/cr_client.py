@@ -204,43 +204,26 @@ class CetaResearch:
         """Download results from a completed task.
 
         The server stores results as parquet (native). JSON/CSV are converted
-        on demand. The download endpoint may return:
-          1. Inline data (the actual content)
-          2. A presigned URL response: {"available": true, "url": "..."}
-          3. A preparing response: {"available": false, "retryAfter": 5}
+        on demand. Uses response_type=url to get a presigned R2 URL, then
+        downloads the file directly from storage.
         """
         artifact_id = task.get("artifactId")
-        data_url = task.get("dataUrl")
+        if not artifact_id:
+            raise CetaResearchError("No artifact ID in completed task")
 
-        # Build download URL. dataUrl always points to result.json, so for
-        # other formats we construct the URL from artifactId directly.
         ext_map = {"json": "result.json", "csv": "result.csv", "parquet": "result.parquet"}
         filename = ext_map.get(format, "result.json")
-
-        if artifact_id:
-            url = f"{self.base_url}/data-explorer/artifacts/{artifact_id}/download/{filename}"
-        elif data_url:
-            if format != "json" and "result.json" in data_url:
-                data_url = data_url.replace("result.json", filename)
-            if data_url.startswith("http"):
-                url = data_url
-            elif data_url.startswith("/"):
-                origin = self.base_url.split("/api/")[0]
-                url = f"{origin}/api{data_url}"
-            else:
-                url = f"{self.base_url}/{data_url}"
-        else:
-            raise CetaResearchError("No artifact ID or data URL in completed task")
+        url = f"{self.base_url}/data-explorer/artifacts/{artifact_id}/download/{filename}?response_type=url"
 
         resp = self._fetch_with_retry(url, format)
         return self._parse_response(resp, format)
 
     def _fetch_with_retry(self, url, format, max_retries=20, initial_wait=2):
-        """Fetch URL, following presigned URLs and retrying if file is preparing.
+        """Get presigned URL from server, then download the file from R2.
 
-        Args:
-            max_retries: Max retry attempts (default 20 = ~2 min for large files)
-            initial_wait: Initial retry wait time in seconds (grows with backoff)
+        The server returns JSON with either:
+          - {"available": true, "url": "https://..."} - follow the presigned URL
+          - {"available": false, "retryAfter": 5}     - file being prepared, retry
         """
         wait_time = initial_wait
         for attempt in range(max_retries):
@@ -249,35 +232,28 @@ class CetaResearch:
             if resp.status_code != 200:
                 raise CetaResearchError(f"Download failed ({resp.status_code}): {resp.text[:500]}")
 
-            # Check if this is a presigned URL / preparing response.
-            # Inline data for parquet is binary (not JSON), so only check
-            # for JSON responses that look like metadata.
-            content_type = resp.headers.get("Content-Type", "")
-            if "application/json" in content_type or (format != "parquet" and not content_type):
-                try:
-                    body = resp.json()
-                    if isinstance(body, dict):
-                        if body.get("available") and body.get("url"):
-                            # Presigned URL - fetch the actual file
-                            presigned_resp = requests.get(body["url"], timeout=300)
-                            if presigned_resp.status_code != 200:
-                                raise CetaResearchError(
-                                    f"Presigned URL fetch failed ({presigned_resp.status_code})"
-                                )
-                            return presigned_resp
-                        if body.get("available") is False:
-                            # File is being prepared (JSON/CSV conversion from parquet)
-                            # Use server's suggested retry time, or exponential backoff
-                            wait = body.get("retryAfter", wait_time)
-                            time.sleep(wait)
-                            # Exponential backoff, capped at 10s
-                            wait_time = min(wait_time * 1.5, 10)
-                            continue
-                except (json.JSONDecodeError, ValueError):
-                    pass
+            body = resp.json()
 
-            # Got inline data (parquet binary or JSON array)
-            return resp
+            if body.get("available") and body.get("url"):
+                # Download directly from presigned R2 URL
+                file_resp = requests.get(body["url"], timeout=300)
+                if file_resp.status_code != 200:
+                    raise CetaResearchError(
+                        f"Presigned URL fetch failed ({file_resp.status_code})"
+                    )
+                return file_resp
+
+            if body.get("available") is False:
+                # File is being prepared (JSON/CSV conversion from parquet)
+                wait = body.get("retryAfter", wait_time)
+                if attempt == 0:
+                    print(f"  File preparing (format conversion), waiting...")
+                time.sleep(wait)
+                wait_time = min(wait_time * 1.5, 10)
+                continue
+
+            # Unexpected response shape
+            raise CetaResearchError(f"Unexpected download response: {body}")
 
         raise CetaResearchError(f"File still preparing after {max_retries} retries (~{max_retries * initial_wait}s)")
 
