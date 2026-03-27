@@ -153,7 +153,7 @@ def compute_forced_selling_entries(
 # ── Main ────────────────────────────────────────────────────────────────────
 
 def main():
-    market = "nse"
+    market = os.environ.get("MARKET", "nse").lower()
     if "--market" in sys.argv:
         idx = sys.argv.index("--market")
         if idx + 1 < len(sys.argv):

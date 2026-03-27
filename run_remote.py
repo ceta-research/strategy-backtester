@@ -194,19 +194,23 @@ def sync_files(cr, project_id, config, script=None):
     save_project_config(config)
 
 
-def inject_api_key(cr, project_id):
-    """Write .env with API key so scripts can authenticate inside the container."""
+def inject_env(cr, project_id, extra_env=None):
+    """Write .env with API key and optional extra vars for the container."""
     api_key = cr.api_key
     env_content = f"CR_API_KEY={api_key}\n"
+    if extra_env:
+        for k, v in extra_env.items():
+            env_content += f"{k}={v}\n"
     try:
         cr.upsert_file(project_id, ".env", env_content)
     except Exception as e:
-        print(f"  Warning: failed to inject API key: {e}")
+        print(f"  Warning: failed to inject .env: {e}")
 
 
-def run(cr, project_id, entry_path, timeout, ram_mb, disk_mb, verbose=True):
+def run(cr, project_id, entry_path, timeout, ram_mb, disk_mb, verbose=True,
+        extra_env=None):
     """Run the script on cloud compute."""
-    inject_api_key(cr, project_id)
+    inject_env(cr, project_id, extra_env=extra_env)
     print(f"  Running {entry_path} (timeout={timeout}s, ram={ram_mb}MB, disk={disk_mb}MB)...")
     result = cr.run_project(
         project_id,
@@ -287,7 +291,16 @@ def main():
     parser.add_argument("--ram", type=int, default=DEFAULT_RAM_MB, help="RAM in MB")
     parser.add_argument("--disk", type=int, default=DEFAULT_DISK_MB, help="Disk in MB")
     parser.add_argument("-o", "--output", default=None, help="Output path for result.json")
+    parser.add_argument("--env", action="append", default=[],
+                        help="Extra env vars for the container (e.g. --env MARKET=jpx)")
     args = parser.parse_args()
+
+    # Parse --env KEY=VALUE pairs
+    extra_env = {}
+    for ev in args.env:
+        if "=" in ev:
+            k, v = ev.split("=", 1)
+            extra_env[k] = v
 
     cr = CetaResearch()
 
@@ -320,7 +333,8 @@ def main():
 
     # Run
     result = run(cr, project_id, args.script,
-                 timeout=args.timeout, ram_mb=args.ram, disk_mb=args.disk)
+                 timeout=args.timeout, ram_mb=args.ram, disk_mb=args.disk,
+                 extra_env=extra_env or None)
 
     print_run_summary(result)
 
