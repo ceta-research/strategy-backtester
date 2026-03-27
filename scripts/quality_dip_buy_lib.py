@@ -22,6 +22,18 @@ from lib.backtest_result import BacktestResult, SweepResult
 TRADING_DAYS_PER_YEAR = 252
 SLIPPAGE = 0.0005  # 5 bps
 
+# FMP exchange configs: profile exchange code, symbol suffix, default market cap threshold
+FMP_EXCHANGES = {
+    "LSE":   {"profile": "LSE",   "suffix": ".L",  "default_mktcap": 500_000_000,  "benchmark": "ISF.L"},
+    "JPX":   {"profile": "JPX",   "suffix": ".T",  "default_mktcap": 100_000_000_000,  "benchmark": "1306.T"},  # JPY
+    "HKSE":  {"profile": "HKSE",  "suffix": ".HK", "default_mktcap": 5_000_000_000,  "benchmark": "2800.HK"},  # HKD
+    "XETRA": {"profile": "XETRA", "suffix": ".DE", "default_mktcap": 500_000_000,  "benchmark": "EXS1.DE"},
+    "KSC":   {"profile": "KSC",   "suffix": ".KS", "default_mktcap": 500_000_000_000,  "benchmark": "069500.KS"},  # KRW
+    "TSX":   {"profile": "TSX",   "suffix": ".TO", "default_mktcap": 500_000_000,  "benchmark": "XIU.TO"},  # CAD
+    "ASX":   {"profile": "ASX",   "suffix": ".AX", "default_mktcap": 500_000_000,  "benchmark": "STW.AX"},
+    "TAI":   {"profile": "TAI",   "suffix": ".TW", "default_mktcap": 10_000_000_000,  "benchmark": "EWT"},  # TWD; benchmark is US-listed
+}
+
 
 # ── Data Fetching ────────────────────────────────────────────────────────────
 
@@ -53,11 +65,19 @@ def fetch_universe(cr, exchange, start_epoch, end_epoch,
     elif exchange in ("US", "NASDAQ", "NYSE"):
         return _fetch_us_universe(cr, warmup_epoch, end_epoch,
                                   mktcap_threshold or 1_000_000_000)
-    elif exchange == "LSE":
-        return _fetch_lse_universe(cr, warmup_epoch, end_epoch,
-                                   mktcap_threshold or 500_000_000)
+    elif exchange in FMP_EXCHANGES:
+        cfg = FMP_EXCHANGES[exchange]
+        return _fetch_fmp_exchange_universe(
+            cr, warmup_epoch, end_epoch,
+            profile_exchange=cfg["profile"],
+            suffix=cfg["suffix"],
+            mktcap_threshold=mktcap_threshold or cfg["default_mktcap"],
+            max_symbols=cfg.get("max_symbols", 500),
+            exchange_label=exchange,
+        )
     else:
-        raise ValueError(f"Unsupported exchange: {exchange}")
+        raise ValueError(f"Unsupported exchange: {exchange}. "
+                         f"Supported: NSE, US, {', '.join(FMP_EXCHANGES.keys())}")
 
 
 def _fetch_nse_universe(cr, start_epoch, end_epoch,
@@ -211,14 +231,25 @@ def _fetch_us_universe(cr, start_epoch, end_epoch, mktcap_threshold):
                              open_col="open", volume_col="volume")
 
 
-def _fetch_lse_universe(cr, start_epoch, end_epoch, mktcap_threshold):
-    """Fetch LSE universe from fmp.stock_eod + fmp.profile (.L suffix symbols)."""
+def _fetch_fmp_exchange_universe(cr, start_epoch, end_epoch, profile_exchange,
+                                  suffix, mktcap_threshold, max_symbols=500,
+                                  exchange_label=""):
+    """Fetch universe for any FMP-supported exchange.
+
+    Generic function that works for LSE, JPX, HKSE, XETRA, KSC, TSX, ASX, TAI.
+    Uses fmp.profile for symbol selection and fmp.stock_eod for OHLCV data.
+    Strips the exchange suffix from symbols (e.g. .L, .T, .HK) so downstream
+    code works with bare symbols.
+    """
+    label = exchange_label or profile_exchange
+    suffix_len = len(suffix)
+
     # Pass 1: get qualifying symbols from profile
-    print("  Pass 1: finding qualifying LSE symbols...")
+    print(f"  Pass 1: finding qualifying {label} symbols...")
     sql = f"""
     SELECT symbol
     FROM fmp.profile
-    WHERE exchange = 'LSE'
+    WHERE exchange = '{profile_exchange}'
       AND isActivelyTrading = true
       AND marketCap > {mktcap_threshold}
     ORDER BY marketCap DESC
@@ -226,18 +257,18 @@ def _fetch_lse_universe(cr, start_epoch, end_epoch, mktcap_threshold):
     results = cr.query(sql, timeout=120, limit=100000, verbose=True,
                        memory_mb=8192, threads=4)
     if not results:
-        print("  No qualifying LSE symbols found")
+        print(f"  No qualifying {label} symbols found")
         return {}
 
     symbols = [r["symbol"] for r in results]
     print(f"  Found {len(symbols)} qualifying symbols")
 
-    # Pass 2: fetch OHLCV -- limit to top 500 by market cap
-    if len(symbols) > 500:
-        symbols = symbols[:500]
+    # Limit to top N by market cap
+    if len(symbols) > max_symbols:
+        symbols = symbols[:max_symbols]
         print(f"  Trimmed to top {len(symbols)} by market cap")
 
-    # Batch symbols to stay under 50K char query limit
+    # Pass 2: fetch OHLCV in batches
     BATCH_SIZE = 200
     all_results = []
     for batch_start in range(0, len(symbols), BATCH_SIZE):
@@ -261,10 +292,10 @@ def _fetch_lse_universe(cr, start_epoch, end_epoch, mktcap_threshold):
     if not all_results:
         return {}
 
-    # Strip .L suffix from symbols to match lib convention
+    # Strip suffix from symbols
     for r in all_results:
-        if r["symbol"].endswith(".L"):
-            r["symbol"] = r["symbol"][:-2]
+        if r["symbol"].endswith(suffix):
+            r["symbol"] = r["symbol"][:-suffix_len]
 
     return _build_price_data(all_results, epoch_col="dateEpoch", close_col="adjClose",
                              open_col="open", volume_col="volume")
@@ -343,10 +374,14 @@ def fetch_sector_map(cr, exchange):
     """Fetch symbol -> sector mapping from fmp.profile."""
     if exchange == "NSE":
         sql = "SELECT symbol, sector FROM fmp.profile WHERE symbol LIKE '%.NS'"
+        suffix = ".NS"
     elif exchange in ("US", "NASDAQ", "NYSE"):
         sql = "SELECT symbol, sector FROM fmp.profile WHERE exchange IN ('NASDAQ', 'NYSE')"
-    elif exchange == "LSE":
-        sql = "SELECT symbol, sector FROM fmp.profile WHERE exchange = 'LSE'"
+        suffix = ""
+    elif exchange in FMP_EXCHANGES:
+        cfg = FMP_EXCHANGES[exchange]
+        sql = f"SELECT symbol, sector FROM fmp.profile WHERE exchange = '{cfg['profile']}'"
+        suffix = cfg["suffix"]
     else:
         return {}
 
@@ -358,10 +393,8 @@ def fetch_sector_map(cr, exchange):
     for row in results:
         sym = row.get("symbol", "")
         sector = row.get("sector") or "Unknown"
-        if exchange == "NSE" and sym.endswith(".NS"):
-            sym = sym[:-3]
-        elif exchange == "LSE" and sym.endswith(".L"):
-            sym = sym[:-2]
+        if suffix and sym.endswith(suffix):
+            sym = sym[:-len(suffix)]
         sector_map[sym] = sector
 
     print(f"  Sector data: {len(sector_map)} stocks, "

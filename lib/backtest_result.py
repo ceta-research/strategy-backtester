@@ -654,6 +654,41 @@ def _append_to_catalog(meta, configs_with_params, sort_by="calmar_ratio",
     with open(CATALOG_PATH, "a") as f:
         f.write(json.dumps(entry, separators=(",", ":")) + "\n")
 
+    # Trim: keep only last MAX_CATALOG_RUNS entries per strategy:exchange
+    _trim_catalog()
+
+
+MAX_CATALOG_RUNS = 5  # Keep last N runs per strategy:exchange
+
+
+def _trim_catalog():
+    """Keep only the latest MAX_CATALOG_RUNS entries per strategy:exchange key."""
+    if not os.path.exists(CATALOG_PATH):
+        return
+    try:
+        with open(CATALOG_PATH) as f:
+            lines = f.readlines()
+        if len(lines) < 20:  # Don't bother trimming small catalogs
+            return
+
+        # Group by strategy:exchange, keep latest N per group
+        from collections import defaultdict
+        groups = defaultdict(list)
+        for line in lines:
+            entry = json.loads(line)
+            key = f"{entry.get('strategy', '')}|{entry.get('exchange', '')}"
+            groups[key].append(line)
+
+        trimmed = []
+        for key, entries in groups.items():
+            trimmed.extend(entries[-MAX_CATALOG_RUNS:])
+
+        if len(trimmed) < len(lines):
+            with open(CATALOG_PATH, "w") as f:
+                f.writelines(trimmed)
+    except Exception:
+        pass  # Never fail on trim
+
 
 # ── Helpers ──────────────────────────────────────────────────────────────
 

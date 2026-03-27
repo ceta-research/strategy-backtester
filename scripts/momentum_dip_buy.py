@@ -76,33 +76,31 @@ def main():
         if idx + 1 < len(sys.argv):
             market = sys.argv[idx + 1].lower()
 
-    if market == "nse":
-        exchange = "NSE"
-        start_epoch = 1262304000   # 2010-01-01
-        end_epoch = 1773878400     # 2026-03-19
-        benchmark_sym = "NIFTYBEES"
-        capital = 10_000_000       # 1 Cr
-        description = ("Momentum + quality dip-buy on NSE: buy top momentum stocks "
-                       "that pass quality + fundamental gates and then dip from peak.")
-    elif market == "us":
-        exchange = "US"
-        start_epoch = 1104537600   # 2005-01-01
-        end_epoch = 1773878400     # 2026-03-19
-        benchmark_sym = "SPY"
-        capital = 10_000_000       # $10M
-        description = ("Momentum + quality dip-buy on US: buy top momentum stocks "
-                       "that pass quality + fundamental gates and then dip from peak.")
-    elif market == "lse":
-        exchange = "LSE"
-        start_epoch = 1262304000   # 2010-01-01
-        end_epoch = 1773878400     # 2026-03-19
-        benchmark_sym = "ISF.L"
-        capital = 10_000_000       # 10M GBP
-        description = ("Momentum + quality dip-buy on LSE: buy top momentum stocks "
-                       "that pass quality + fundamental gates and then dip from peak.")
-    else:
-        print(f"Unknown market: {market}. Use --market nse, --market us, or --market lse")
+    from scripts.quality_dip_buy_lib import FMP_EXCHANGES
+
+    MARKET_CONFIGS = {
+        "nse": {"exchange": "NSE", "start": 1262304000, "benchmark": "NIFTYBEES", "capital": 10_000_000},
+        "us":  {"exchange": "US",  "start": 1104537600, "benchmark": "SPY",       "capital": 10_000_000},
+    }
+    # Auto-register all FMP exchanges
+    for exch, cfg in FMP_EXCHANGES.items():
+        MARKET_CONFIGS[exch.lower()] = {
+            "exchange": exch, "start": 1262304000, "benchmark": cfg["benchmark"],
+            "capital": 10_000_000,
+        }
+
+    if market not in MARKET_CONFIGS:
+        print(f"Unknown market: {market}. Supported: {', '.join(MARKET_CONFIGS.keys())}")
         return
+
+    mc = MARKET_CONFIGS[market]
+    exchange = mc["exchange"]
+    start_epoch = mc["start"]
+    end_epoch = 1773878400     # 2026-03-19
+    benchmark_sym = mc["benchmark"]
+    capital = mc["capital"]
+    description = (f"Momentum + quality dip-buy on {exchange}: buy top momentum stocks "
+                   "that pass quality + fundamental gates and then dip from peak.")
 
     cr = CetaResearch()
 

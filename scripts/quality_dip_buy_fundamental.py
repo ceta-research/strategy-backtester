@@ -41,10 +41,17 @@ def fetch_fundamentals(cr, exchange):
     Uses fmp.financial_ratios (FY data with dateEpoch) not financial_ratios_ttm
     (snapshot-only, no history). ROE computed as netIncomePerShare / shareholdersEquityPerShare.
     """
+    from scripts.quality_dip_buy_lib import FMP_EXCHANGES
+
+    # Determine suffix filter for SQL and suffix to strip from symbols
+    suffix = ""
     if exchange == "NSE":
         suffix_filter = "symbol LIKE '%.NS'"
-    elif exchange == "LSE":
-        suffix_filter = "symbol LIKE '%.L'"
+        suffix = ".NS"
+    elif exchange in FMP_EXCHANGES:
+        s = FMP_EXCHANGES[exchange]["suffix"]
+        suffix_filter = f"symbol LIKE '%{s}'"
+        suffix = s
     else:
         suffix_filter = "1=1"
 
@@ -69,10 +76,8 @@ def fetch_fundamentals(cr, exchange):
     fundamentals = {}
     for r in results:
         sym = r["symbol"]
-        if exchange == "NSE" and sym.endswith(".NS"):
-            sym = sym[:-3]
-        elif exchange == "LSE" and sym.endswith(".L"):
-            sym = sym[:-2]
+        if suffix and sym.endswith(suffix):
+            sym = sym[:-len(suffix)]
 
         epoch = int(r.get("dateEpoch") or 0)
         if epoch <= 0:

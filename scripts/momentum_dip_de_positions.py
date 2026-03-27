@@ -72,33 +72,30 @@ def main():
         if idx + 1 < len(sys.argv):
             market = sys.argv[idx + 1].lower()
 
-    if market == "nse":
-        exchange = "NSE"
-        start_epoch = 1262304000   # 2010-01-01
-        end_epoch = 1773878400     # 2026-03-19
-        benchmark_sym = "NIFTYBEES"
-        capital = 10_000_000       # 1 Cr
-        description = ("Extended momentum dip-buy sweep on NSE: "
-                       "D/E filter, extended positions, sector limits.")
-    elif market == "us":
-        exchange = "US"
-        start_epoch = 1104537600   # 2005-01-01
-        end_epoch = 1773878400     # 2026-03-19
-        benchmark_sym = "SPY"
-        capital = 10_000_000       # $10M
-        description = ("Extended momentum dip-buy sweep on US: "
-                       "D/E filter, extended positions, sector limits.")
-    elif market == "lse":
-        exchange = "LSE"
-        start_epoch = 1262304000   # 2010-01-01
-        end_epoch = 1773878400     # 2026-03-19
-        benchmark_sym = "ISF.L"
-        capital = 10_000_000       # 10M GBP
-        description = ("Extended momentum dip-buy sweep on LSE: "
-                       "D/E filter, extended positions, sector limits.")
-    else:
-        print(f"Unknown market: {market}. Use --market nse, --market us, or --market lse")
+    from scripts.quality_dip_buy_lib import FMP_EXCHANGES
+
+    MARKET_CONFIGS = {
+        "nse": {"exchange": "NSE", "start": 1262304000, "benchmark": "NIFTYBEES", "capital": 10_000_000},
+        "us":  {"exchange": "US",  "start": 1104537600, "benchmark": "SPY",       "capital": 10_000_000},
+    }
+    for exch, cfg in FMP_EXCHANGES.items():
+        MARKET_CONFIGS[exch.lower()] = {
+            "exchange": exch, "start": 1262304000, "benchmark": cfg["benchmark"],
+            "capital": 10_000_000,
+        }
+
+    if market not in MARKET_CONFIGS:
+        print(f"Unknown market: {market}. Supported: {', '.join(MARKET_CONFIGS.keys())}")
         return
+
+    mc = MARKET_CONFIGS[market]
+    exchange = mc["exchange"]
+    start_epoch = mc["start"]
+    end_epoch = 1773878400     # 2026-03-19
+    benchmark_sym = mc["benchmark"]
+    capital = mc["capital"]
+    description = (f"Extended momentum dip-buy sweep on {exchange}: "
+                   "D/E filter, extended positions, sector limits.")
 
     cr = CetaResearch()
 
