@@ -82,21 +82,27 @@ def main():
     start_epoch = 1262304000   # 2010-01-01
     end_epoch = 1773878400     # 2026-03-19
 
+    source = os.environ.get("SOURCE", "native")
+    if "--fmp" in sys.argv:
+        source = "fmp"
+    elif "--bhavcopy" in sys.argv:
+        source = "bhavcopy"
+
     cr = CetaResearch()
 
     print("=" * 80)
-    print(f"  {STRATEGY_NAME}: fetching data")
+    print(f"  {STRATEGY_NAME}: fetching data (source={source})")
     print("=" * 80)
 
-    print("\nFetching NSE universe...")
-    price_data = fetch_universe(cr, "NSE", start_epoch, end_epoch)
+    print(f"\nFetching NSE universe ({source})...")
+    price_data = fetch_universe(cr, "NSE", start_epoch, end_epoch, source=source)
     if not price_data:
         print("No data. Aborting.")
         return
 
-    print("\nFetching NIFTYBEES benchmark...")
+    print(f"\nFetching NIFTYBEES benchmark ({source})...")
     benchmark = fetch_benchmark(cr, "NIFTYBEES", "NSE", start_epoch, end_epoch,
-                                warmup_days=250)
+                                warmup_days=250, source=source)
 
     # Fixed best params from NSE baseline
     consecutive_years = 2

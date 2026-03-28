@@ -6,8 +6,8 @@ __pycache__/
 dist/
 build/
 
-# Results (large JSON files with trade logs)
-results/*.json
+# Results (generated output)
+results/
 
 # Verification data (generated during P2 comparison)
 tests/verification/*.json

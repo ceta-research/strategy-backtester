@@ -287,18 +287,24 @@ def main():
         print(f"Unknown market: {market}")
         return
 
+    source = os.environ.get("SOURCE", "native" if exchange == "NSE" else "fmp")
+    if "--fmp" in sys.argv:
+        source = "fmp"
+    elif "--bhavcopy" in sys.argv:
+        source = "bhavcopy"
+
     cr = CetaResearch()
 
     print("=" * 80)
-    print(f"  {STRATEGY_NAME} ({market.upper()}): fetching data")
+    print(f"  {STRATEGY_NAME} ({market.upper()}): fetching data (source={source})")
     print("=" * 80)
 
-    price_data = fetch_universe(cr, exchange, start_epoch, end_epoch)
+    price_data = fetch_universe(cr, exchange, start_epoch, end_epoch, source=source)
     if not price_data:
         print("No data. Aborting.")
         return
     benchmark = fetch_benchmark(cr, benchmark_sym, exchange, start_epoch, end_epoch,
-                                warmup_days=250)
+                                warmup_days=250, source=source)
     fundamentals = fetch_fundamentals(cr, exchange)
     ext_fundamentals = fetch_extended_fundamentals(cr, exchange)
     sector_map = fetch_sector_map(cr, exchange)

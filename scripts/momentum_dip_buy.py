@@ -99,24 +99,33 @@ def main():
     end_epoch = 1773878400     # 2026-03-19
     benchmark_sym = mc["benchmark"]
     capital = mc["capital"]
-    description = (f"Momentum + quality dip-buy on {exchange}: buy top momentum stocks "
+
+    # Data source: "native" for NSE real runs, "fmp" for validation, "bhavcopy" for delisted stocks
+    # Can be set via --fmp/--bhavcopy flags (local) or SOURCE env var (cloud)
+    source = os.environ.get("SOURCE", "native" if exchange == "NSE" else "fmp")
+    if "--fmp" in sys.argv:
+        source = "fmp"
+    elif "--bhavcopy" in sys.argv:
+        source = "bhavcopy"
+
+    description = (f"Momentum + quality dip-buy on {exchange} (source={source}): buy top momentum stocks "
                    "that pass quality + fundamental gates and then dip from peak.")
 
     cr = CetaResearch()
 
     print("=" * 80)
-    print(f"  {STRATEGY_NAME} ({market.upper()}): fetching data")
+    print(f"  {STRATEGY_NAME} ({market.upper()}): fetching data (source={source})")
     print("=" * 80)
 
-    print(f"\nFetching {exchange} universe...")
-    price_data = fetch_universe(cr, exchange, start_epoch, end_epoch)
+    print(f"\nFetching {exchange} universe ({source})...")
+    price_data = fetch_universe(cr, exchange, start_epoch, end_epoch, source=source)
     if not price_data:
         print("No data. Aborting.")
         return
 
-    print(f"\nFetching {benchmark_sym} benchmark...")
+    print(f"\nFetching {benchmark_sym} benchmark ({source})...")
     benchmark = fetch_benchmark(cr, benchmark_sym, exchange, start_epoch, end_epoch,
-                                warmup_days=250)
+                                warmup_days=250, source=source)
 
     print("\nFetching fundamentals...")
     fundamentals = fetch_fundamentals(cr, exchange)
@@ -216,8 +225,8 @@ def main():
             print(f"  #{i+1} mom={params['momentum_lookback']}d "
                   f"top{params['momentum_percentile']*100:.0f}% "
                   f"dip={params['dip_threshold_pct']}% pos={params['max_positions']} | "
-                  f"CAGR={s.get('cagr',0)*100:+.1f}% -> {adj['cagr_adj']*100:+.1f}% "
-                  f"Cal={s.get('calmar_ratio',0):.2f} -> {adj['calmar_adj']:.2f}")
+                  f"CAGR={(s.get('cagr') or 0)*100:+.1f}% -> {adj['cagr_adj']*100:+.1f}% "
+                  f"Cal={(s.get('calmar_ratio') or 0):.2f} -> {adj['calmar_adj']:.2f}")
 
     sweep.print_leaderboard(top_n=20)
     sweep.save("result.json", top_n=20, sort_by="calmar_ratio")

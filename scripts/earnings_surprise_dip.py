@@ -291,21 +291,27 @@ def main():
     description = (f"Earnings surprise + post-earnings dip on {exchange}: buy quality "
                    "stocks that beat earnings and then dip.")
 
+    source = os.environ.get("SOURCE", "native" if exchange == "NSE" else "fmp")
+    if "--fmp" in sys.argv:
+        source = "fmp"
+    elif "--bhavcopy" in sys.argv:
+        source = "bhavcopy"
+
     cr = CetaResearch()
 
     print("=" * 80)
-    print(f"  {STRATEGY_NAME} ({market.upper()}): fetching data")
+    print(f"  {STRATEGY_NAME} ({market.upper()}): fetching data (source={source})")
     print("=" * 80)
 
-    print(f"\nFetching {exchange} universe...")
-    price_data = fetch_universe(cr, exchange, start_epoch, end_epoch)
+    print(f"\nFetching {exchange} universe ({source})...")
+    price_data = fetch_universe(cr, exchange, start_epoch, end_epoch, source=source)
     if not price_data:
         print("No data. Aborting.")
         return
 
-    print(f"\nFetching {benchmark_sym} benchmark...")
+    print(f"\nFetching {benchmark_sym} benchmark ({source})...")
     benchmark = fetch_benchmark(cr, benchmark_sym, exchange, start_epoch, end_epoch,
-                                warmup_days=250)
+                                warmup_days=250, source=source)
 
     print("\nFetching earnings surprises...")
     earnings = fetch_earnings_surprises(cr, exchange, start_epoch, end_epoch)

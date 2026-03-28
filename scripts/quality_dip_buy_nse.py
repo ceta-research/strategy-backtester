@@ -64,10 +64,11 @@ def main():
     benchmark_sym = mc["benchmark"]
     capital = mc["capital"]
 
-    # Data source: "fmp" to validate against pipeline v3, "native" for NSE real runs
-    source = "native" if exchange == "NSE" else "fmp"
+    source = os.environ.get("SOURCE", "native" if exchange == "NSE" else "fmp")
     if "--fmp" in sys.argv:
         source = "fmp"
+    elif "--bhavcopy" in sys.argv:
+        source = "bhavcopy"
 
     cr = CetaResearch()
 

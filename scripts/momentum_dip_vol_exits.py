@@ -102,21 +102,27 @@ def main():
     description = (f"Momentum dip-buy + vol-adjusted exits on {exchange}: "
                    "top momentum stocks with per-stock TSL = k * daily_vol.")
 
+    source = os.environ.get("SOURCE", "native" if exchange == "NSE" else "fmp")
+    if "--fmp" in sys.argv:
+        source = "fmp"
+    elif "--bhavcopy" in sys.argv:
+        source = "bhavcopy"
+
     cr = CetaResearch()
 
     print("=" * 80)
-    print(f"  {STRATEGY_NAME} ({market.upper()}): fetching data")
+    print(f"  {STRATEGY_NAME} ({market.upper()}): fetching data (source={source})")
     print("=" * 80)
 
-    print(f"\nFetching {exchange} universe...")
-    price_data = fetch_universe(cr, exchange, start_epoch, end_epoch)
+    print(f"\nFetching {exchange} universe ({source})...")
+    price_data = fetch_universe(cr, exchange, start_epoch, end_epoch, source=source)
     if not price_data:
         print("No data. Aborting.")
         return
 
-    print(f"\nFetching {benchmark_sym} benchmark...")
+    print(f"\nFetching {benchmark_sym} benchmark ({source})...")
     benchmark = fetch_benchmark(cr, benchmark_sym, exchange, start_epoch, end_epoch,
-                                warmup_days=250)
+                                warmup_days=250, source=source)
 
     print("\nFetching fundamentals...")
     fundamentals = fetch_fundamentals(cr, exchange)

@@ -63,7 +63,9 @@ def fetch_universe(cr, exchange, start_epoch, end_epoch,
 
     Args:
         source: "native" uses nse.nse_charting_day (better quality for NSE),
-                "fmp" uses fmp.stock_eod (matches pipeline, needed for validation).
+                "fmp" uses fmp.stock_eod (matches pipeline, needed for validation),
+                "bhavcopy" uses nse.nse_bhavcopy (includes delisted/halted stocks
+                for survivorship-bias-free testing).
                 Only affects NSE. US always uses fmp.stock_eod.
 
     Returns:
@@ -76,6 +78,9 @@ def fetch_universe(cr, exchange, start_epoch, end_epoch,
         if source == "fmp":
             return _fetch_nse_fmp_universe(cr, warmup_epoch, end_epoch,
                                            price_threshold, turnover_threshold)
+        elif source == "bhavcopy":
+            return _fetch_nse_bhavcopy_universe(cr, warmup_epoch, end_epoch,
+                                                price_threshold, turnover_threshold)
         return _fetch_nse_universe(cr, warmup_epoch, end_epoch,
                                    price_threshold, turnover_threshold, turnover_period)
     elif exchange in ("US", "NASDAQ", "NYSE"):
@@ -189,6 +194,68 @@ def _fetch_nse_fmp_universe(cr, start_epoch, end_epoch,
     for r in results:
         if r["symbol"].endswith(".NS"):
             r["symbol"] = r["symbol"][:-3]
+
+    return _build_price_data(results, epoch_col="date_epoch", close_col="close",
+                             open_col="open", volume_col="volume")
+
+
+def _fetch_nse_bhavcopy_universe(cr, start_epoch, end_epoch,
+                                  price_threshold, turnover_threshold):
+    """Fetch NSE universe from nse.nse_bhavcopy_historical (includes delisted/halted stocks).
+
+    Bhavcopy historical contains all traded symbols including those later delisted
+    or halted (5,072 symbols vs 2,447 in charting_day), making it the gold standard
+    for survivorship-bias-free testing. Data from 1994 to present.
+
+    Columns: SYMBOL, SERIES, OPEN, CLOSE, VOLUME, TURNOVER, date_epoch
+    """
+    # Pass 1: find qualifying EQ-series symbols by avg price and turnover
+    print("  Pass 1: finding qualifying NSE symbols (bhavcopy_historical)...")
+    # TURNOVER is in INR (not lacs), same unit as turnover_threshold
+    # Normalize epochs: bhavcopy uses 18:30 UTC (midnight IST), charting_day uses 00:00 UTC.
+    # Floor to midnight UTC so epochs align with benchmark/regime filter.
+    sql = f"""
+    SELECT SYMBOL as symbol,
+           AVG(CLOSE) as avg_close,
+           AVG(TURNOVER) as avg_turnover
+    FROM nse.nse_bhavcopy_historical
+    WHERE SERIES = 'EQ'
+      AND (date_epoch - date_epoch % 86400) >= {start_epoch}
+      AND (date_epoch - date_epoch % 86400) <= {end_epoch}
+    GROUP BY SYMBOL
+    HAVING AVG(CLOSE) > {price_threshold}
+       AND AVG(TURNOVER) > {turnover_threshold}
+    ORDER BY avg_turnover DESC
+    """
+    results = cr.query(sql, timeout=600, limit=100000, verbose=True,
+                       memory_mb=16384, threads=6)
+    if not results:
+        print("  No qualifying bhavcopy symbols found")
+        return {}
+
+    symbols = [r["symbol"] for r in results]
+    print(f"  Found {len(symbols)} qualifying symbols (bhavcopy, includes delisted)")
+
+    # Pass 2: fetch OHLCV for qualifying symbols
+    print(f"  Pass 2: fetching OHLCV for {len(symbols)} symbols (bhavcopy)...")
+    sym_list = ", ".join(f"'{s}'" for s in symbols)
+    # Floor epoch to midnight UTC to align with nse_charting_day convention
+    sql = f"""
+    SELECT SYMBOL as symbol,
+           (date_epoch - date_epoch % 86400) as date_epoch,
+           OPEN as open, CLOSE as close,
+           VOLUME as volume
+    FROM nse.nse_bhavcopy_historical
+    WHERE SERIES = 'EQ'
+      AND SYMBOL IN ({sym_list})
+      AND (date_epoch - date_epoch % 86400) >= {start_epoch}
+      AND (date_epoch - date_epoch % 86400) <= {end_epoch}
+    ORDER BY symbol, date_epoch
+    """
+    results = cr.query(sql, timeout=600, limit=10000000, verbose=True,
+                       memory_mb=16384, threads=6)
+    if not results:
+        return {}
 
     return _build_price_data(results, epoch_col="date_epoch", close_col="close",
                              open_col="open", volume_col="volume")
@@ -890,6 +957,7 @@ def simulate_portfolio(
     description="",
     params=None,
     start_epoch=None,
+    max_single_return=0,
 ):
     """Run multi-position portfolio simulation.
 
@@ -994,6 +1062,12 @@ def simulate_portfolio(
                 if open_price is None or open_price <= 0:
                     # No open price today, try close
                     open_price = sym_close.get(sym, {}).get(epoch, pos["entry_price"])
+
+                # Cap extreme returns (data quality artifacts like XETRA adjClose errors)
+                if max_single_return > 0:
+                    max_exit = pos["entry_price"] * (1 + max_single_return)
+                    if open_price > max_exit:
+                        open_price = max_exit
 
                 sell_val = pos["qty"] * open_price
                 sell_ch = calculate_charges(exchange, sell_val, "EQUITY", "DELIVERY", "SELL_SIDE")
