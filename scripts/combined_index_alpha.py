@@ -42,6 +42,7 @@ SYMBOL_EXCHANGE = {
 
 
 IS_CLOUD = os.path.isdir("/session")
+SLIPPAGE = 0.0005  # 5 bps per leg
 
 
 def get_exchange(symbol):
@@ -232,7 +233,7 @@ def simulate_pair(epochs, data_a_list, data_b_list, cfg: PairConfig, capital=10_
         instrument = f"{sym_a} vs {sym_b}"
 
     result = BacktestResult("combined_pair", params_dict, instrument, "US",
-                            capital, slippage_bps=0)
+                            capital, slippage_bps=5)
 
     ratios = [closes_a[i] / closes_b[i] if closes_b[i] > 0 else 1.0 for i in range(n)]
     z_scores = compute_z_scores(ratios, cfg.lookback)
@@ -249,6 +250,7 @@ def simulate_pair(epochs, data_a_list, data_b_list, cfg: PairConfig, capital=10_
     position = None  # ("a"/"b", qty, entry_price, entry_idx)
     crash_pause_until = -1
     buy_ch = 0.0
+    buy_sl = 0.0
 
     start = max(cfg.lookback, cfg.momentum_period if cfg.use_momentum else 0)
 
@@ -279,14 +281,16 @@ def simulate_pair(epochs, data_a_list, data_b_list, cfg: PairConfig, capital=10_
                 sell_value = qty * curr_price
                 exch = exchange_a if side == "a" else exchange_b
                 sell_charges = trade_charges(exch, sell_value, "SELL_SIDE")
-                cash += sell_value - sell_charges
+                sell_sl = sell_value * SLIPPAGE
+                cash += sell_value - sell_charges - sell_sl
                 result.add_trade(
                     entry_epoch=epochs[entry_idx], exit_epoch=epochs[i],
                     entry_price=entry_price, exit_price=curr_price,
                     quantity=qty, side="LONG",
-                    charges=buy_ch + sell_charges, slippage=0.0,
+                    charges=buy_ch + sell_charges, slippage=buy_sl + sell_sl,
                 )
                 buy_ch = 0.0
+                buy_sl = 0.0
                 position = None
 
         # Entry logic
@@ -322,10 +326,12 @@ def simulate_pair(epochs, data_a_list, data_b_list, cfg: PairConfig, capital=10_
                     actual_cost = qty * buy_price
                     buy_charges = trade_charges(exch, actual_cost, "BUY_SIDE")
 
-                    if actual_cost + buy_charges <= cash:
+                    entry_sl = actual_cost * SLIPPAGE
+                    if actual_cost + buy_charges + entry_sl <= cash:
                         position = (buy_side, qty, buy_price, i)
-                        cash -= actual_cost + buy_charges
+                        cash -= actual_cost + buy_charges + entry_sl
                         buy_ch = buy_charges
+                        buy_sl = entry_sl
 
         # Portfolio value
         if position:
@@ -342,7 +348,7 @@ def run_fine_tuned_pair(epochs, data_a_list, data_b_list, label, sym_a="^GSPC", 
     """Fine-grained sweep on a single pair with realistic charges."""
     instrument_label = f"{sym_a} vs {sym_b}"
     sweep = SweepResult("combined_pair", instrument_label, "US", 10_000_000,
-                        slippage_bps=0, description=f"Fine-tuned pair: {label}")
+                        slippage_bps=5, description=f"Fine-tuned pair: {label}")
 
     configs = []
     if IS_CLOUD:
@@ -454,7 +460,7 @@ def simulate_multi_pair(pair_data, common_epochs, cfg: PairConfig, n_pairs, capi
     combined_result = BacktestResult(
         "combined_multi_pair", params_dict,
         f"Multi({n_active} pairs)", "MIXED",
-        capital, slippage_bps=0,
+        capital, slippage_bps=5,
     )
 
     for i in range(min_len):
@@ -476,7 +482,7 @@ def run_multi_pair_sweep(pair_data, common_epochs, label):
     """Sweep configs across all pairs simultaneously."""
     n_active = len(pair_data)
     sweep = SweepResult("combined_multi_pair", f"Multi({n_active} pairs): {label}",
-                        "MIXED", 10_000_000, slippage_bps=0,
+                        "MIXED", 10_000_000, slippage_bps=5,
                         description=f"Multi-pair sweep: {label}")
 
     configs = []
@@ -570,7 +576,7 @@ def simulate_rotation_with_pairs(all_close_data, symbols, labels, common_epochs,
     result = BacktestResult(
         "rotation", params_dict,
         f"Rotation({len(symbols)} indices)", "MIXED",
-        10_000_000, slippage_bps=0,
+        10_000_000, slippage_bps=5,
     )
 
     # Build close matrix
@@ -658,7 +664,7 @@ def simulate_rotation_with_pairs(all_close_data, symbols, labels, common_epochs,
 def run_rotation_sweep(all_close_data, symbols, labels, common_epochs):
     """Sweep enhanced rotation configs."""
     sweep = SweepResult("rotation", f"Rotation({len(symbols)} indices)", "MIXED",
-                        10_000_000, slippage_bps=0,
+                        10_000_000, slippage_bps=5,
                         description=f"Momentum rotation sweep ({len(symbols)} indices)")
 
     configs = []
