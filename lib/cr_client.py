@@ -165,13 +165,20 @@ class CetaResearch:
             if disk_mb is not None:
                 resources["diskMb"] = disk_mb
             body["resources"] = resources
-        resp = self.session.post(f"{self.base_url}/data-explorer/execute", json=body)
-        if resp.status_code == 429:
-            raise CetaResearchError(f"Rate limited. Retry after {resp.headers.get('Retry-After', '60')}s")
-        if resp.status_code not in (200, 201, 202):
-            raise CetaResearchError(f"Submit failed ({resp.status_code}): {resp.text[:500]}")
-        data = resp.json()
-        return data.get("taskId") or resp.headers.get("X-Task-ID")
+
+        for attempt in range(5):
+            resp = self.session.post(f"{self.base_url}/data-explorer/execute", json=body)
+            if resp.status_code == 429:
+                wait = int(resp.headers.get("Retry-After", 60))
+                print(f"  Rate limited on submit, waiting {wait}s (attempt {attempt+1}/5)...")
+                time.sleep(wait)
+                continue
+            if resp.status_code not in (200, 201, 202):
+                raise CetaResearchError(f"Submit failed ({resp.status_code}): {resp.text[:500]}")
+            data = resp.json()
+            return data.get("taskId") or resp.headers.get("X-Task-ID")
+
+        raise CetaResearchError("Rate limited on submit after 5 retries")
 
     def _poll(self, task_id, timeout=300, verbose=False):
         """Poll task status until completion or timeout."""

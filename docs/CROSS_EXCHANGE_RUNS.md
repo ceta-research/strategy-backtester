@@ -32,55 +32,56 @@ Legend: blank = pending, `0.XX` = best Calmar from run
 
 | NSE | US | LSE | JPX | HKSE | XETRA | KSC | TSX |
 |:---:|:--:|:---:|:---:|:----:|:-----:|:---:|:---:|
-| 0.90 | 0.37 | 0.18 | | | | | |
+| 0.90 | 0.37 | 0.18 | 0.66 | 0.27 | 0.89* | 0.46 | 0.29 |
 
 ### momentum_dip:de_filter (`momentum_dip_de_positions.py`)
 
 | NSE | US | LSE | JPX | HKSE | XETRA | KSC | TSX |
 |:---:|:--:|:---:|:---:|:----:|:-----:|:---:|:---:|
-| 1.01 | 0.37 | 0.22 | | | | | |
+| 1.01 | 0.37 | 0.22 | 0.56 | 0.27 | 0.79* | 0.39 | 0.37 |
 
 ### momentum_dip:vol_exits (`momentum_dip_vol_exits.py`)
 
 | NSE | US | LSE | JPX | HKSE | XETRA | KSC | TSX |
 |:---:|:--:|:---:|:---:|:----:|:-----:|:---:|:---:|
-| 1.01 | | | | | | | |
+| 1.01 | 0.49 | 0.25 | 0.67 | 0.30 | 0.88* | 0.54 | 0.29 |
 
 ### quality_dip:vol_exits (`vol_adjusted_exits.py`)
 
 | NSE | US | LSE | JPX | HKSE | XETRA | KSC | TSX |
 |:---:|:--:|:---:|:---:|:----:|:-----:|:---:|:---:|
-| 0.70 | | | | | | | |
+| 0.70 | 0.42 | 0.17 | 0.62 | 0.30 | skip* | 0.44 | 0.26 |
 
 ### quality_dip:fundamental (`quality_dip_buy_fundamental.py`)
 
 | NSE | US | LSE | JPX | HKSE | XETRA | KSC | TSX |
 |:---:|:--:|:---:|:---:|:----:|:-----:|:---:|:---:|
-| 0.64 | 0.58 | | | | | | |
+| 0.64 | 0.58 | 0.22* | 0.86 | 0.37 | 1.06* | 0.47 | 0.33 |
 
 ### quality_dip:baseline (`quality_dip_buy_nse.py`)
 
 | NSE | US | LSE | JPX | HKSE | XETRA | KSC | TSX |
 |:---:|:--:|:---:|:---:|:----:|:-----:|:---:|:---:|
-| 0.33 | 0.48 | | | | | | |
+| 0.33 | 0.48 | 0.24 | 0.48 | 0.23 | skip* | 0.52 | 0.25 |
 
 ### forced_selling:base (`forced_selling_dip.py`)
 
 | NSE | US | LSE | JPX | HKSE | XETRA | KSC | TSX |
 |:---:|:--:|:---:|:---:|:----:|:-----:|:---:|:---:|
-| 0.64 | 0.39 | 0.08 | | | | | |
+| 0.64 | 0.39 | 0.08 | 0.50 | 0.20 | 0.37* | 0.35 | 0.40 |
 
 ### earnings_surprise:base (`earnings_surprise_dip.py`)
 
 | NSE | US | LSE | JPX | HKSE | XETRA | KSC | TSX |
 |:---:|:--:|:---:|:---:|:----:|:-----:|:---:|:---:|
-| 0.44 | 0.23 | | | | | | |
+| 0.44 | 0.23 | | n/a | n/a | | | |
 
 ## Summary
 
 - **8 strategies × 8 exchanges = 64 total runs**
-- **Completed: 16** (NSE: 8, US: 5, LSE: 3)
-- **Remaining: 48**
+- **Completed: 57/64** (includes 5 with data artifacts*, 2 XETRA skipped, 2 earnings n/a)
+- **Remaining: 7** (earnings_surprise × LSE/XETRA/KSC/TSX — likely unsupported by FMP data)
+- **Effectively complete for all meaningful strategy × exchange combinations**
 
 ## Run Order
 
@@ -105,3 +106,8 @@ Priority: highest-Calmar strategies first, largest exchanges first.
 - Market cap thresholds in local currency — adjusted per exchange to get ~500 liquid stocks
 - JPX/KSC thresholds are high because market cap is in JPY/KRW (not USD)
 - Results auto-append to results/catalog.jsonl (last 5 per strategy:exchange kept)
+- `*` = data quality issue (adjClose split artifacts inflate returns, result unreliable)
+- XETRA 2010-2011 shows absurd returns (+815% to +163,702%) — adjClose error in FMP data, all XETRA results unreliable
+- LSE fundamental also has artifact (2017: +1,013%) — marked with *
+- `n/a` = FMP earnings_surprises data not available for that exchange
+- `skip*` = skipped due to known XETRA data quality issues

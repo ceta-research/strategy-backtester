@@ -15,6 +15,22 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if "/session" not in sys.path and os.path.isdir("/session/lib"):
     sys.path.insert(0, "/session")
 
+# Load .env into os.environ (for cloud containers where env vars are in .env file)
+def _load_dotenv():
+    for env_path in [".env", "/session/.env"]:
+        try:
+            with open(env_path) as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        k, v = line.split("=", 1)
+                        if k.strip() not in os.environ:
+                            os.environ[k.strip()] = v.strip()
+        except FileNotFoundError:
+            continue
+
+_load_dotenv()
+
 from lib.cr_client import CetaResearch
 from engine.charges import calculate_charges
 from lib.backtest_result import BacktestResult, SweepResult
