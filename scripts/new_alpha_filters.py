@@ -293,6 +293,11 @@ def main():
     elif "--bhavcopy" in sys.argv:
         source = "bhavcopy"
 
+    # Return cap: limits max single-trade return (caps XETRA/LSE adjClose artifacts)
+    return_cap = float(os.environ.get("RETURN_CAP", "0"))
+    if "--return-cap" in sys.argv:
+        return_cap = float(sys.argv[sys.argv.index("--return-cap") + 1])
+
     cr = CetaResearch()
 
     print("=" * 80)
@@ -383,6 +388,7 @@ def main():
             exchange=exchange, regime_epochs=regime_epochs,
             strategy_name=STRATEGY_NAME, description=description,
             params=params, start_epoch=start_epoch,
+            max_single_return=return_cap,
         )
         if sec_limit > 0 and sector_map:
             sim_kwargs["sector_map"] = sector_map

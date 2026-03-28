@@ -70,6 +70,11 @@ def main():
     elif "--bhavcopy" in sys.argv:
         source = "bhavcopy"
 
+    # Return cap: limits max single-trade return (caps XETRA/LSE adjClose artifacts)
+    return_cap = float(os.environ.get("RETURN_CAP", "0"))
+    if "--return-cap" in sys.argv:
+        return_cap = float(sys.argv[sys.argv.index("--return-cap") + 1])
+
     cr = CetaResearch()
 
     # ── Fetch data ──
@@ -161,6 +166,7 @@ def main():
             description=DESCRIPTION,
             params=params,
             start_epoch=start_epoch,
+            max_single_return=return_cap,
         )
 
         sweep.add_config(params, r)

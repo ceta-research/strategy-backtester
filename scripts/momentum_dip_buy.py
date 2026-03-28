@@ -108,6 +108,11 @@ def main():
     elif "--bhavcopy" in sys.argv:
         source = "bhavcopy"
 
+    # Return cap: limits max single-trade return (caps XETRA/LSE adjClose artifacts)
+    return_cap = float(os.environ.get("RETURN_CAP", "0"))
+    if "--return-cap" in sys.argv:
+        return_cap = float(sys.argv[sys.argv.index("--return-cap") + 1])
+
     description = (f"Momentum + quality dip-buy on {exchange} (source={source}): buy top momentum stocks "
                    "that pass quality + fundamental gates and then dip from peak.")
 
@@ -197,6 +202,7 @@ def main():
             exchange=exchange, regime_epochs=regime_epochs,
             strategy_name=STRATEGY_NAME, description=description,
             params=params, start_epoch=start_epoch,
+            max_single_return=return_cap,
         )
         sweep.add_config(params, r)
         r._day_wise_log = dwl
