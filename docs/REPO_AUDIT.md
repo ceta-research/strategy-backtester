@@ -100,19 +100,6 @@ Own simulators. Different execution model (same-bar for index pairs is intention
 | `verify_data_sources.py` | 237 | Data provider validation |
 | `debug_pipeline.py` | 995 | Pipeline step-by-step tracer |
 
-### Thin Wrappers (12 lines each, pass `--market us`)
-
-| Wrapper | Base Script |
-|---------|------------|
-| `momentum_dip_buy_us.py` | momentum_dip_buy.py |
-| `momentum_dip_de_positions_us.py` | momentum_dip_de_positions.py |
-| `momentum_dip_vol_exits_us.py` | momentum_dip_vol_exits.py |
-| `quality_dip_buy_us.py` | quality_dip_buy_nse.py |
-| `earnings_surprise_dip_us.py` | earnings_surprise_dip.py |
-| `earnings_volume_confirm_us.py` | earnings_volume_confirm.py |
-| `forced_selling_dip_us.py` | forced_selling_dip.py |
-| `new_alpha_filters_us.py` | new_alpha_filters.py |
-
 ### Deleted (Dead)
 
 | Script | Lines | Reason | Calmar |
@@ -121,6 +108,8 @@ Own simulators. Different execution model (same-bar for index pairs is intention
 | `combined_allocator.py` + `_us.py` | 363+12 | Proven: combined == quality-only | 0.54 |
 | `orb_standalone.py` + `_us.py` | 769+12 | Bias-killed, all configs negative | <0 |
 | `combine_portfolios.py` | 155 | Superseded by combined_allocator (also dead) | N/A |
+| 11 thin wrappers (`*_us.py`, `*_lse.py`) | 12 each | Redundant: parent scripts support `--market`/`MARKET` env var | N/A |
+| `quality_dip_buy_us.py` | 120 | Full copy of parent; `quality_dip_buy_nse.py --market us` covers it | N/A |
 
 ---
 
