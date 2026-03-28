@@ -33,6 +33,7 @@ from lib.backtest_result import BacktestResult, SweepResult
 CAPITAL = 10_000_000
 STRATEGY_NAME = "alpha_20pct"
 IS_CLOUD = os.path.isdir("/session")
+SLIPPAGE = 0.0005  # 5 bps per leg
 
 
 # ── Charge Models ────────────────────────────────────────────────────────────
@@ -53,7 +54,14 @@ def local_exchange_charges(exchange, order_value, side="BUY_SIDE"):
 
 def fetch_data(cr, symbol, source, start_epoch, end_epoch):
     warmup_epoch = start_epoch - 500 * 86400
-    if source == "nse":
+    if source == "bhavcopy":
+        sql = f"""SELECT (date_epoch - date_epoch % 86400) as date_epoch, CLOSE as close
+                  FROM nse.nse_bhavcopy_historical
+                  WHERE SYMBOL = '{symbol}' AND SERIES = 'EQ'
+                    AND (date_epoch - date_epoch % 86400) >= {warmup_epoch}
+                    AND (date_epoch - date_epoch % 86400) <= {end_epoch}
+                  ORDER BY date_epoch"""
+    elif source == "nse":
         sql = f"""SELECT date_epoch, close FROM nse.nse_charting_day
                   WHERE symbol = '{symbol}' AND date_epoch >= {warmup_epoch}
                     AND date_epoch <= {end_epoch} ORDER BY date_epoch"""
@@ -193,6 +201,7 @@ def sim_pair(epochs, closes_a, closes_b, cfg: PairCfg, capital=10_000_000,
     cash = capital
     position = None  # ("a"/"b", qty, entry_price, entry_idx)
     buy_ch = 0.0
+    buy_sl = 0.0
     crash_until = -1
 
     warmup = max(cfg.z_lookback_short, cfg.z_lookback_long,
@@ -230,14 +239,16 @@ def sim_pair(epochs, closes_a, closes_b, cfg: PairCfg, capital=10_000_000,
                 else:
                     exch = cfg.local_exchange_a if side == "a" else cfg.local_exchange_b
                     ch = local_exchange_charges(exch, sell_val, "SELL_SIDE")
-                cash += sell_val - ch
+                sell_sl = sell_val * SLIPPAGE
+                cash += sell_val - ch - sell_sl
                 result.add_trade(
                     entry_epoch=epochs[ei], exit_epoch=epochs[i],
                     entry_price=ep, exit_price=curr_price,
                     quantity=qty, side="LONG",
-                    charges=buy_ch + ch, slippage=0.0,
+                    charges=buy_ch + ch, slippage=buy_sl + sell_sl,
                 )
                 buy_ch = 0.0
+                buy_sl = 0.0
                 position = None
 
         # ── ENTRY ──
@@ -295,10 +306,12 @@ def sim_pair(epochs, closes_a, closes_b, cfg: PairCfg, capital=10_000_000,
                         exch = cfg.local_exchange_a if buy_side == "a" else cfg.local_exchange_b
                         ch = local_exchange_charges(exch, actual_cost, "BUY_SIDE")
 
-                    if actual_cost + ch <= cash:
+                    entry_sl = actual_cost * SLIPPAGE
+                    if actual_cost + ch + entry_sl <= cash:
                         position = (buy_side, qty, buy_price, i)
-                        cash -= actual_cost + ch
+                        cash -= actual_cost + ch + entry_sl
                         buy_ch = ch
+                        buy_sl = entry_sl
 
         # Value
         if position:
@@ -526,7 +539,7 @@ def sweep(pair_specs, common_epochs, label, configs, multi=False):
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 
-PAIRS_TO_TEST = [
+PAIRS_FMP = [
     # (sym_a, sym_b, label, src_a, src_b)
     ("^GSPC", "^NSEI", "US vs India", "fmp", "fmp"),
     ("^GSPC", "^HSI", "US vs HK", "fmp", "fmp"),
@@ -537,17 +550,43 @@ PAIRS_TO_TEST = [
     ("SPY", "QQQ", "SPY vs QQQ", "fmp", "fmp"),
 ]
 
+PAIRS_BHAVCOPY = [
+    # Use NIFTYBEES (bhavcopy) as proxy for ^NSEI, SPY (FMP) as US side
+    ("SPY", "NIFTYBEES", "US vs India (bhavcopy)", "fmp", "bhavcopy"),
+]
+
 
 def main():
     start_epoch = 1104537600   # 2005-01-01
     end_epoch = 1773878400     # 2026-03-19
 
+    source = os.environ.get("SOURCE", "")
+    if not source:
+        # Cloud containers: read from .env file (same as cr_client)
+        for env_path in [".env", "/session/.env"]:
+            if os.path.exists(env_path):
+                with open(env_path) as f:
+                    for line in f:
+                        if line.startswith("SOURCE="):
+                            source = line.strip().split("=", 1)[1]
+                            break
+                if source:
+                    break
+    if not source:
+        source = "fmp"
+    if "--bhavcopy" in sys.argv:
+        source = "bhavcopy"
+
     cr = CetaResearch()
+
+    pairs_to_use = PAIRS_BHAVCOPY if source == "bhavcopy" else PAIRS_FMP
+
+    print(f"\n  Source: {source}, pairs: {len(pairs_to_use)}")
 
     # Fetch all data
     all_data = {}
     all_symbols = set()
-    for sa, sb, _, srca, srcb in PAIRS_TO_TEST:
+    for sa, sb, _, srca, srcb in pairs_to_use:
         all_symbols.add((sa, srca))
         all_symbols.add((sb, srcb))
 
@@ -570,7 +609,7 @@ def main():
     print("=" * 80)
 
     pair_sweeps = {}
-    pairs_to_test = PAIRS_TO_TEST[:3] if IS_CLOUD else PAIRS_TO_TEST
+    pairs_to_test = pairs_to_use[:3] if IS_CLOUD else pairs_to_use
     for sa, sb, label, _, _ in pairs_to_test:
         if sa not in all_data or sb not in all_data:
             continue
@@ -588,21 +627,26 @@ def main():
         pair_sweeps[last_label].save("result.json", top_n=15, sort_by="calmar_ratio")
 
     # ── Part 2: Multi-pair portfolios (best combos) ──
-    print("\n" + "=" * 80)
-    print("  PART 2: MULTI-PAIR PORTFOLIOS (US ETF charges)")
-    print("=" * 80)
+    if source == "bhavcopy":
+        print("\n  Skipping multi-pair (bhavcopy mode: single pair only)")
+        multi_combos = []
+        combos_to_test = []
+    else:
+        print("\n" + "=" * 80)
+        print("  PART 2: MULTI-PAIR PORTFOLIOS (US ETF charges)")
+        print("=" * 80)
 
-    multi_combos = [
-        [("^GSPC", "^NSEI"), ("^GSPC", "^HSI")],
-        [("^GSPC", "^NSEI"), ("^GSPC", "^HSI"), ("^GSPC", "^FTSE")],
-        [("^GSPC", "^NSEI"), ("^GSPC", "^HSI"), ("^GSPC", "^FTSE"), ("^GSPC", "^GDAXI")],
-        [("^GSPC", "^NSEI"), ("^GSPC", "^HSI"), ("^GSPC", "^FTSE"),
-         ("^GSPC", "^GDAXI"), ("^GSPC", "^N225")],
-        [("^GSPC", "^NSEI"), ("^GSPC", "^HSI"), ("^GSPC", "^FTSE"),
-         ("^GSPC", "^GDAXI"), ("^GSPC", "^N225"), ("^GSPC", "^BVSP")],
-    ]
+        multi_combos = [
+            [("^GSPC", "^NSEI"), ("^GSPC", "^HSI")],
+            [("^GSPC", "^NSEI"), ("^GSPC", "^HSI"), ("^GSPC", "^FTSE")],
+            [("^GSPC", "^NSEI"), ("^GSPC", "^HSI"), ("^GSPC", "^FTSE"), ("^GSPC", "^GDAXI")],
+            [("^GSPC", "^NSEI"), ("^GSPC", "^HSI"), ("^GSPC", "^FTSE"),
+             ("^GSPC", "^GDAXI"), ("^GSPC", "^N225")],
+            [("^GSPC", "^NSEI"), ("^GSPC", "^HSI"), ("^GSPC", "^FTSE"),
+             ("^GSPC", "^GDAXI"), ("^GSPC", "^N225"), ("^GSPC", "^BVSP")],
+        ]
 
-    combos_to_test = multi_combos[:1] if IS_CLOUD else multi_combos
+        combos_to_test = multi_combos[:1] if IS_CLOUD else multi_combos
     for combo in combos_to_test:
         all_syms = set()
         for a, b in combo:
