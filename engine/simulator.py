@@ -156,7 +156,8 @@ def process(context, df_orders, epoch_wise_instrument_stats, current_snapshot, s
                     which_side="BUY_SIDE",
                 )
 
-                required_margin_for_entry = order_quantity * entry_order["entry_price"] + charges
+                slippage = order_quantity * entry_order["entry_price"] * 0.0005
+                required_margin_for_entry = order_quantity * entry_order["entry_price"] + charges + slippage
 
                 if margin_available >= required_margin_for_entry and order_quantity > 0:
                     current_positions_count += 1
@@ -171,6 +172,7 @@ def process(context, df_orders, epoch_wise_instrument_stats, current_snapshot, s
                         "quantity": order_quantity,
                         "last_close_price": entry_order["entry_price"],
                         "entry_charges": charges,
+                        "entry_slippage": slippage,
                     }
 
                     current_positions.setdefault(entry_order["instrument"], {})[order_id] = this_order
@@ -194,7 +196,8 @@ def process(context, df_orders, epoch_wise_instrument_stats, current_snapshot, s
                         trade_type="DELIVERY",
                         which_side="SELL_SIDE",
                     )
-                    margin_available += position["quantity"] * position["exit_price"] - sell_charges
+                    sell_slippage = position["quantity"] * position["exit_price"] * 0.0005
+                    margin_available += position["quantity"] * position["exit_price"] - sell_charges - sell_slippage
 
                     trade_log.append({
                         "instrument": position["instrument"],
@@ -205,6 +208,7 @@ def process(context, df_orders, epoch_wise_instrument_stats, current_snapshot, s
                         "quantity": position["quantity"],
                         "entry_charges": position.get("entry_charges", 0),
                         "sell_charges": sell_charges,
+                        "slippage": position.get("entry_slippage", 0) + sell_slippage,
                     })
 
                     del current_positions[exit_order["instrument"]][order_id]
