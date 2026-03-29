@@ -666,3 +666,82 @@ class PolarsParquetDataProvider:
 
         print(f"  Loaded {df.height} rows, {df['instrument'].n_unique()} instruments from Polars parquet")
         return df
+
+
+class BhavcopyDataProvider:
+    """Fetch NSE OHLCV data from nse.nse_bhavcopy_historical via CR API.
+
+    Bhavcopy includes delisted/halted stocks (5,072 symbols vs 2,447 in charting),
+    making it the gold standard for survivorship-bias-free NSE backtesting.
+    """
+
+    def __init__(self, api_key=None):
+        self.client = CetaResearch(api_key=api_key)
+
+    def fetch_ohlcv(self, exchanges, symbols=None, start_epoch=None, end_epoch=None, prefetch_days=400):
+        """Fetch OHLCV from nse.nse_bhavcopy_historical.
+
+        Returns pl.DataFrame matching CRDataProvider output format:
+            date_epoch, open, high, low, close, average_price, volume, symbol, instrument, exchange
+        """
+        fetch_start = start_epoch - (prefetch_days * SECONDS_IN_ONE_DAY)
+
+        where_parts = [
+            "SERIES = 'EQ'",
+            f"(date_epoch - date_epoch % 86400) >= {fetch_start}",
+            f"(date_epoch - date_epoch % 86400) <= {end_epoch}",
+        ]
+        if symbols:
+            sym_list = ", ".join(f"'{s}'" for s in symbols)
+            where_parts.append(f"SYMBOL IN ({sym_list})")
+
+        where = " AND ".join(where_parts)
+
+        sql = f"""
+        SELECT
+            (date_epoch - date_epoch % 86400) AS date_epoch,
+            OPEN AS open, HIGH AS high, LOW AS low, CLOSE AS close,
+            (HIGH + LOW + CLOSE) / 3.0 AS average_price,
+            VOLUME AS volume,
+            SYMBOL AS symbol
+        FROM nse.nse_bhavcopy_historical
+        WHERE {where}
+        ORDER BY symbol, date_epoch
+        """
+
+        print(f"  Fetching bhavcopy data: prefetch={prefetch_days}d, "
+              f"range={_epoch_to_date_str(fetch_start)} to "
+              f"{_epoch_to_date_str(end_epoch)}")
+
+        results = self.client.query(
+            sql, timeout=600, limit=10000000, verbose=True,
+            memory_mb=16384, threads=6, format="parquet",
+        )
+
+        if not results:
+            return pl.DataFrame()
+
+        df = pl.read_parquet(io.BytesIO(results))
+
+        # Cast numeric types
+        numeric_cols = ["date_epoch", "open", "high", "low", "close", "average_price", "volume"]
+        cast_exprs = []
+        for col in numeric_cols:
+            if col in df.columns:
+                if col == "date_epoch":
+                    cast_exprs.append(pl.col(col).cast(pl.Int64).alias(col))
+                else:
+                    cast_exprs.append(pl.col(col).cast(pl.Float64).alias(col))
+        if cast_exprs:
+            df = df.with_columns(cast_exprs)
+
+        # Add exchange and instrument columns (all NSE)
+        df = df.with_columns([
+            pl.lit("NSE").alias("exchange"),
+            (pl.lit("NSE:") + pl.col("symbol")).alias("instrument"),
+        ])
+
+        df = df.sort(["instrument", "date_epoch"])
+
+        print(f"  Fetched {df.height} rows, {df['instrument'].n_unique()} instruments (bhavcopy)")
+        return df
