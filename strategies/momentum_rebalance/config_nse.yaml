@@ -1,0 +1,45 @@
+# Jegadeesh-Titman cross-sectional momentum rebalance on NSE
+# Sweep: 3 lookback x 3 rebalance x 3 positions = 27 entry
+#        x 1 exit x 1 sim = 27 configs
+
+static:
+  strategy_type: momentum_rebalance
+  start_margin: 10000000
+  start_epoch: 1262304000   # 2010-01-01
+  end_epoch: 1773878400     # 2026-03-17
+  prefetch_days: 600        # ~2.4 years: need 252 trading days for longest lookback + buffer
+  data_granularity: day
+
+scanner:
+  instruments:
+    - [{exchange: NSE, symbols: []}]
+  price_threshold: [50]
+  avg_day_transaction_threshold:
+    - {period: 125, threshold: 70000000}
+  n_day_gain_threshold:
+    - {n: 360, threshold: -999}
+
+# Entry: 3 x 3 x 3 = 27 combos
+entry:
+  momentum_lookback_days: [63, 126, 252]
+  rebalance_interval_days: [21, 42, 63]
+  num_positions: [5, 10, 20]
+  regime_instrument: ['NSE:NIFTYBEES']
+  regime_sma_period: [200]
+
+# Exit: 1 combo (exits at next rebalance, max_hold_days=0 means no override)
+exit:
+  max_hold_days: [0]
+
+# Simulation: 1 combo
+simulation:
+  default_sorting_type: [top_gainer]
+  order_sorting_type: [top_gainer]
+  order_ranking_window_days: [30]
+  max_positions: [20]
+  max_positions_per_instrument: [1]
+  order_value_multiplier: [1.0]
+  max_order_value:
+    - {type: fixed, value: 1000000000}
+
+# Total: 27 x 1 x 1 = 27 configs

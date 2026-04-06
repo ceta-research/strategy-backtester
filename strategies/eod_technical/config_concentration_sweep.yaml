@@ -1,0 +1,48 @@
+# EOD Technical: Concentration + Leverage sweep
+# Goal: Push 13.2% CAGR toward 20% via concentration and modest leverage
+#
+# Entry/exit: Fixed to best params from 216-config sweep (config 1_1_8_2)
+# - 3d MA, 2d high, direction_score 0.54
+# - 4-day min hold, 15% trailing stop
+# - Plus test 10% and 20% TSL
+#
+# Sweep: max_positions (5-30) x leverage (1.0-1.5x) x TSL (10-20%)
+# Total: 2 scanner x 1 entry x 3 exit x 24 sim = 144 configs
+
+static:
+  strategy_type: eod_technical
+  start_margin: 1000000
+  start_epoch: 1262304000      # 2010-01-01
+  end_epoch: 1735689600        # 2025-01-01
+  prefetch_days: 400
+  data_granularity: day
+
+scanner:
+  instruments:
+    - [{exchange: NSE, symbols: []}]
+  price_threshold: [50]
+  avg_day_transaction_threshold:
+    - {period: 125, threshold: 70000000}
+  n_day_gain_threshold:
+    - {n: 360, threshold: 0}
+    - {n: 180, threshold: 0}
+
+entry:
+  n_day_ma: [3]
+  n_day_high: [2]
+  direction_score:
+    - {n_day_ma: 3, score: 0.54}
+
+exit:
+  min_hold_time_days: [4, 10]
+  trailing_stop_loss: [10, 15, 20]
+
+simulation:
+  default_sorting_type: [top_gainer]
+  order_sorting_type: [top_performer]
+  order_ranking_window_days: [180]
+  max_positions: [5, 7, 10, 15, 20, 30]
+  max_positions_per_instrument: [1]
+  order_value_multiplier: [1, 1.2, 1.3, 1.5]
+  max_order_value:
+    - {type: percentage_of_instrument_avg_txn, value: 4.5}

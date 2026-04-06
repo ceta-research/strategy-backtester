@@ -8,6 +8,7 @@ build/
 
 # Results (generated output)
 results/
+result.json
 
 # Verification data (generated during P2 comparison)
 tests/verification/*.json

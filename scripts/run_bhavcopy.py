@@ -25,7 +25,12 @@ def main():
     print(f"Starting backtest with BHAVCOPY data (config={config_path})...")
     start = time.time()
 
-    provider = BhavcopyDataProvider()
+    # Quality pre-filter: only symbols with avg daily turnover > 70M INR and price > 50
+    # Matches standalone fetch_universe() methodology (full-period average filter)
+    provider = BhavcopyDataProvider(
+        turnover_threshold=70_000_000,
+        price_threshold=50,
+    )
     result = run_pipeline(config_path, data_provider=provider)
 
     elapsed = round(time.time() - start, 1)

@@ -1,0 +1,53 @@
+# Quality Dip-Buy with Multi-Tier Averaging on NSE
+# Ports standalone scripts/quality_dip_buy_tiered.py to the engine pipeline.
+#
+# Sweep: n_tiers 1/2/3, tier_mult 1.5/2.0, base_dip 5/7, positions 5/10
+# Fixed: 2yr quality, 63d peak lookback, regime NIFTYBEES>SMA200, 10% TSL, 504d hold
+
+static:
+  strategy_type: quality_dip_tiered
+  start_margin: 10000000       # Rs 1 crore
+  start_epoch: 1262304000      # 2010-01-01
+  end_epoch: 1773878400        # 2026-03-17
+  prefetch_days: 1500          # ~4 years for quality filter + peak lookback
+  data_granularity: day
+
+scanner:
+  instruments:
+    - [{exchange: NSE, symbols: []}]
+  price_threshold: [50]
+  avg_day_transaction_threshold:
+    - {period: 125, threshold: 70000000}
+  n_day_gain_threshold:
+    - {n: 360, threshold: -999}
+
+# Entry: 3 x 2 x 2 x 1 x 1 x 1 x 1 x 1 x 1 = 12 combos
+entry:
+  consecutive_positive_years: [2]
+  min_yearly_return_pct: [0]
+  n_tiers: [1, 2, 3]
+  tier_multiplier: [1.5, 2.0]
+  base_dip_threshold_pct: [5, 7]
+  peak_lookback_days: [63]
+  rescreen_interval_days: [63]
+  regime_instrument: ['NSE:NIFTYBEES']
+  regime_sma_period: [200]
+
+# Exit: 1 combo (fixed best params)
+exit:
+  tsl_pct: [10]
+  max_hold_days: [504]
+
+# Simulation: 2 combos (5 or 10 max positions)
+# max_positions_per_instrument set to max(n_tiers) = 3 to allow all tiers
+simulation:
+  default_sorting_type: [top_gainer]
+  order_sorting_type: [top_gainer]
+  order_ranking_window_days: [30]
+  max_positions: [5, 10]
+  max_positions_per_instrument: [3]
+  order_value_multiplier: [1.0]
+  max_order_value:
+    - {type: fixed, value: 1000000000}
+
+# Total: 12 entry x 1 exit x 2 sim = 24 configs

@@ -1,0 +1,42 @@
+static:
+  strategy_type: momentum_cascade
+  start_margin: 10000000
+  start_epoch: 1262304000
+  end_epoch: 1773878400
+  prefetch_days: 600
+  data_granularity: day
+
+scanner:
+  instruments:
+    - [{exchange: NSE, symbols: []}]
+  price_threshold: [50]
+  avg_day_transaction_threshold:
+    - {period: 125, threshold: 70000000}
+  n_day_gain_threshold:
+    - {n: 360, threshold: -999}
+
+# Top 3 configs
+entry:
+  fast_lookback_days: [42]
+  slow_lookback_days: [126]
+  accel_threshold_pct: [2, 3]
+  min_momentum_pct: [15, 20]
+  breakout_window: [63]
+  regime_instrument: ['NSE:NIFTYBEES']
+  regime_sma_period: [50, 200]
+
+exit:
+  tsl_pct: [10, 12, 13]
+  max_hold_days: [504]
+
+# No meaningful ranking: top_average_txn with 1-day window = sort by liquidity (neutral)
+# Also test top_performer (walk-forward P&L ranking)
+simulation:
+  default_sorting_type: [top_average_txn]
+  order_sorting_type: [top_average_txn, top_performer]
+  order_ranking_window_days: [1, 180]
+  max_positions: [7, 10, 14]
+  max_positions_per_instrument: [1, 3]
+  order_value_multiplier: [1.0]
+  max_order_value:
+    - {type: fixed, value: 10000000}

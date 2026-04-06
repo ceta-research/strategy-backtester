@@ -142,6 +142,176 @@ def sanitize_orders(df_orders: pl.DataFrame, min_entry_price: float = 0.10,
     return df_orders
 
 
+def run_scanner(context: dict, df_tick_data: pl.DataFrame) -> tuple[dict[str, set], "pl.DataFrame"]:
+    """Run the standard scanner phase: liquidity + price filter, return tagged df.
+
+    This is the shared scanner used by all dip-buy / momentum / breakout generators.
+    Skips fill_missing_dates / backfill_close / n_day_gain (use apply_liquidity_filter
+    for strategies that need those).
+
+    Returns:
+        (shortlist_tracker, df_trimmed)
+        - shortlist_tracker: {scanner_config_id: set(uid_strings)}
+        - df_trimmed: df filtered to start_epoch with scanner_config_ids column
+    """
+    import time as _time
+
+    t0 = _time.time()
+    df = df_tick_data.clone()
+    start_epoch = context.get("start_epoch", context["static_config"]["start_epoch"])
+
+    shortlist_tracker = {}
+    for scanner_config in get_scanner_config_iterator(context):
+        df_scan = df.clone()
+
+        filter_exprs = []
+        for instrument in scanner_config["instruments"]:
+            if instrument["symbols"]:
+                filter_exprs.append(
+                    (pl.col("exchange") == instrument["exchange"])
+                    & (pl.col("symbol").is_in(instrument["symbols"]))
+                )
+            else:
+                filter_exprs.append(pl.col("exchange") == instrument["exchange"])
+        if filter_exprs:
+            combined = filter_exprs[0]
+            for expr in filter_exprs[1:]:
+                combined = combined | expr
+            df_scan = df_scan.filter(combined)
+
+        atc = scanner_config["avg_day_transaction_threshold"]
+        df_scan = df_scan.with_columns(
+            (pl.col("volume") * pl.col("average_price")).alias("avg_txn_turnover")
+        )
+        df_scan = df_scan.sort(["instrument", "date_epoch"]).with_columns(
+            pl.col("avg_txn_turnover")
+            .rolling_mean(window_size=atc["period"], min_samples=1)
+            .over("instrument")
+            .alias("avg_txn_turnover")
+        )
+        df_scan = df_scan.drop_nulls()
+        df_scan = df_scan.filter(pl.col("close") > scanner_config["price_threshold"])
+        df_scan = df_scan.filter(pl.col("avg_txn_turnover") > atc["threshold"])
+
+        uid_series = df_scan.select(
+            (pl.col("instrument").cast(pl.Utf8) + pl.lit(":") + pl.col("date_epoch").cast(pl.Utf8)).alias("uid")
+        )["uid"]
+        shortlist_tracker[scanner_config["id"]] = set(uid_series.to_list())
+
+    df_trimmed = df.filter(pl.col("date_epoch") >= start_epoch).drop_nulls()
+    df_trimmed = df_trimmed.with_columns(
+        (pl.col("instrument").cast(pl.Utf8) + pl.lit(":") + pl.col("date_epoch").cast(pl.Utf8)).alias("uid")
+    )
+    signal_sets = {k: set(v) for k, v in shortlist_tracker.items()}
+    uids = df_trimmed["uid"].to_list()
+    uid_to_signals = {}
+    for uid in uids:
+        signals = [str(k) for k, v in signal_sets.items() if uid in v]
+        uid_to_signals[uid] = ",".join(sorted(signals)) if signals else None
+    df_trimmed = df_trimmed.with_columns(
+        pl.Series("scanner_config_ids", [uid_to_signals.get(u) for u in uids], dtype=pl.Utf8)
+    )
+
+    elapsed = round(_time.time() - t0, 2)
+    print(f"  Scanner: {elapsed}s, {df_trimmed.height} rows")
+
+    return shortlist_tracker, df_trimmed
+
+
+def walk_forward_exit(
+    epochs: list, closes: list, start_idx: int,
+    entry_epoch: int, entry_price: float, peak_price: float,
+    tsl_pct: float, max_hold_days: int,
+) -> tuple:
+    """Walk forward from entry to find exit via peak recovery + TSL.
+
+    Args:
+        epochs: list of date_epoch values for the instrument
+        closes: list of close prices for the instrument
+        start_idx: index in epochs/closes where entry_epoch lives
+        entry_epoch: entry date epoch
+        entry_price: entry price
+        peak_price: rolling peak price at entry (target for recovery)
+        tsl_pct: trailing stop-loss percentage (0 = no TSL, just peak recovery)
+        max_hold_days: max holding period in calendar days (0 = no limit)
+
+    Returns:
+        (exit_epoch, exit_price) or (None, None) if no exit found and no data remains
+    """
+    exit_epoch = None
+    exit_price = None
+    trail_high = entry_price
+
+    if tsl_pct == 0:
+        for j in range(start_idx, len(epochs)):
+            c = closes[j]
+            if c is None:
+                continue
+            hold_days = (epochs[j] - entry_epoch) / 86400
+            if max_hold_days > 0 and hold_days >= max_hold_days:
+                return epochs[j], c
+            if c >= peak_price:
+                return epochs[j], c
+    else:
+        reached_peak = False
+        for j in range(start_idx, len(epochs)):
+            c = closes[j]
+            if c is None:
+                continue
+            if c > trail_high:
+                trail_high = c
+            hold_days = (epochs[j] - entry_epoch) / 86400
+            if max_hold_days > 0 and hold_days >= max_hold_days:
+                return epochs[j], c
+            if c >= peak_price:
+                reached_peak = True
+            if reached_peak and c <= trail_high * (1 - tsl_pct):
+                return epochs[j], c
+
+    # No exit trigger found - exit at last available bar
+    if len(epochs) > start_idx:
+        return epochs[-1], closes[-1]
+
+    return None, None
+
+
+EMPTY_ORDERS_SCHEMA = {
+    "instrument": pl.Utf8,
+    "entry_epoch": pl.Float64,
+    "exit_epoch": pl.Float64,
+    "entry_price": pl.Float64,
+    "exit_price": pl.Float64,
+    "entry_volume": pl.Float64,
+    "exit_volume": pl.Float64,
+    "scanner_config_ids": pl.Utf8,
+    "entry_config_ids": pl.Utf8,
+    "exit_config_ids": pl.Utf8,
+}
+
+ORDER_COLUMNS = [
+    "instrument", "entry_epoch", "exit_epoch",
+    "entry_price", "exit_price", "entry_volume", "exit_volume",
+    "scanner_config_ids", "entry_config_ids", "exit_config_ids",
+]
+
+
+def empty_orders() -> pl.DataFrame:
+    """Return an empty DataFrame with the standard order schema."""
+    return pl.DataFrame(schema=EMPTY_ORDERS_SCHEMA)
+
+
+def finalize_orders(all_order_rows: list[dict], elapsed: float) -> pl.DataFrame:
+    """Convert order rows to sorted DataFrame, or return empty if none."""
+    if not all_order_rows:
+        print(f"  Signal gen: {elapsed}s, 0 orders")
+        return empty_orders()
+
+    df_orders = pl.DataFrame(all_order_rows)
+    df_orders = df_orders.select(ORDER_COLUMNS).sort(["instrument", "entry_epoch", "exit_epoch"])
+    print(f"  Signal gen: {elapsed}s, {df_orders.height} orders")
+    return df_orders
+
+
 def apply_liquidity_filter(df_tick_data: pl.DataFrame, context: dict) -> pl.DataFrame:
     """Apply scanner-phase liquidity/price filters and tag scanner_config_ids.
 

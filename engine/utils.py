@@ -35,7 +35,9 @@ def create_config_df_loc_lookup(
 
         for entry_config_id in str(entry_ids).split(","):
             if entry_config_id:
-                entry_config_id_df_idx_map[int(entry_config_id)].add(idx)
+                # Strip tier suffixes (e.g., "1_t1" -> "1") for tiered strategies
+                base_id = entry_config_id.split("_t")[0] if "_t" in entry_config_id else entry_config_id
+                entry_config_id_df_idx_map[int(base_id)].add(idx)
 
         for exit_config_id in str(exit_ids).split(","):
             if exit_config_id:

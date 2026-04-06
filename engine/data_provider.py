@@ -675,15 +675,87 @@ class BhavcopyDataProvider:
     making it the gold standard for survivorship-bias-free NSE backtesting.
     """
 
-    def __init__(self, api_key=None):
+    def __init__(self, api_key=None, turnover_threshold=0, price_threshold=0):
+        """
+        Args:
+            api_key: CR API key (falls back to CR_API_KEY env var).
+            turnover_threshold: min avg daily turnover in INR (e.g. 70_000_000).
+                If > 0, runs a pre-filter query to select only qualifying symbols.
+                Uses full-period average (AVG(close * volume)), matching the
+                standalone fetch_universe() methodology.
+            price_threshold: min avg close price (e.g. 50).
+        """
         self.client = CetaResearch(api_key=api_key)
+        self.turnover_threshold = turnover_threshold
+        self.price_threshold = price_threshold
+
+    def _fetch_qualifying_symbols(self, start_epoch, end_epoch):
+        """Pre-filter: find symbols meeting turnover/price thresholds over full period.
+
+        Uses AVG(TURNOVER) — bhavcopy's pre-computed daily turnover column (actual
+        traded value in INR). This matches standalone fetch_universe(source="bhavcopy")
+        which also uses AVG(TURNOVER), NOT AVG(CLOSE * VOLUME).
+
+        Includes warmup window (1500 days before start_epoch) in the averaging period
+        to match standalone methodology.
+        """
+        having_clauses = []
+        if self.turnover_threshold > 0:
+            having_clauses.append(f"AVG(TURNOVER) > {self.turnover_threshold}")
+        if self.price_threshold > 0:
+            having_clauses.append(f"AVG(CLOSE) > {self.price_threshold}")
+
+        if not having_clauses:
+            return None  # no filtering needed
+
+        having = " AND ".join(having_clauses)
+
+        # Include warmup window for averaging (matches standalone's warmup_days=1500)
+        warmup_start = start_epoch - 1500 * SECONDS_IN_ONE_DAY
+
+        sql = f"""
+        SELECT SYMBOL
+        FROM nse.nse_bhavcopy_historical
+        WHERE SERIES = 'EQ'
+          AND (date_epoch - date_epoch % 86400) >= {warmup_start}
+          AND (date_epoch - date_epoch % 86400) <= {end_epoch}
+        GROUP BY SYMBOL
+        HAVING {having}
+        ORDER BY SYMBOL
+        """
+
+        print(f"  Pre-filtering bhavcopy: AVG(TURNOVER)>{self.turnover_threshold/1e6:.0f}M, "
+              f"AVG(CLOSE)>{self.price_threshold}")
+
+        results = self.client.query(
+            sql, timeout=120, limit=100000, verbose=True,
+            memory_mb=4096, threads=4, format="parquet",
+        )
+
+        if not results:
+            return []
+
+        df = pl.read_parquet(io.BytesIO(results))
+        symbols = df["SYMBOL"].to_list()
+        print(f"  Found {len(symbols)} qualifying symbols")
+        return symbols
 
     def fetch_ohlcv(self, exchanges, symbols=None, start_epoch=None, end_epoch=None, prefetch_days=400):
         """Fetch OHLCV from nse.nse_bhavcopy_historical.
 
+        If turnover_threshold or price_threshold are set, runs a pre-filter query
+        to select only qualifying symbols (matching standalone fetch_universe behavior).
+
         Returns pl.DataFrame matching CRDataProvider output format:
             date_epoch, open, high, low, close, average_price, volume, symbol, instrument, exchange
         """
+        # Pre-filter by quality if thresholds are set and no explicit symbols given
+        if not symbols and (self.turnover_threshold > 0 or self.price_threshold > 0):
+            symbols = self._fetch_qualifying_symbols(start_epoch, end_epoch)
+            if symbols is not None and len(symbols) == 0:
+                print("  No symbols pass quality filter.")
+                return pl.DataFrame()
+
         fetch_start = start_epoch - (prefetch_days * SECONDS_IN_ONE_DAY)
 
         where_parts = [

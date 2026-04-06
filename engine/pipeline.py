@@ -20,7 +20,7 @@ from engine.config_loader import (
     get_simulation_config_iterator,
 )
 from engine.config_sweep import create_config_iterator
-from engine.data_provider import CRDataProvider
+from engine.data_provider import CRDataProvider, BhavcopyDataProvider
 from engine import simulator
 from engine.ranking import sort_orders
 from engine.utils import create_epoch_wise_instrument_stats, create_config_df_loc_lookup
@@ -46,6 +46,14 @@ import engine.signals.index_sma_crossover  # noqa: F401
 import engine.signals.index_dip_buy  # noqa: F401
 import engine.signals.quality_dip_buy  # noqa: F401
 import engine.signals.low_pe  # noqa: F401
+import engine.signals.momentum_cascade  # noqa: F401
+import engine.signals.momentum_dip_quality  # noqa: F401
+import engine.signals.forced_selling_dip  # noqa: F401
+import engine.signals.index_breakout  # noqa: F401
+import engine.signals.momentum_rebalance  # noqa: F401
+import engine.signals.earnings_dip  # noqa: F401
+import engine.signals.quality_dip_tiered  # noqa: F401
+import engine.signals.enhanced_breakout  # noqa: F401
 from engine.signals.base import get_signal_generator, sanitize_orders
 
 
@@ -103,7 +111,11 @@ def run_pipeline(config_path, data_provider=None):
     # Fetch data
     print("\n--- Fetching Data ---")
     if data_provider is None:
-        data_provider = CRDataProvider(format="parquet")
+        provider_type = static.get("data_provider", "cr")
+        if provider_type == "bhavcopy":
+            data_provider = BhavcopyDataProvider()
+        else:
+            data_provider = CRDataProvider(format="parquet")
 
     # Extract exchanges from scanner config
     exchanges = set()
@@ -202,7 +214,8 @@ def run_pipeline(config_path, data_provider=None):
                         total_charges = t.get("entry_charges", 0) + t.get("sell_charges", 0)
                         br.add_trade(t["entry_epoch"], t["exit_epoch"],
                                      t["entry_price"], t["exit_price"],
-                                     t["quantity"], charges=total_charges)
+                                     t["quantity"], charges=total_charges,
+                                     symbol=t.get("instrument", ""))
 
                     sweep.add_config(params, br)
 

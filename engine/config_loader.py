@@ -417,6 +417,208 @@ def _build_exit_config_quality_dip_buy(exit_cfg: dict) -> dict:
     }
 
 
+def _build_entry_config_momentum_cascade(entry: dict) -> dict:
+    return {
+        "fast_lookback_days": entry.get("fast_lookback_days", [42]),
+        "slow_lookback_days": entry.get("slow_lookback_days", [126]),
+        "accel_threshold_pct": entry.get("accel_threshold_pct", [2]),
+        "min_momentum_pct": entry.get("min_momentum_pct", [20]),
+        "breakout_window": entry.get("breakout_window", [63]),
+        "regime_instrument": entry.get("regime_instrument", [""]),
+        "regime_sma_period": entry.get("regime_sma_period", [0]),
+    }
+
+
+def _build_exit_config_momentum_cascade(exit_cfg: dict) -> dict:
+    return {
+        "tsl_pct": exit_cfg.get("tsl_pct", [12]),
+        "max_hold_days": exit_cfg.get("max_hold_days", [504]),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Momentum Dip Quality entry/exit (champion strategy port)
+# ---------------------------------------------------------------------------
+
+def _build_entry_config_momentum_dip_quality(entry: dict) -> dict:
+    return {
+        "consecutive_positive_years": entry.get("consecutive_positive_years", [2]),
+        "min_yearly_return_pct": entry.get("min_yearly_return_pct", [0]),
+        "momentum_lookback_days": entry.get("momentum_lookback_days", [63]),
+        "momentum_percentile": entry.get("momentum_percentile", [0.30]),
+        "rerank_interval_days": entry.get("rerank_interval_days", [63]),
+        "dip_threshold_pct": entry.get("dip_threshold_pct", [5]),
+        "peak_lookback_days": entry.get("peak_lookback_days", [63]),
+        "rescreen_interval_days": entry.get("rescreen_interval_days", [63]),
+        "roe_threshold": entry.get("roe_threshold", [15]),
+        "pe_threshold": entry.get("pe_threshold", [25]),
+        "de_threshold": entry.get("de_threshold", [0]),
+        "fundamental_missing_mode": entry.get("fundamental_missing_mode", ["skip"]),
+        "regime_instrument": entry.get("regime_instrument", [""]),
+        "regime_sma_period": entry.get("regime_sma_period", [0]),
+    }
+
+
+def _build_exit_config_momentum_dip_quality(exit_cfg: dict) -> dict:
+    return {
+        "tsl_pct": exit_cfg.get("tsl_pct", [10]),
+        "max_hold_days": exit_cfg.get("max_hold_days", [504]),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Index Breakout entry/exit
+# ---------------------------------------------------------------------------
+
+def _build_entry_config_index_breakout(entry: dict) -> dict:
+    return {
+        "lookback_days": entry.get("lookback_days", [3]),
+        "regime_instrument": entry.get("regime_instrument", [""]),
+        "regime_sma_period": entry.get("regime_sma_period", [0]),
+    }
+
+
+def _build_exit_config_index_breakout(exit_cfg: dict) -> dict:
+    return {
+        "tsl_pct": exit_cfg.get("tsl_pct", [5]),
+        "max_hold_days": exit_cfg.get("max_hold_days", [0]),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Earnings Dip entry/exit (earnings surprise + post-earnings dip)
+# ---------------------------------------------------------------------------
+
+def _build_entry_config_earnings_dip(entry: dict) -> dict:
+    return {
+        "consecutive_positive_years": entry.get("consecutive_positive_years", [2]),
+        "min_yearly_return_pct": entry.get("min_yearly_return_pct", [0]),
+        "surprise_threshold_pct": entry.get("surprise_threshold_pct", [5]),
+        "dip_threshold_pct": entry.get("dip_threshold_pct", [5]),
+        "post_earnings_window": entry.get("post_earnings_window", [20]),
+        "peak_lookback_days": entry.get("peak_lookback_days", [63]),
+        "rescreen_interval_days": entry.get("rescreen_interval_days", [63]),
+        "roe_threshold": entry.get("roe_threshold", [15]),
+        "pe_threshold": entry.get("pe_threshold", [25]),
+        "de_threshold": entry.get("de_threshold", [0]),
+        "fundamental_missing_mode": entry.get("fundamental_missing_mode", ["skip"]),
+        "regime_instrument": entry.get("regime_instrument", [""]),
+        "regime_sma_period": entry.get("regime_sma_period", [0]),
+    }
+
+
+def _build_exit_config_earnings_dip(exit_cfg: dict) -> dict:
+    return {
+        "tsl_pct": exit_cfg.get("tsl_pct", [10]),
+        "max_hold_days": exit_cfg.get("max_hold_days", [504]),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Forced Selling Dip entry/exit
+# ---------------------------------------------------------------------------
+
+def _build_entry_config_forced_selling_dip(entry: dict) -> dict:
+    return {
+        "consecutive_positive_years": entry.get("consecutive_positive_years", [2]),
+        "min_yearly_return_pct": entry.get("min_yearly_return_pct", [0]),
+        "sector_lookback_days": entry.get("sector_lookback_days", [20]),
+        "dip_threshold_pct": entry.get("dip_threshold_pct", [5]),
+        "volume_multiplier": entry.get("volume_multiplier", [2.0]),
+        "peak_lookback_days": entry.get("peak_lookback_days", [63]),
+        "rescreen_interval_days": entry.get("rescreen_interval_days", [63]),
+        "roe_threshold": entry.get("roe_threshold", [15]),
+        "pe_threshold": entry.get("pe_threshold", [25]),
+        "de_threshold": entry.get("de_threshold", [0]),
+        "fundamental_missing_mode": entry.get("fundamental_missing_mode", ["skip"]),
+        "regime_instrument": entry.get("regime_instrument", [""]),
+        "regime_sma_period": entry.get("regime_sma_period", [0]),
+    }
+
+
+def _build_exit_config_forced_selling_dip(exit_cfg: dict) -> dict:
+    return {
+        "tsl_pct": exit_cfg.get("tsl_pct", [10]),
+        "max_hold_days": exit_cfg.get("max_hold_days", [504]),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Momentum Rebalance entry/exit (Jegadeesh-Titman cross-sectional momentum)
+# ---------------------------------------------------------------------------
+
+def _build_entry_config_momentum_rebalance(entry: dict) -> dict:
+    return {
+        "momentum_lookback_days": entry.get("momentum_lookback_days", [126]),
+        "rebalance_interval_days": entry.get("rebalance_interval_days", [21]),
+        "num_positions": entry.get("num_positions", [10]),
+        "regime_instrument": entry.get("regime_instrument", [""]),
+        "regime_sma_period": entry.get("regime_sma_period", [0]),
+    }
+
+
+def _build_exit_config_momentum_rebalance(exit_cfg: dict) -> dict:
+    return {
+        "max_hold_days": exit_cfg.get("max_hold_days", [0]),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Quality Dip-Buy Tiered entry/exit (multi-tier averaging)
+# ---------------------------------------------------------------------------
+
+def _build_entry_config_quality_dip_tiered(entry: dict) -> dict:
+    return {
+        "consecutive_positive_years": entry.get("consecutive_positive_years", [2]),
+        "min_yearly_return_pct": entry.get("min_yearly_return_pct", [0]),
+        "n_tiers": entry.get("n_tiers", [1]),
+        "tier_multiplier": entry.get("tier_multiplier", [1.5]),
+        "base_dip_threshold_pct": entry.get("base_dip_threshold_pct", [5]),
+        "peak_lookback_days": entry.get("peak_lookback_days", [63]),
+        "rescreen_interval_days": entry.get("rescreen_interval_days", [63]),
+        "regime_instrument": entry.get("regime_instrument", [""]),
+        "regime_sma_period": entry.get("regime_sma_period", [0]),
+    }
+
+
+def _build_exit_config_quality_dip_tiered(exit_cfg: dict) -> dict:
+    return {
+        "tsl_pct": exit_cfg.get("tsl_pct", [10]),
+        "max_hold_days": exit_cfg.get("max_hold_days", [504]),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Enhanced Breakout entry/exit (multi-layer confirmed breakout)
+# ---------------------------------------------------------------------------
+
+def _build_entry_config_enhanced_breakout(entry: dict) -> dict:
+    return {
+        "breakout_window": entry.get("breakout_window", [2]),
+        "consecutive_positive_years": entry.get("consecutive_positive_years", [2]),
+        "min_yearly_return_pct": entry.get("min_yearly_return_pct", [0]),
+        "momentum_lookback_days": entry.get("momentum_lookback_days", [63]),
+        "momentum_percentile": entry.get("momentum_percentile", [0.30]),
+        "rerank_interval_days": entry.get("rerank_interval_days", [63]),
+        "rescreen_interval_days": entry.get("rescreen_interval_days", [63]),
+        "volume_multiplier": entry.get("volume_multiplier", [0]),
+        "volume_avg_period": entry.get("volume_avg_period", [20]),
+        "roe_threshold": entry.get("roe_threshold", [0]),
+        "pe_threshold": entry.get("pe_threshold", [0]),
+        "de_threshold": entry.get("de_threshold", [0]),
+        "fundamental_missing_mode": entry.get("fundamental_missing_mode", ["skip"]),
+        "regime_instrument": entry.get("regime_instrument", [""]),
+        "regime_sma_period": entry.get("regime_sma_period", [0]),
+    }
+
+
+def _build_exit_config_enhanced_breakout(exit_cfg: dict) -> dict:
+    return {
+        "tsl_pct": exit_cfg.get("tsl_pct", [12]),
+        "max_hold_days": exit_cfg.get("max_hold_days", [252]),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Strategy dispatch tables
 # ---------------------------------------------------------------------------
@@ -440,6 +642,14 @@ _ENTRY_BUILDERS = {
     "index_sma_crossover": _build_entry_config_index_sma_crossover,
     "index_dip_buy": _build_entry_config_index_dip_buy,
     "quality_dip_buy": _build_entry_config_quality_dip_buy,
+    "momentum_cascade": _build_entry_config_momentum_cascade,
+    "momentum_dip_quality": _build_entry_config_momentum_dip_quality,
+    "forced_selling_dip": _build_entry_config_forced_selling_dip,
+    "index_breakout": _build_entry_config_index_breakout,
+    "momentum_rebalance": _build_entry_config_momentum_rebalance,
+    "earnings_dip": _build_entry_config_earnings_dip,
+    "quality_dip_tiered": _build_entry_config_quality_dip_tiered,
+    "enhanced_breakout": _build_entry_config_enhanced_breakout,
 }
 
 _EXIT_BUILDERS = {
@@ -461,6 +671,14 @@ _EXIT_BUILDERS = {
     "index_sma_crossover": _build_exit_config_index_sma_crossover,
     "index_dip_buy": _build_exit_config_index_dip_buy,
     "quality_dip_buy": _build_exit_config_quality_dip_buy,
+    "momentum_cascade": _build_exit_config_momentum_cascade,
+    "momentum_dip_quality": _build_exit_config_momentum_dip_quality,
+    "forced_selling_dip": _build_exit_config_forced_selling_dip,
+    "index_breakout": _build_exit_config_index_breakout,
+    "momentum_rebalance": _build_exit_config_momentum_rebalance,
+    "earnings_dip": _build_exit_config_earnings_dip,
+    "quality_dip_tiered": _build_exit_config_quality_dip_tiered,
+    "enhanced_breakout": _build_exit_config_enhanced_breakout,
 }
 
 
