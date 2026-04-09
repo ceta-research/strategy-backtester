@@ -335,6 +335,149 @@ def build_regime_filter(df_tick_data, regime_instrument, regime_sma_period):
     return bull_epochs
 
 
+# ---------------------------------------------------------------------------
+# Fundamental data utilities (shared by dip-buy / breakout strategies)
+# ---------------------------------------------------------------------------
+
+FILING_LAG_DAYS = 45
+
+
+def fetch_fundamentals(exchanges):
+    """Fetch FY fundamental ratios from fmp.financial_ratios.
+
+    Returns dict[bare_symbol, list[{epoch, roe, de, pe}]] sorted by epoch.
+    """
+    from lib.cr_client import CetaResearch
+
+    cr = CetaResearch()
+
+    suffix_filters = []
+    suffixes = []
+    for exchange in exchanges:
+        if exchange == "NSE":
+            suffix_filters.append("symbol LIKE '%.NS'")
+            suffixes.append(".NS")
+        elif exchange == "US":
+            suffix_filters.append(
+                "symbol NOT LIKE '%.%' AND symbol NOT LIKE '%-%'"
+            )
+
+    if not suffix_filters:
+        return {}
+
+    where_clause = " OR ".join(f"({f})" for f in suffix_filters)
+    sql = f"""
+    SELECT symbol, CAST(dateEpoch AS BIGINT) AS dateEpoch,
+           netIncomePerShare, shareholdersEquityPerShare,
+           debtToEquityRatio, priceToEarningsRatio
+    FROM fmp.financial_ratios
+    WHERE ({where_clause})
+      AND period = 'FY'
+      AND shareholdersEquityPerShare IS NOT NULL
+      AND shareholdersEquityPerShare > 0
+    ORDER BY symbol, dateEpoch
+    """
+
+    print("  Fetching fundamental ratios (FY)...")
+    try:
+        results = cr.query(
+            sql, timeout=600, limit=10000000, verbose=False,
+            memory_mb=16384, threads=6,
+        )
+    except Exception as e:
+        print(f"  WARNING: Could not fetch fundamentals: {e}")
+        return {}
+
+    if not results:
+        print("  WARNING: No fundamental data fetched")
+        return {}
+
+    fundamentals = {}
+    for r in results:
+        sym = r["symbol"]
+        for suffix in suffixes:
+            if sym.endswith(suffix):
+                sym = sym[: -len(suffix)]
+                break
+
+        epoch = int(r.get("dateEpoch") or 0)
+        if epoch <= 0:
+            continue
+
+        ni = r.get("netIncomePerShare")
+        eq = r.get("shareholdersEquityPerShare")
+        roe = (
+            (float(ni) / float(eq) * 100)
+            if (ni is not None and eq and float(eq) > 0)
+            else None
+        )
+        de = r.get("debtToEquityRatio")
+        pe = r.get("priceToEarningsRatio")
+
+        if sym not in fundamentals:
+            fundamentals[sym] = []
+        fundamentals[sym].append({
+            "epoch": epoch,
+            "roe": roe,
+            "de": float(de) if de is not None else None,
+            "pe": float(pe) if pe is not None else None,
+        })
+
+    for sym in fundamentals:
+        fundamentals[sym].sort(key=lambda x: x["epoch"])
+
+    print(
+        f"  Loaded fundamentals for {len(fundamentals)} symbols, "
+        f"{sum(len(v) for v in fundamentals.values())} data points"
+    )
+    return fundamentals
+
+
+def get_fundamental_at(fundamentals, symbol, epoch, lag_days=FILING_LAG_DAYS):
+    """Get latest fundamental data available before lag-adjusted epoch."""
+    records = fundamentals.get(symbol)
+    if not records:
+        return None
+    lag_epoch = epoch - lag_days * 86400
+    best = None
+    for rec in records:
+        if rec["epoch"] <= lag_epoch:
+            best = rec
+        else:
+            break
+    return best
+
+
+def passes_fundamental_filter(
+    fundamentals, symbol, epoch, roe_threshold, pe_threshold, de_threshold,
+    missing_mode,
+):
+    """Check if a stock passes fundamental filters at a given epoch."""
+    if roe_threshold <= 0 and pe_threshold <= 0 and de_threshold <= 0:
+        return True
+
+    fund = get_fundamental_at(fundamentals, symbol, epoch)
+    if fund is None:
+        return missing_mode != "skip"
+
+    if roe_threshold > 0:
+        roe = fund.get("roe")
+        if roe is not None and roe < roe_threshold:
+            return False
+
+    if de_threshold > 0:
+        de = fund.get("de")
+        if de is not None and de > de_threshold:
+            return False
+
+    if pe_threshold > 0:
+        pe = fund.get("pe")
+        if pe is not None and (pe <= 0 or pe > pe_threshold):
+            return False
+
+    return True
+
+
 EMPTY_ORDERS_SCHEMA = {
     "instrument": pl.Utf8,
     "entry_epoch": pl.Float64,

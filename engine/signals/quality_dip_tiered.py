@@ -23,8 +23,7 @@ from engine.config_loader import (
     get_entry_config_iterator,
     get_exit_config_iterator,
 )
-from engine.signals.base import register_strategy, add_next_day_values, run_scanner, walk_forward_exit, finalize_orders
-from engine.signals.momentum_dip_quality import _build_regime_filter
+from engine.signals.base import register_strategy, add_next_day_values, run_scanner, walk_forward_exit, finalize_orders, build_regime_filter
 
 TRADING_DAYS_PER_YEAR = 252
 
@@ -48,7 +47,7 @@ class QualityDipTieredSignalGenerator:
         # Pre-build regime filters (one per unique instrument+period combo)
         regime_cache = {}
         for ri, rp in regime_configs:
-            regime_cache[(ri, rp)] = _build_regime_filter(df_tick_data, ri, rp)
+            regime_cache[(ri, rp)] = build_regime_filter(df_tick_data, ri, rp)
 
         # Phase 1: Scanner (liquidity filter)
         shortlist_tracker, df_trimmed = run_scanner(context, df_tick_data)

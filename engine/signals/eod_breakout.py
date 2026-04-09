@@ -1,0 +1,265 @@
+"""EOD Breakout: N-day high breakout with direction score filter.
+
+Ported from ATO_Simulator/simulator/steps/order_generation_step/process_step.py.
+This is the original ATO_Simulator strategy.
+
+Entry (ALL conditions on the signal day):
+  1. close > N-day moving average (trend confirmation)
+  2. close >= N-day rolling high (breakout)
+  3. close > open (bullish candle)
+  4. direction_score > threshold (market breadth: fraction of stocks above their MA)
+  5. Scanner pass (liquidity)
+
+Exit:
+  Trailing stop-loss from max price since entry, at next-day open (MOC).
+  Optional min_hold_days before TSL activates.
+  Price gap >20% triggers forced exit at 80% of last close.
+"""
+
+import time
+
+import polars as pl
+
+from engine.config_loader import (
+    get_scanner_config_iterator,
+    get_entry_config_iterator,
+    get_exit_config_iterator,
+)
+from engine.signals.base import (
+    register_strategy,
+    add_next_day_values,
+    run_scanner,
+    finalize_orders,
+)
+
+SECONDS_IN_ONE_DAY = 86400
+PRICE_DROP_THRESHOLD = 20.0  # % — forced exit on gap
+
+
+class EodBreakoutSignalGenerator:
+    """N-day high breakout with market breadth filter and TSL exit."""
+
+    def generate_orders(self, context, df_tick_data):
+        print("\n--- EOD Breakout Signal Generation ---")
+        t0 = time.time()
+
+        start_epoch = context.get("start_epoch", context["static_config"]["start_epoch"])
+
+        # Phase 1: Scanner (shared per-day liquidity filter)
+        shortlist_tracker, df_trimmed = run_scanner(context, df_tick_data)
+
+        # Phase 2: Compute indicators on full data range
+        df_ind = df_tick_data.clone()
+        df_ind = add_next_day_values(df_ind)
+        df_ind = df_ind.sort(["instrument", "date_epoch"])
+
+        # Phase 3: Generate orders per entry/exit config
+        t1 = time.time()
+        all_order_rows = []
+
+        for entry_config in get_entry_config_iterator(context):
+            n_day_ma_window = entry_config["n_day_ma"]
+            n_day_high_window = entry_config["n_day_high"]
+            ds_config = entry_config["direction_score"]
+            ds_n_day_ma = ds_config["n_day_ma"]
+            ds_threshold = ds_config["score"]
+
+            df_signals = df_ind.clone()
+
+            # N-day moving average of close
+            df_signals = df_signals.with_columns(
+                pl.col("close")
+                .rolling_mean(window_size=n_day_ma_window, min_samples=1)
+                .over("instrument")
+                .alias("n_day_ma")
+            )
+
+            # N-day rolling high of close
+            df_signals = df_signals.with_columns(
+                pl.col("close")
+                .rolling_max(window_size=n_day_high_window, min_samples=1)
+                .over("instrument")
+                .alias("n_day_high")
+            )
+
+            # Direction score: fraction of instruments above their N-day MA per day
+            df_signals = df_signals.with_columns(
+                pl.col("close")
+                .rolling_mean(window_size=ds_n_day_ma, min_samples=1)
+                .over("instrument")
+                .alias("ds_ma")
+            )
+            df_signals = df_signals.with_columns(
+                pl.when(pl.col("close") > pl.col("ds_ma"))
+                .then(1.0)
+                .otherwise(0.0)
+                .alias("above_ma")
+            )
+            # Aggregate per date_epoch: mean of above_ma across all instruments
+            direction_scores = (
+                df_signals.group_by("date_epoch")
+                .agg(pl.col("above_ma").mean().alias("direction_score"))
+            )
+            df_signals = df_signals.join(direction_scores, on="date_epoch", how="left")
+
+            # Trim to sim range, merge scanner IDs
+            df_signals = df_signals.filter(pl.col("date_epoch") >= start_epoch)
+            df_signals = df_signals.with_columns(
+                (pl.col("instrument").cast(pl.Utf8) + pl.lit(":")
+                 + pl.col("date_epoch").cast(pl.Utf8)).alias("uid")
+            )
+            scanner_ids_df = df_trimmed.select(
+                ["uid", "scanner_config_ids"]
+            ).unique(subset=["uid"])
+            df_signals = df_signals.join(scanner_ids_df, on="uid", how="left")
+
+            # Entry filter: breakout + bullish candle + direction score + scanner
+            entry_filter = (
+                (pl.col("close") > pl.col("n_day_ma"))
+                & (pl.col("close") >= pl.col("n_day_high"))
+                & (pl.col("close") > pl.col("open"))
+                & (pl.col("scanner_config_ids").is_not_null())
+                & (pl.col("direction_score") > ds_threshold)
+                & (pl.col("next_epoch").is_not_null())
+                & (pl.col("next_open").is_not_null())
+            )
+
+            entry_rows = (
+                df_signals.filter(entry_filter)
+                .select([
+                    "instrument", "date_epoch", "next_epoch", "next_open",
+                    "next_volume", "scanner_config_ids",
+                ])
+                .to_dicts()
+            )
+
+            print(f"  Entry candidates: {len(entry_rows)} "
+                  f"(n_day_high={n_day_high_window}, n_day_ma={n_day_ma_window}, "
+                  f"ds_threshold={ds_threshold})")
+
+            # Build per-instrument exit data for walk-forward
+            exit_data = {}
+            for (inst_name,), group in df_signals.group_by("instrument"):
+                g = group.sort("date_epoch")
+                exit_data[inst_name] = {
+                    "epochs": g["date_epoch"].to_list(),
+                    "closes": g["close"].to_list(),
+                    "opens": g["open"].to_list(),
+                    "next_opens": g["next_open"].to_list(),
+                    "next_epochs": g["next_epoch"].to_list(),
+                    "next_volumes": g["next_volume"].to_list(),
+                }
+
+            # Walk forward for each exit config
+            for exit_config in get_exit_config_iterator(context):
+                tsl_pct = exit_config["trailing_stop_loss"]
+                min_hold_days = exit_config.get("min_hold_time_days", 0)
+                orders_this_config = 0
+
+                for entry in entry_rows:
+                    inst = entry["instrument"]
+                    if inst not in exit_data:
+                        continue
+
+                    ed = exit_data[inst]
+                    entry_epoch = entry["next_epoch"]
+                    entry_price = entry["next_open"]
+
+                    if entry_price is None or entry_price <= 0:
+                        continue
+
+                    try:
+                        start_idx = ed["epochs"].index(entry_epoch)
+                    except ValueError:
+                        continue
+
+                    # Walk forward: TSL exit matching ATO_Simulator logic
+                    exit_epoch, exit_price = _walk_forward_tsl(
+                        ed["epochs"], ed["closes"], ed["opens"],
+                        ed["next_opens"], ed["next_epochs"],
+                        start_idx, entry_epoch,
+                        tsl_pct, min_hold_days,
+                    )
+
+                    if exit_epoch is None or exit_price is None:
+                        continue
+
+                    all_order_rows.append({
+                        "instrument": inst,
+                        "entry_epoch": entry_epoch,
+                        "exit_epoch": exit_epoch,
+                        "entry_price": entry_price,
+                        "exit_price": exit_price,
+                        "entry_volume": entry["next_volume"] or 0,
+                        "exit_volume": 0,
+                        "scanner_config_ids": entry["scanner_config_ids"],
+                        "entry_config_ids": str(entry_config["id"]),
+                        "exit_config_ids": str(exit_config["id"]),
+                    })
+                    orders_this_config += 1
+
+                print(f"    Exit TSL={tsl_pct}% min_hold={min_hold_days}d: "
+                      f"{orders_this_config} orders")
+
+        elapsed = round(time.time() - t1, 2)
+        return finalize_orders(all_order_rows, elapsed)
+
+
+def _walk_forward_tsl(epochs, closes, opens, next_opens, next_epochs,
+                      start_idx, entry_epoch, tsl_pct, min_hold_days):
+    """Walk forward from entry to find TSL exit, matching ATO_Simulator logic.
+
+    TSL: exit at next-day open when drawdown from max price > tsl_pct.
+    Price gap >20%: forced exit at 80% of last close.
+    Last bar: exit at close.
+
+    Returns (exit_epoch, exit_price) or (None, None).
+    """
+    max_price = closes[start_idx] if closes[start_idx] is not None else 0
+    last_close = max_price
+    last_epoch = epochs[-1]
+
+    for j in range(start_idx, len(epochs)):
+        c = closes[j]
+        if c is None:
+            continue
+
+        # Price gap detection (>20% move from last close)
+        if last_close > 0:
+            diff_pct = abs(c - last_close) / last_close * 100
+            if diff_pct > PRICE_DROP_THRESHOLD:
+                return epochs[j], last_close * 0.8
+
+        max_price = max(max_price, c)
+        hold_days = (epochs[j] - entry_epoch) / SECONDS_IN_ONE_DAY
+
+        # Last bar: exit at close
+        if epochs[j] == last_epoch:
+            return epochs[j], c
+
+        # Min hold time check
+        if hold_days < min_hold_days:
+            last_close = c
+            continue
+
+        # TSL check
+        if max_price > 0:
+            drawdown_pct = (max_price - c) / max_price * 100
+            if drawdown_pct > tsl_pct:
+                # Exit at next-day open
+                if j + 1 < len(epochs):
+                    next_open = next_opens[j]
+                    next_ep = next_epochs[j]
+                    if next_open is not None and next_open > 0 and next_ep is not None:
+                        return next_ep, next_open
+                return epochs[j], c
+
+        last_close = c
+
+    # No exit trigger - exit at last bar close
+    if len(epochs) > start_idx:
+        return epochs[-1], closes[-1]
+    return None, None
+
+
+register_strategy("eod_breakout", EodBreakoutSignalGenerator)

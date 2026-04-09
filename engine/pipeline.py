@@ -55,6 +55,7 @@ import engine.signals.earnings_dip  # noqa: F401
 import engine.signals.quality_dip_tiered  # noqa: F401
 import engine.signals.enhanced_breakout  # noqa: F401
 import engine.signals.ml_supertrend  # noqa: F401
+import engine.signals.eod_breakout  # noqa: F401
 from engine.signals.base import get_signal_generator, sanitize_orders
 
 

@@ -13,6 +13,117 @@ from engine.constants import SECONDS_IN_ONE_DAY
 from engine.charges import calculate_charges
 
 
+def _process_exits(orders, current_positions, current_positions_count, margin_available, trade_log):
+    """Process all exit orders for a given epoch. Returns updated state."""
+    for exit_order in orders["exits"]:
+        order_id = f"{exit_order['instrument']}_{exit_order['entry_epoch']}_{exit_order['exit_epoch']}"
+        if (
+            exit_order["instrument"] in current_positions
+            and order_id in current_positions[exit_order["instrument"]]
+        ):
+            position = current_positions[exit_order["instrument"]][order_id]
+            exchange = exit_order["instrument"].split(":")[0]
+            current_positions_count -= 1
+            sell_charges = calculate_charges(
+                exchange,
+                position["quantity"] * position["exit_price"],
+                segment="EQUITY",
+                trade_type="DELIVERY",
+                which_side="SELL_SIDE",
+            )
+            sell_slippage = position["quantity"] * position["exit_price"] * 0.0005
+            margin_available += position["quantity"] * position["exit_price"] - sell_charges - sell_slippage
+
+            trade_log.append({
+                "instrument": position["instrument"],
+                "entry_epoch": position["entry_epoch"],
+                "exit_epoch": position["exit_epoch"],
+                "entry_price": position["entry_price"],
+                "exit_price": position["exit_price"],
+                "quantity": position["quantity"],
+                "entry_charges": position.get("entry_charges", 0),
+                "sell_charges": sell_charges,
+                "slippage": position.get("entry_slippage", 0) + sell_slippage,
+            })
+
+            del current_positions[exit_order["instrument"]][order_id]
+            if len(current_positions[exit_order["instrument"]]) == 0:
+                del current_positions[exit_order["instrument"]]
+
+    return current_positions_count, margin_available
+
+
+def _process_entries(orders, current_positions, current_positions_count, margin_available,
+                     order_value, current_account_value, max_positions, max_positions_per_instrument,
+                     sim_config, epoch_wise_instrument_stats, simulation_date_epoch,
+                     config_order_ids, date_orders):
+    """Process all entry orders for a given epoch. Returns updated state."""
+    for entry_order in orders["entries"]:
+        if current_positions_count >= max_positions:
+            break
+
+        instrument_open_position_count = 0
+        if entry_order["instrument"] in current_positions:
+            instrument_open_position_count = len(current_positions[entry_order["instrument"]])
+
+        if instrument_open_position_count >= max_positions_per_instrument:
+            continue
+
+        _order_value = order_value
+        if "max_order_value" in sim_config:
+            max_order_config = sim_config["max_order_value"]
+            if max_order_config["type"] == "fixed":
+                _order_value = min(_order_value, max_order_config["value"])
+            elif max_order_config["type"] == "percentage_of_account_value":
+                _order_value = min(_order_value, current_account_value * max_order_config["value"] / 100)
+            elif max_order_config["type"] == "percentage_of_available_margin":
+                _order_value = min(_order_value, margin_available * max_order_config["value"] / 100)
+            elif max_order_config["type"] == "percentage_of_instrument_avg_txn":
+                avg_txn = (
+                    epoch_wise_instrument_stats
+                    .get(simulation_date_epoch, {})
+                    .get(entry_order["instrument"], {})
+                    .get("avg_txn")
+                )
+                if avg_txn is not None:
+                    _order_value = min(_order_value, avg_txn * max_order_config["value"] / 100)
+
+        order_quantity = int(_order_value / entry_order["entry_price"])
+        exchange = entry_order["instrument"].split(":")[0]
+        charges = calculate_charges(
+            exchange,
+            order_quantity * entry_order["entry_price"],
+            segment="EQUITY",
+            trade_type="DELIVERY",
+            which_side="BUY_SIDE",
+        )
+
+        slippage = order_quantity * entry_order["entry_price"] * 0.0005
+        required_margin_for_entry = order_quantity * entry_order["entry_price"] + charges + slippage
+
+        if margin_available >= required_margin_for_entry and order_quantity > 0:
+            current_positions_count += 1
+            margin_available -= required_margin_for_entry
+            order_id = f"{entry_order['instrument']}_{entry_order['entry_epoch']}_{entry_order['exit_epoch']}"
+            this_order = {
+                "instrument": entry_order["instrument"],
+                "entry_epoch": entry_order["entry_epoch"],
+                "exit_epoch": entry_order["exit_epoch"],
+                "entry_price": entry_order["entry_price"],
+                "exit_price": entry_order["exit_price"],
+                "quantity": order_quantity,
+                "last_close_price": entry_order["entry_price"],
+                "entry_charges": charges,
+                "entry_slippage": slippage,
+            }
+
+            current_positions.setdefault(entry_order["instrument"], {})[order_id] = this_order
+            config_order_ids.append(order_id)
+            date_orders[entry_order["exit_epoch"]]["exits"].append(this_order)
+
+    return current_positions_count, margin_available
+
+
 def process(context, df_orders, epoch_wise_instrument_stats, current_snapshot, sim_config, config_id):
     """Run the simulation state machine for a single config combination.
 
@@ -30,6 +141,7 @@ def process(context, df_orders, epoch_wise_instrument_stats, current_snapshot, s
     pay_out_config = sim_config.get("pay_out", {})
     max_positions = sim_config["max_positions"]
     max_positions_per_instrument = sim_config["max_positions_per_instrument"]
+    exit_before_entry = sim_config.get("exit_before_entry", False)
 
     if not current_snapshot:
         current_snapshot = {
@@ -115,105 +227,35 @@ def process(context, df_orders, epoch_wise_instrument_stats, current_snapshot, s
             order_value *= sim_config["order_value_multiplier"]
 
         if orders := date_orders.get(simulation_date_epoch):
-            # Process entries
-            for entry_order in orders["entries"]:
-                if current_positions_count >= max_positions:
-                    break
+            if exit_before_entry:
+                # Exits first: frees capital + position slots before entries
+                current_positions_count, margin_available = _process_exits(
+                    orders, current_positions, current_positions_count, margin_available, trade_log)
 
-                instrument_open_position_count = 0
-                if entry_order["instrument"] in current_positions:
-                    instrument_open_position_count = len(current_positions[entry_order["instrument"]])
-
-                if instrument_open_position_count >= max_positions_per_instrument:
-                    continue
-
-                _order_value = order_value
-                if "max_order_value" in sim_config:
-                    max_order_config = sim_config["max_order_value"]
-                    if max_order_config["type"] == "fixed":
-                        _order_value = min(_order_value, max_order_config["value"])
-                    elif max_order_config["type"] == "percentage_of_account_value":
-                        _order_value = min(_order_value, current_account_value * max_order_config["value"] / 100)
-                    elif max_order_config["type"] == "percentage_of_available_margin":
-                        _order_value = min(_order_value, margin_available * max_order_config["value"] / 100)
-                    elif max_order_config["type"] == "percentage_of_instrument_avg_txn":
-                        avg_txn = (
-                            epoch_wise_instrument_stats
-                            .get(simulation_date_epoch, {})
-                            .get(entry_order["instrument"], {})
-                            .get("avg_txn")
-                        )
-                        if avg_txn is not None:
-                            _order_value = min(_order_value, avg_txn * max_order_config["value"] / 100)
-
-                order_quantity = int(_order_value / entry_order["entry_price"])
-                exchange = entry_order["instrument"].split(":")[0]
-                charges = calculate_charges(
-                    exchange,
-                    order_quantity * entry_order["entry_price"],
-                    segment="EQUITY",
-                    trade_type="DELIVERY",
-                    which_side="BUY_SIDE",
+                # Recompute order value with freed capital
+                current_position_value = sum(
+                    pos["quantity"] * pos["last_close_price"]
+                    for positions_dict in current_positions.values()
+                    for pos in positions_dict.values()
                 )
+                current_account_value = margin_available + current_position_value
+                order_value = current_account_value / max_positions
 
-                slippage = order_quantity * entry_order["entry_price"] * 0.0005
-                required_margin_for_entry = order_quantity * entry_order["entry_price"] + charges + slippage
+                current_positions_count, margin_available = _process_entries(
+                    orders, current_positions, current_positions_count, margin_available,
+                    order_value, current_account_value, max_positions, max_positions_per_instrument,
+                    sim_config, epoch_wise_instrument_stats, simulation_date_epoch,
+                    config_order_ids, date_orders)
+            else:
+                # Default: entries first, then exits (matches ATO_Simulator)
+                current_positions_count, margin_available = _process_entries(
+                    orders, current_positions, current_positions_count, margin_available,
+                    order_value, current_account_value, max_positions, max_positions_per_instrument,
+                    sim_config, epoch_wise_instrument_stats, simulation_date_epoch,
+                    config_order_ids, date_orders)
 
-                if margin_available >= required_margin_for_entry and order_quantity > 0:
-                    current_positions_count += 1
-                    margin_available -= required_margin_for_entry
-                    order_id = f"{entry_order['instrument']}_{entry_order['entry_epoch']}_{entry_order['exit_epoch']}"
-                    this_order = {
-                        "instrument": entry_order["instrument"],
-                        "entry_epoch": entry_order["entry_epoch"],
-                        "exit_epoch": entry_order["exit_epoch"],
-                        "entry_price": entry_order["entry_price"],
-                        "exit_price": entry_order["exit_price"],
-                        "quantity": order_quantity,
-                        "last_close_price": entry_order["entry_price"],
-                        "entry_charges": charges,
-                        "entry_slippage": slippage,
-                    }
-
-                    current_positions.setdefault(entry_order["instrument"], {})[order_id] = this_order
-                    config_order_ids.append(order_id)
-                    date_orders[entry_order["exit_epoch"]]["exits"].append(this_order)
-
-            # Process exits
-            for exit_order in orders["exits"]:
-                order_id = f"{exit_order['instrument']}_{exit_order['entry_epoch']}_{exit_order['exit_epoch']}"
-                if (
-                    exit_order["instrument"] in current_positions
-                    and order_id in current_positions[exit_order["instrument"]]
-                ):
-                    position = current_positions[exit_order["instrument"]][order_id]
-                    exchange = exit_order["instrument"].split(":")[0]
-                    current_positions_count -= 1
-                    sell_charges = calculate_charges(
-                        exchange,
-                        position["quantity"] * position["exit_price"],
-                        segment="EQUITY",
-                        trade_type="DELIVERY",
-                        which_side="SELL_SIDE",
-                    )
-                    sell_slippage = position["quantity"] * position["exit_price"] * 0.0005
-                    margin_available += position["quantity"] * position["exit_price"] - sell_charges - sell_slippage
-
-                    trade_log.append({
-                        "instrument": position["instrument"],
-                        "entry_epoch": position["entry_epoch"],
-                        "exit_epoch": position["exit_epoch"],
-                        "entry_price": position["entry_price"],
-                        "exit_price": position["exit_price"],
-                        "quantity": position["quantity"],
-                        "entry_charges": position.get("entry_charges", 0),
-                        "sell_charges": sell_charges,
-                        "slippage": position.get("entry_slippage", 0) + sell_slippage,
-                    })
-
-                    del current_positions[exit_order["instrument"]][order_id]
-                    if len(current_positions[exit_order["instrument"]]) == 0:
-                        del current_positions[exit_order["instrument"]]
+                current_positions_count, margin_available = _process_exits(
+                    orders, current_positions, current_positions_count, margin_available, trade_log)
 
         # MTM update
         if simulation_date_epoch in mtm_epochs:

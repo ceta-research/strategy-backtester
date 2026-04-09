@@ -25,154 +25,12 @@ from engine.config_loader import (
     get_entry_config_iterator,
     get_exit_config_iterator,
 )
-from engine.signals.base import register_strategy, add_next_day_values, run_scanner, walk_forward_exit, finalize_orders, build_regime_filter
-
-# Re-export for backward compat (other signal generators import this)
-_build_regime_filter = build_regime_filter
+from engine.signals.base import (
+    register_strategy, add_next_day_values, run_scanner, walk_forward_exit, finalize_orders,
+    build_regime_filter, fetch_fundamentals, passes_fundamental_filter,
+)
 
 TRADING_DAYS_PER_YEAR = 252
-FILING_LAG_DAYS = 45
-
-
-def _fetch_fundamentals(exchanges):
-    """Fetch FY fundamental ratios from fmp.financial_ratios.
-
-    Returns dict[bare_symbol, list[{epoch, roe, de, pe}]] sorted by epoch.
-    """
-    from lib.cr_client import CetaResearch
-
-    cr = CetaResearch()
-
-    suffix_filters = []
-    suffixes = []
-    for exchange in exchanges:
-        if exchange == "NSE":
-            suffix_filters.append("symbol LIKE '%.NS'")
-            suffixes.append(".NS")
-        elif exchange == "US":
-            suffix_filters.append(
-                "symbol NOT LIKE '%.%' AND symbol NOT LIKE '%-%'"
-            )
-
-    if not suffix_filters:
-        return {}
-
-    where_clause = " OR ".join(f"({f})" for f in suffix_filters)
-    sql = f"""
-    SELECT symbol, CAST(dateEpoch AS BIGINT) AS dateEpoch,
-           netIncomePerShare, shareholdersEquityPerShare,
-           debtToEquityRatio, priceToEarningsRatio
-    FROM fmp.financial_ratios
-    WHERE ({where_clause})
-      AND period = 'FY'
-      AND shareholdersEquityPerShare IS NOT NULL
-      AND shareholdersEquityPerShare > 0
-    ORDER BY symbol, dateEpoch
-    """
-
-    print("  Fetching fundamental ratios (FY)...")
-    try:
-        results = cr.query(
-            sql, timeout=600, limit=10000000, verbose=False,
-            memory_mb=16384, threads=6,
-        )
-    except Exception as e:
-        print(f"  WARNING: Could not fetch fundamentals: {e}")
-        return {}
-
-    if not results:
-        print("  WARNING: No fundamental data fetched")
-        return {}
-
-    fundamentals = {}
-    for r in results:
-        sym = r["symbol"]
-        for suffix in suffixes:
-            if sym.endswith(suffix):
-                sym = sym[: -len(suffix)]
-                break
-
-        epoch = int(r.get("dateEpoch") or 0)
-        if epoch <= 0:
-            continue
-
-        ni = r.get("netIncomePerShare")
-        eq = r.get("shareholdersEquityPerShare")
-        roe = (
-            (float(ni) / float(eq) * 100)
-            if (ni is not None and eq and float(eq) > 0)
-            else None
-        )
-        de = r.get("debtToEquityRatio")
-        pe = r.get("priceToEarningsRatio")
-
-        if sym not in fundamentals:
-            fundamentals[sym] = []
-        fundamentals[sym].append({
-            "epoch": epoch,
-            "roe": roe,
-            "de": float(de) if de is not None else None,
-            "pe": float(pe) if pe is not None else None,
-        })
-
-    for sym in fundamentals:
-        fundamentals[sym].sort(key=lambda x: x["epoch"])
-
-    print(
-        f"  Loaded fundamentals for {len(fundamentals)} symbols, "
-        f"{sum(len(v) for v in fundamentals.values())} data points"
-    )
-    return fundamentals
-
-
-def _get_fundamental_at(fundamentals, symbol, epoch, lag_days=FILING_LAG_DAYS):
-    """Get latest fundamental data available before lag-adjusted epoch."""
-    records = fundamentals.get(symbol)
-    if not records:
-        return None
-    lag_epoch = epoch - lag_days * 86400
-    best = None
-    for rec in records:
-        if rec["epoch"] <= lag_epoch:
-            best = rec
-        else:
-            break
-    return best
-
-
-
-
-def _passes_fundamental_filter(
-    fundamentals, symbol, epoch, roe_threshold, pe_threshold, de_threshold,
-    missing_mode,
-):
-    """Check if a stock passes fundamental filters at a given epoch.
-
-    Returns True if passes, False if filtered out.
-    """
-    if roe_threshold <= 0 and pe_threshold <= 0 and de_threshold <= 0:
-        return True
-
-    fund = _get_fundamental_at(fundamentals, symbol, epoch)
-    if fund is None:
-        return missing_mode != "skip"
-
-    if roe_threshold > 0:
-        roe = fund.get("roe")
-        if roe is not None and roe < roe_threshold:
-            return False
-
-    if de_threshold > 0:
-        de = fund.get("de")
-        if de is not None and de > de_threshold:
-            return False
-
-    if pe_threshold > 0:
-        pe = fund.get("pe")
-        if pe is not None and (pe <= 0 or pe > pe_threshold):
-            return False
-
-    return True
 
 
 class MomentumDipQualitySignalGenerator:
@@ -216,7 +74,7 @@ class MomentumDipQualitySignalGenerator:
         # Fetch fundamentals if any config needs them
         fundamentals = {}
         if needs_fundamentals:
-            fundamentals = _fetch_fundamentals(list(exchanges))
+            fundamentals = fetch_fundamentals(list(exchanges))
 
         # Pre-build regime filters
         regime_cache = {}
@@ -444,10 +302,12 @@ class MomentumDipQualitySignalGenerator:
                     "opens": g["open"].to_list(),
                 }
 
-            # Entry filter: quality + dip + period universe + optional regime
+            # Entry filter: dip + period universe + optional regime
+            # NOTE: quality is enforced via combined_universe membership
+            # (rescreened every N days), NOT per-row. This matches standalone
+            # behavior: screen periodically, trust the snapshot between screens.
             entry_filter = (
                 (pl.col("dip_pct") >= dip_threshold)
-                & (pl.col("is_quality") == True)  # noqa: E712
                 & (pl.col("instrument").is_in(list(period_universe_set)))
                 & (pl.col("next_epoch").is_not_null())
                 & (pl.col("next_open").is_not_null())
@@ -497,7 +357,7 @@ class MomentumDipQualitySignalGenerator:
                         or de_threshold > 0
                     ):
                         symbol = inst.split(":")[1]
-                        if not _passes_fundamental_filter(
+                        if not passes_fundamental_filter(
                             fundamentals,
                             symbol,
                             epoch,
@@ -518,7 +378,7 @@ class MomentumDipQualitySignalGenerator:
 
                     if entry_price is None or entry_price <= 0:
                         continue
-                    if peak_price is None or peak_price <= entry_price:
+                    if peak_price is None:
                         continue
 
                     try:
@@ -530,6 +390,7 @@ class MomentumDipQualitySignalGenerator:
                         ed["epochs"], ed["closes"], start_idx,
                         entry_epoch, entry_price, peak_price,
                         tsl_pct, max_hold_days,
+                        opens=ed["opens"],
                     )
 
                     if exit_epoch is None or exit_price is None:

@@ -23,11 +23,9 @@ from engine.config_loader import (
     get_entry_config_iterator,
     get_exit_config_iterator,
 )
-from engine.signals.base import register_strategy, add_next_day_values, run_scanner, walk_forward_exit, finalize_orders
-from engine.signals.momentum_dip_quality import (
-    _fetch_fundamentals,
-    _passes_fundamental_filter,
-    _build_regime_filter,
+from engine.signals.base import (
+    register_strategy, add_next_day_values, run_scanner, walk_forward_exit, finalize_orders,
+    fetch_fundamentals, passes_fundamental_filter, build_regime_filter,
 )
 
 TRADING_DAYS_PER_YEAR = 252
@@ -119,13 +117,13 @@ class ForcedSellingDipSignalGenerator:
 
         fundamentals = {}
         if needs_fundamentals:
-            fundamentals = _fetch_fundamentals(list(exchanges))
+            fundamentals = fetch_fundamentals(list(exchanges))
 
         sector_map = _fetch_sector_map(list(exchanges))
 
         regime_cache = {}
         for ri, rp in regime_configs:
-            regime_cache[(ri, rp)] = _build_regime_filter(df_tick_data, ri, rp)
+            regime_cache[(ri, rp)] = build_regime_filter(df_tick_data, ri, rp)
 
         # ── Phase 1: Scanner (per-day liquidity filter) ──
         shortlist_tracker, df_trimmed = run_scanner(context, df_tick_data)
@@ -389,7 +387,7 @@ class ForcedSellingDipSignalGenerator:
                         or pe_threshold > 0
                         or de_threshold > 0
                     ):
-                        if not _passes_fundamental_filter(
+                        if not passes_fundamental_filter(
                             fundamentals,
                             symbol,
                             epoch,
