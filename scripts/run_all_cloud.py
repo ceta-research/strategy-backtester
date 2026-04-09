@@ -16,20 +16,12 @@ import os
 import sys
 import time
 from datetime import datetime
-from glob import glob
-
-import yaml
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 from lib.cr_client import CetaResearch
-
-PROJECT_NAME = "sb-eod-sweep-v2"
-POLL_INTERVAL = 60  # 60s to conserve API calls
-TERMINAL_STATUSES = {"completed", "failed", "execution_timed_out",
-                     "wait_timed_out", "cancelled"}
-DEPENDENCIES = ["requests", "pyyaml", "polars==1.37.1", "pyarrow"]
+from lib.cloud_orchestrator import CloudOrchestrator
 
 # One representative config per strategy
 STRATEGY_CONFIGS = [
@@ -72,160 +64,36 @@ STRATEGY_CONFIGS = [
     ("factor_composite", "strategies/factor_composite/config.yaml", 4),
 ]
 
-ENGINE_FILES = [
-    "engine/__init__.py", "engine/pipeline.py", "engine/config_loader.py",
-    "engine/config_sweep.py", "engine/simulator.py", "engine/ranking.py",
-    "engine/scanner.py", "engine/order_generator.py", "engine/utils.py",
-    "engine/charges.py", "engine/constants.py", "engine/data_provider.py",
-]
-LIB_FILES = [
-    "lib/__init__.py", "lib/cr_client.py", "lib/metrics.py", "lib/backtest_result.py",
-]
 
-
-def read_file(rel_path):
-    with open(os.path.join(ROOT, rel_path)) as f:
-        return f.read()
-
-
-def _upsert(cr, project_id, path, content):
-    """Upload file with rate-limit retry (long waits)."""
-    for attempt in range(10):
-        try:
-            cr.upsert_file(project_id, path, content)
-            return
-        except Exception as e:
-            err_str = str(e)
-            if "429" in err_str or "RATE_LIMIT" in err_str or "Connection" in err_str:
-                wait = min(300, 60 * (attempt + 1))
-                print(f"    Rate limited on {path}, waiting {wait}s...")
-                time.sleep(wait)
-            else:
-                raise
-    raise RuntimeError(f"Failed to upload {path} after 10 retries")
-
-
-def setup_project(cr, configs, skip_code):
-    """Create/find project and upload ALL files (code + all configs) at once.
-
-    This minimizes per-strategy API calls to just 1 wrapper upload + 1 run submit.
-    """
-    # Find or create project
-    projects = cr.list_projects(limit=100)
-    project = None
-    for p in projects.get("projects", []):
-        if p["name"] == PROJECT_NAME:
-            cr.update_project(p["id"], dependencies=DEPENDENCIES)
-            project = p
-            break
-    if not project:
-        project = cr.create_project(
-            name=PROJECT_NAME, language="python",
-            entrypoint="cloud_main_eod.py", dependencies=DEPENDENCIES,
-            description="EOD strategy sweep (all strategies)",
-        )
-    project_id = project["id"]
-    print(f"  Project: {project_id}")
-
-    if skip_code:
-        print("  Skipping code upload (--skip-code-upload)")
-    else:
-        # Upload engine code + signals
-        signal_files = [os.path.relpath(f, ROOT) for f in sorted(glob(os.path.join(ROOT, "engine", "signals", "*.py")))]
-        all_code = ENGINE_FILES + signal_files + LIB_FILES
-
-        uploaded = 0
-        for rel_path in all_code:
-            full_path = os.path.join(ROOT, rel_path)
-            if not os.path.exists(full_path):
-                continue
-            _upsert(cr, project_id, rel_path, read_file(rel_path))
-            uploaded += 1
-            if uploaded % 10 == 0:
-                print(f"    Uploaded {uploaded} code files...")
-
-        # Upload cloud entry point
-        _upsert(cr, project_id, "cloud_main_eod.py", read_file("scripts/cloud_main_eod.py"))
-        uploaded += 1
-        print(f"  Code: {uploaded} files uploaded")
-
-    # Upload ALL strategy configs with unique names
-    print(f"  Uploading {len(configs)} strategy configs...")
-    for name, config_path, _ in configs:
-        full = os.path.join(ROOT, config_path)
-        if os.path.exists(full):
-            _upsert(cr, project_id, f"config_{name}.yaml", open(full).read())
-    print(f"  Configs: {len(configs)} uploaded")
-
-    return project_id
-
-
-def run_strategy(cr, project_id, strategy_name, cpu, ram, timeout):
+def run_strategy(orch, project_id, strategy_name, cpu, ram, timeout):
     """Upload wrapper pointing to pre-uploaded config, run, poll, download."""
-    # Upload tiny wrapper (1 API call)
-    api_key = cr.api_key
-    wrapper = f"""import sys, os
-os.environ["CONFIG_FILE"] = "config_{strategy_name}.yaml"
-os.environ["CR_API_KEY"] = "{api_key}"
-sys.path.insert(0, os.getcwd())
-
-# Monkey-patch polars to_list() to work around pyo3 panic in cloud env
-import polars as pl
-def _safe_to_list(self):
-    return self.to_arrow().to_pylist()
-pl.Series.to_list = _safe_to_list
-
-exec(open("cloud_main_eod.py").read())
-"""
-    _upsert(cr, project_id, "_run_1.py", wrapper)
-
-    # Submit run (1 API call)
-    print(f"  Submitting (cpu={cpu}, ram={ram}MB, timeout={timeout}s)...")
-    result = cr.run_project(
-        project_id, entry_path="_run_1.py",
-        cpu_count=cpu, ram_mb=ram, timeout_seconds=timeout, poll=False,
+    wrapper = orch.make_wrapper(
+        "cloud_main_eod.py",
+        config_file=f"config_{strategy_name}.yaml",
+        polars_workaround=True,
     )
-    run_id = result.get("id") or result.get("taskId")
-    print(f"  Run ID: {run_id}")
+    orch.upsert_with_retry(project_id, "_run_1.py", wrapper)
 
-    # Poll until complete (~3-5 API calls at 60s interval for a 3-5 min run)
-    start_time = time.time()
-    status = "unknown"
-    status_result = {}
-    while True:
-        time.sleep(POLL_INTERVAL)
-        try:
-            status_result = cr.get_run(project_id, run_id)
-        except Exception as e:
-            print(f"  Poll error: {e}")
-            continue
+    print(f"  Submitting (cpu={cpu}, ram={ram}MB, timeout={timeout}s)...")
+    run_id = orch.submit_run(project_id, "_run_1.py", cpu=cpu, ram_mb=ram, timeout=timeout)
 
-        status = status_result.get("status", "unknown")
-        stdout = status_result.get("stdout", "")
-        lines = stdout.strip().split("\n") if stdout else []
-        last_line = lines[-1] if lines else ""
-        elapsed = int(time.time() - start_time)
+    def progress(elapsed, status, last_line):
         print(f"  [{elapsed}s] {status} | {last_line[:120]}")
 
-        if status in TERMINAL_STATUSES:
-            break
+    result = orch.poll_run(project_id, run_id, timeout=timeout, poll_interval=60,
+                           on_progress=progress)
 
+    status = result.get("status", "unknown")
     if status != "completed":
-        stderr = status_result.get("stderr", "")
+        stderr = result.get("stderr", "")
         print(f"  FAILED ({status})")
         if stderr:
             print(f"  Stderr: {stderr[-500:]}")
         return None, status
 
-    # Download results (1 API call)
     try:
-        content = cr.get_execution_files(run_id, path="results.json")
-        data = json.loads(content)
-        if isinstance(data, dict) and data.get("type") == "sweep":
-            return data.get("all_configs", []), "completed"
-        elif isinstance(data, list):
-            return data, "completed"
-        return [], "completed"
+        results = orch.download_results(run_id)
+        return results, "completed"
     except Exception as e:
         print(f"  Download failed: {e}")
         return None, "download_failed"
@@ -312,9 +180,35 @@ def main():
     print(f"{'='*80}\n")
 
     cr = CetaResearch()
+    orch = CloudOrchestrator(
+        cr, project_name="sb-eod-sweep-v2",
+        dependencies=["requests", "pyyaml", "polars==1.37.1", "pyarrow"],
+    )
 
     print("Setting up cloud project...")
-    project_id = setup_project(cr, configs, args.skip_code_upload)
+    project = orch.find_or_create_project(
+        entrypoint="cloud_main_eod.py",
+        description="EOD strategy sweep (all strategies)",
+    )
+    project_id = project["id"]
+
+    if not args.skip_code_upload:
+        file_paths = orch.discover_files("eod")
+        orch.sync_files(project_id, file_paths, force=True)
+
+        # Upload cloud entry point
+        orch.upsert_with_retry(
+            project_id, "cloud_main_eod.py",
+            open(os.path.join(ROOT, "scripts/cloud_main_eod.py")).read(),
+        )
+
+    # Upload ALL strategy configs with unique names
+    print(f"  Uploading {len(configs)} strategy configs...")
+    for name, config_path, _ in configs:
+        full = os.path.join(ROOT, config_path)
+        if os.path.exists(full):
+            orch.upsert_with_retry(project_id, f"config_{name}.yaml", open(full).read())
+    print(f"  Configs: {len(configs)} uploaded")
     print()
 
     all_strategy_results = {}
@@ -328,7 +222,7 @@ def main():
 
         start = time.time()
         results, status = run_strategy(
-            cr, project_id, strategy_name,
+            orch, project_id, strategy_name,
             cpu=args.cpu, ram=args.ram, timeout=args.timeout,
         )
         elapsed = round(time.time() - start, 1)
@@ -338,7 +232,7 @@ def main():
             all_strategy_results[strategy_name] = results
 
             sorted_r = sorted(results, key=lambda r: r.get("calmar_ratio") or 0, reverse=True)
-            print(f"\n  Done: {len(results)} configs in {elapsed}s → {result_path}")
+            print(f"\n  Done: {len(results)} configs in {elapsed}s -> {result_path}")
             for r in sorted_r[:5]:
                 cagr = (r.get("cagr") or 0) * 100
                 dd = (r.get("max_drawdown") or 0) * 100

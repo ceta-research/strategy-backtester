@@ -31,5 +31,6 @@ debug_output/
 .env
 *.env.local
 
-# Remote execution config (contains project ID)
+# Remote execution config (contains project ID and file hashes)
 .remote_project.json
+.remote_hashes.json

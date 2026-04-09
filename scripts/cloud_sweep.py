@@ -23,84 +23,13 @@ import yaml
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-from lib.cr_client import CetaResearch
+from lib.cr_client import CetaResearch, TERMINAL_STATUSES
+from lib.cloud_orchestrator import CloudOrchestrator
 from engine.intraday_pipeline import SQL_KEYS, SIM_KEYS, SQL_KEYS_V2, SIM_KEYS_V2
-
-PROJECT_NAME = "sb-orb-sweep"
-
-# Files to upload (relative to strategy-backtester root)
-ENGINE_FILES = [
-    "engine/__init__.py",
-    "engine/intraday_pipeline.py",
-    "engine/intraday_sql_builder.py",
-    "engine/intraday_simulator.py",
-    "engine/intraday_simulator_v2.py",
-    "engine/charges.py",
-    "engine/constants.py",
-]
-
-LIB_FILES = [
-    "lib/__init__.py",
-    "lib/cr_client.py",
-    "lib/metrics.py",
-    "lib/backtest_result.py",
-]
-
-CODE_FILES = [
-    "scripts/cloud_main.py",
-]
-
-TERMINAL_STATUSES = {"completed", "failed", "execution_timed_out",
-                     "wait_timed_out", "cancelled"}
-
-POLL_INTERVAL = 10  # seconds
-
-
-def read_file(rel_path):
-    with open(os.path.join(ROOT, rel_path)) as f:
-        return f.read()
-
-
-def find_or_create_project(cr):
-    projects = cr.list_projects(limit=100)
-    for p in projects.get("projects", []):
-        if p["name"] == PROJECT_NAME:
-            print(f"  Found existing project: {p['id']}")
-            return p
-
-    print(f"  Creating project: {PROJECT_NAME}")
-    return cr.create_project(
-        name=PROJECT_NAME,
-        language="python",
-        entrypoint="_run_1.py",
-        dependencies=["requests", "pyyaml"],
-        description="ORB intraday parameter sweep (auto-managed by cloud_sweep.py)",
-    )
-
-
-def make_batch_wrapper(config_filename):
-    """Build per-batch entry point that sets config path.
-    CR_API_KEY is injected by Nomad Variables in container env."""
-    return f"""import sys, os
-os.environ["CONFIG_FILE"] = {config_filename!r}
-sys.path.insert(0, os.getcwd())
-exec(open("cloud_main.py").read())
-"""
-
-
-def upload_code_files(cr, project_id):
-    """Upload engine, lib, and cloud_main.py (everything except per-batch files)."""
-    all_files = ENGINE_FILES + LIB_FILES + CODE_FILES
-    for rel_path in all_files:
-        content = read_file(rel_path)
-        dest = "cloud_main.py" if rel_path == "scripts/cloud_main.py" else rel_path
-        print(f"  Uploading {dest} ({len(content)} bytes)")
-        cr.upsert_file(project_id, dest, content)
-    print(f"  Uploaded {len(all_files)} code files")
 
 
 # ------------------------------------------------------------------ #
-# Config splitting
+# Config splitting (unique to this script)
 # ------------------------------------------------------------------ #
 
 def _get_sql_keys(raw_config):
@@ -163,57 +92,35 @@ def split_config_into_batches(raw_config, batch_size):
 
 
 # ------------------------------------------------------------------ #
-# Parallel batch execution
+# Parallel batch execution (unique to this script)
 # ------------------------------------------------------------------ #
 
-def download_results(cr, run_id):
-    """Download results.json from a completed run via the file API.
-
-    Returns list of config summaries (extracted from SweepResult JSON).
-    """
-    content = cr.get_execution_files(run_id, path="results.json")
-    data = json.loads(content)
-    # SweepResult format: extract all_configs list
-    if isinstance(data, dict) and data.get("type") == "sweep":
-        return data.get("all_configs", [])
-    # Legacy flat list format (backward compat)
-    if isinstance(data, list):
-        return data
-    return []
-
-
-def submit_batch(cr, project_id, batch_config, batch_num, total,
+def submit_batch(orch, project_id, batch_config, batch_num, total,
                  timeout, cpu, ram):
     """Upload per-batch config + wrapper, submit run. Returns run_id."""
     config_name = f"config_{batch_num}.yaml"
     wrapper_name = f"_run_{batch_num}.py"
 
     config_yaml = yaml.dump(batch_config, default_flow_style=False)
-    cr.upsert_file(project_id, config_name, config_yaml)
+    orch.upsert_with_retry(project_id, config_name, config_yaml)
 
-    wrapper = make_batch_wrapper(config_name)
-    cr.upsert_file(project_id, wrapper_name, wrapper)
+    wrapper = orch.make_wrapper("cloud_main.py", config_file=config_name)
+    orch.upsert_with_retry(project_id, wrapper_name, wrapper)
 
     n_sql = count_sql_combos(batch_config)
     print(f"  Submitting batch {batch_num}/{total} ({n_sql} SQL configs, "
           f"timeout={timeout}s, cpu={cpu}, ram={ram}MB)...")
 
-    result = cr.run_project(
-        project_id,
-        entry_path=wrapper_name,
-        cpu_count=cpu,
-        ram_mb=ram,
-        timeout_seconds=timeout,
-        poll=False,
+    run_id = orch.submit_run(
+        project_id, wrapper_name,
+        cpu=cpu, ram_mb=ram, timeout=timeout, quiet=True,
     )
-
-    run_id = result.get("id") or result.get("taskId")
     print(f"  Batch {batch_num}/{total} submitted (run_id={run_id})")
     return run_id
 
 
-def run_batches(cr, project_id, batches, timeout, cpu, ram,
-                max_parallel):
+def run_batches(orch, project_id, batches, timeout, cpu, ram,
+                max_parallel, poll_interval=10):
     """Submit batches with parallelism, poll until all complete.
 
     Submits up to max_parallel batches at once. As runs complete, submits
@@ -237,7 +144,7 @@ def run_batches(cr, project_id, batches, timeout, cpu, ram,
             batch_num = next_idx + 1
             try:
                 run_id = submit_batch(
-                    cr, project_id, batches[next_idx],
+                    orch, project_id, batches[next_idx],
                     batch_num, total, timeout, cpu, ram,
                 )
                 active[run_id] = batch_num
@@ -252,16 +159,16 @@ def run_batches(cr, project_id, batches, timeout, cpu, ram,
 
         if not active:
             if next_idx < total:
-                time.sleep(POLL_INTERVAL)
+                time.sleep(poll_interval)
                 continue
             break
 
         # Poll all active runs
-        time.sleep(POLL_INTERVAL)
+        time.sleep(poll_interval)
 
         for run_id in list(active.keys()):
             try:
-                result = cr.get_run(project_id, run_id)
+                result = orch.cr.get_run(project_id, run_id)
             except Exception:
                 continue  # transient error, retry next poll
 
@@ -274,7 +181,7 @@ def run_batches(cr, project_id, batches, timeout, cpu, ram,
 
             if status == "completed":
                 try:
-                    batch_results = download_results(cr, run_id)
+                    batch_results = orch.download_results(run_id)
                     all_results.extend(batch_results)
                     completed_count += 1
                     print(f"  Batch {batch_num}/{total} complete: "
@@ -329,16 +236,31 @@ def main():
 
     # Set up cloud project
     cr = CetaResearch()
+    orch = CloudOrchestrator(
+        cr, project_name="sb-orb-sweep",
+        dependencies=["requests", "pyyaml"],
+    )
+
     print(f"\nSetting up cloud project...")
-    project = find_or_create_project(cr)
+    project = orch.find_or_create_project(
+        entrypoint="_run_1.py",
+        description="ORB intraday parameter sweep (auto-managed by cloud_sweep.py)",
+    )
     project_id = project["id"]
 
     # Upload shared code files (once)
-    upload_code_files(cr, project_id)
+    file_paths = orch.discover_files("intraday")
+    orch.sync_files(project_id, file_paths, force=True)
+
+    # Upload cloud entry point
+    orch.upsert_with_retry(
+        project_id, "cloud_main.py",
+        open(os.path.join(ROOT, "scripts/cloud_main.py")).read(),
+    )
 
     # Run batches (parallel or sequential based on --parallel)
     all_results = run_batches(
-        cr, project_id, batches,
+        orch, project_id, batches,
         timeout=args.timeout, cpu=args.cpu, ram=args.ram,
         max_parallel=args.parallel,
     )
@@ -363,16 +285,11 @@ def main():
     if all_results:
         best = all_results[0]
         print(f"Best: {best.get('config_id')}")
-        print(f"  CAGR={_pct(best.get('cagr'))} MaxDD={_pct(best.get('max_drawdown'))} "
-              f"Calmar={_fmt(best.get('calmar_ratio'))} Sharpe={_fmt(best.get('sharpe_ratio'))}")
-
-
-def _pct(v):
-    return f"{v * 100:.1f}%" if v is not None else "N/A"
-
-
-def _fmt(v):
-    return f"{v:.3f}" if v is not None else "N/A"
+        cagr = f"{best.get('cagr', 0) * 100:.1f}%" if best.get("cagr") is not None else "N/A"
+        dd = f"{best.get('max_drawdown', 0) * 100:.1f}%" if best.get("max_drawdown") is not None else "N/A"
+        calmar = f"{best.get('calmar_ratio', 0):.3f}" if best.get("calmar_ratio") is not None else "N/A"
+        sharpe = f"{best.get('sharpe_ratio', 0):.3f}" if best.get("sharpe_ratio") is not None else "N/A"
+        print(f"  CAGR={cagr} MaxDD={dd} Calmar={calmar} Sharpe={sharpe}")
 
 
 if __name__ == "__main__":
