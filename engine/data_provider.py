@@ -29,26 +29,37 @@ def _epoch_to_date_str(epoch):
 def remove_price_oscillations(df: pl.DataFrame, price_col: str = "close",
                               date_col: str = "date_epoch",
                               symbol_col: str = "instrument",
-                              spike_threshold: float = 3.0,
-                              max_passes: int = 10,
+                              spike_threshold: float = 2.0,
+                              mild_threshold: float = 1.3,
+                              min_mild_count: int = 5,
                               verbose: bool = True) -> pl.DataFrame:
     """Remove rows with oscillating price data from a Polars DataFrame.
 
     FMP EOD data contains bad rows where ALL price fields spike for 1-2 days
-    then revert (phantom holiday rows, broken split adjustments). This filter
-    detects the oscillation pattern and removes the bad rows iteratively.
+    then revert (phantom holiday rows, broken split adjustments). ~2,500 symbols
+    affected across 19 exchanges, ~137,000 bad days.
 
-    Detection uses two windows on day-over-day price ratios:
-      ±1: price spikes vs previous day, but prev ≈ next (single bad row)
-      ±2: price far from both 2-day neighbors, which agree (2 consecutive bad rows)
+    Two-tier detection (single pass — iterating creates false positives by
+    changing neighbors after each removal):
+      Tier 1 (spike_threshold, default 2.0x): Any spike+revert is flagged.
+        A 100%+ move that fully reverts in 1-2 days is always bad data.
+      Tier 2 (mild_threshold, default 1.3x): Only flagged if the symbol has
+        >= min_mild_count such oscillations. Catches persistent oscillation
+        (e.g. BSAC 30-40% flips, 70+ times) without flagging legitimate
+        earnings-day volatility.
+
+    Detection uses ±1 and ±2 neighbor windows:
+      ±1: price[N]/price[N-1] spikes AND price[N-1] ≈ price[N+1] (revert)
+      ±2: price[N] far from both price[N-2] and price[N+2], which agree
 
     Args:
         df: Polars DataFrame with price and date columns
         price_col: column to check for oscillations (default "close")
         date_col: date/epoch column for ordering (default "date_epoch")
         symbol_col: symbol grouping column (default "instrument")
-        spike_threshold: minimum ratio to flag (default 3.0)
-        max_passes: max iterative passes (default 10)
+        spike_threshold: tier 1 threshold (default 2.0 = 100% move)
+        mild_threshold: tier 2 threshold (default 1.3 = 30% move)
+        min_mild_count: minimum mild oscillations per symbol to flag (default 5)
         verbose: print summary
 
     Returns:
@@ -58,57 +69,105 @@ def remove_price_oscillations(df: pl.DataFrame, price_col: str = "close",
         return df
 
     rows_before = df.height
-    total_removed = 0
-    t = spike_threshold
-    inv_t = 1.0 / t
+    st = spike_threshold
+    inv_st = 1.0 / st
 
-    for pass_num in range(max_passes):
-        # Compute price ratios using window functions
-        df_with_neighbors = df.sort([symbol_col, date_col]).with_columns([
-            pl.col(price_col).shift(1).over(symbol_col).alias("_p1"),
-            pl.col(price_col).shift(-1).over(symbol_col).alias("_n1"),
-            pl.col(price_col).shift(2).over(symbol_col).alias("_p2"),
-            pl.col(price_col).shift(-2).over(symbol_col).alias("_n2"),
-        ])
+    # Compute neighbor prices (single pass)
+    df_nb = df.sort([symbol_col, date_col]).with_columns([
+        pl.col(price_col).shift(1).over(symbol_col).alias("_p1"),
+        pl.col(price_col).shift(-1).over(symbol_col).alias("_n1"),
+        pl.col(price_col).shift(2).over(symbol_col).alias("_p2"),
+        pl.col(price_col).shift(-2).over(symbol_col).alias("_n2"),
+    ])
 
-        # ±1 window: spike vs prev, but prev ≈ next (revert)
-        w1_bad = (
+    # ±1 window: spike vs prev, but prev ≈ next (revert)
+    w1_spike = (
+        pl.col("_p1").is_not_null() & pl.col("_n1").is_not_null()
+        & (pl.col("_p1") > 0) & (pl.col("_n1") > 0)
+        & ((pl.col(price_col) / pl.col("_p1") > st) | (pl.col(price_col) / pl.col("_p1") < inv_st))
+        & (pl.col("_n1") / pl.col("_p1") >= 0.5)
+        & (pl.col("_n1") / pl.col("_p1") <= 2.0)
+    )
+
+    # ±2 window: spike vs 2-day neighbors, which agree
+    w2_spike = (
+        pl.col("_p2").is_not_null() & pl.col("_n2").is_not_null()
+        & (pl.col("_p2") > 0) & (pl.col("_n2") > 0)
+        & ((pl.col(price_col) / pl.col("_p2") > st) | (pl.col(price_col) / pl.col("_p2") < inv_st))
+        & ((pl.col(price_col) / pl.col("_n2") > st) | (pl.col(price_col) / pl.col("_n2") < inv_st))
+        & (pl.col("_n2") / pl.col("_p2") >= 0.5)
+        & (pl.col("_n2") / pl.col("_p2") <= 2.0)
+    )
+
+    # Tier 1: definite spikes
+    tier1_mask = w1_spike | w2_spike
+    tier1_rows = df_nb.filter(tier1_mask).select([symbol_col, date_col])
+
+    # Tier 2: mild oscillations (only if symbol has enough)
+    tier2_rows = pl.DataFrame()
+    if mild_threshold < spike_threshold:
+        mt = mild_threshold
+        inv_mt = 1.0 / mt
+
+        w1_mild = (
             pl.col("_p1").is_not_null() & pl.col("_n1").is_not_null()
             & (pl.col("_p1") > 0) & (pl.col("_n1") > 0)
-            & ((pl.col(price_col) / pl.col("_p1") > t) | (pl.col(price_col) / pl.col("_p1") < inv_t))
+            & ((pl.col(price_col) / pl.col("_p1") > mt) | (pl.col(price_col) / pl.col("_p1") < inv_mt))
             & (pl.col("_n1") / pl.col("_p1") >= 0.5)
             & (pl.col("_n1") / pl.col("_p1") <= 2.0)
         )
-
-        # ±2 window: spike vs 2-day neighbors, which agree
-        w2_bad = (
+        w2_mild = (
             pl.col("_p2").is_not_null() & pl.col("_n2").is_not_null()
             & (pl.col("_p2") > 0) & (pl.col("_n2") > 0)
-            & ((pl.col(price_col) / pl.col("_p2") > t) | (pl.col(price_col) / pl.col("_p2") < inv_t))
-            & ((pl.col(price_col) / pl.col("_n2") > t) | (pl.col(price_col) / pl.col("_n2") < inv_t))
+            & ((pl.col(price_col) / pl.col("_p2") > mt) | (pl.col(price_col) / pl.col("_p2") < inv_mt))
+            & ((pl.col(price_col) / pl.col("_n2") > mt) | (pl.col(price_col) / pl.col("_n2") < inv_mt))
             & (pl.col("_n2") / pl.col("_p2") >= 0.5)
             & (pl.col("_n2") / pl.col("_p2") <= 2.0)
         )
 
-        bad_mask = df_with_neighbors.select((w1_bad | w2_bad).alias("_bad"))["_bad"]
-        bad_count = bad_mask.sum()
+        mild_mask = (w1_mild | w2_mild) & ~tier1_mask
+        mild_rows = df_nb.filter(mild_mask).select([symbol_col, date_col])
 
-        if bad_count == 0:
-            break
+        if mild_rows.height > 0:
+            sym_counts = mild_rows.group_by(symbol_col).agg(pl.len().alias("cnt"))
+            frequent_syms = sym_counts.filter(pl.col("cnt") >= min_mild_count).select(symbol_col)
+            tier2_rows = mild_rows.join(frequent_syms, on=symbol_col, how="inner")
 
-        total_removed += bad_count
-        df = df_with_neighbors.filter(~bad_mask).drop(["_p1", "_n1", "_p2", "_n2"])
+    # Combine bad rows and remove
+    all_bad = pl.concat([tier1_rows, tier2_rows]) if tier2_rows.height > 0 else tier1_rows
+    total_removed = all_bad.height
 
-    # Drop helper columns if they survived
-    for col in ["_p1", "_n1", "_p2", "_n2"]:
-        if col in df.columns:
-            df = df.drop(col)
+    if total_removed > 0:
+        df = df_nb.join(all_bad, on=[symbol_col, date_col], how="anti")
+        bad_symbols = all_bad[symbol_col].n_unique()
+    else:
+        df = df_nb
+
+    # Drop helper columns
+    df = df.drop(["_p1", "_n1", "_p2", "_n2"], strict=False)
 
     if total_removed > 0 and verbose:
-        bad_symbols = total_removed  # approximate; exact count requires tracking
         print(f"  Price oscillation filter: removed {total_removed} bad rows "
-              f"in {pass_num + 1} pass(es) ({rows_before} → {df.height} rows)")
+              f"from {bad_symbols} symbols ({rows_before} → {df.height} rows)")
 
+    return df
+
+
+OHLCV_NUMERIC_COLS = ["date_epoch", "open", "high", "low", "close", "average_price", "volume"]
+
+
+def cast_ohlcv_dtypes(df: pl.DataFrame, numeric_cols: list[str] = None) -> pl.DataFrame:
+    """Cast OHLCV columns to correct numeric types (Int64 for epochs, Float64 for prices)."""
+    cols = numeric_cols or OHLCV_NUMERIC_COLS
+    cast_exprs = []
+    for col in cols:
+        if col in df.columns:
+            if "epoch" in col:
+                cast_exprs.append(pl.col(col).cast(pl.Int64).alias(col))
+            else:
+                cast_exprs.append(pl.col(col).cast(pl.Float64).alias(col))
+    if cast_exprs:
+        df = df.with_columns(cast_exprs)
     return df
 
 
@@ -343,17 +402,7 @@ class CRDataProvider:
         # Derive exchange and bare symbol from FMP symbol
         df = _parse_fmp_symbols_polars(df, self.EXCHANGE_SUFFIX)
 
-        # Ensure correct dtypes
-        numeric_cols = ["date_epoch", "open", "high", "low", "close", "average_price", "volume"]
-        cast_exprs = []
-        for col in numeric_cols:
-            if col in df.columns:
-                if col == "date_epoch":
-                    cast_exprs.append(pl.col(col).cast(pl.Int64).alias(col))
-                else:
-                    cast_exprs.append(pl.col(col).cast(pl.Float64).alias(col))
-        if cast_exprs:
-            df = df.with_columns(cast_exprs)
+        df = cast_ohlcv_dtypes(df)
 
         df = df.sort(["instrument", "date_epoch"])
         df = remove_price_oscillations(df, price_col="close", verbose=True)
@@ -429,17 +478,7 @@ class ParquetDataProvider:
 
         df = pl.concat(all_dfs, how="diagonal")
 
-        # Ensure correct dtypes
-        numeric_cols = ["date_epoch", "open", "high", "low", "close", "average_price", "volume"]
-        cast_exprs = []
-        for col in numeric_cols:
-            if col in df.columns:
-                if col == "date_epoch":
-                    cast_exprs.append(pl.col(col).cast(pl.Int64).alias(col))
-                else:
-                    cast_exprs.append(pl.col(col).cast(pl.Float64).alias(col))
-        if cast_exprs:
-            df = df.with_columns(cast_exprs)
+        df = cast_ohlcv_dtypes(df)
 
         df = df.sort(["instrument", "date_epoch"])
         df = remove_price_oscillations(df, price_col="close", verbose=True)
@@ -549,17 +588,7 @@ class FMPParquetDataProvider:
         # Derive exchange and bare symbol
         df = _parse_fmp_symbols_polars(df, self.EXCHANGE_SUFFIX)
 
-        # Ensure correct dtypes
-        numeric_cols = ["date_epoch", "open", "high", "low", "close", "average_price", "volume"]
-        cast_exprs = []
-        for col in numeric_cols:
-            if col in df.columns:
-                if col == "date_epoch":
-                    cast_exprs.append(pl.col(col).cast(pl.Int64).alias(col))
-                else:
-                    cast_exprs.append(pl.col(col).cast(pl.Float64).alias(col))
-        if cast_exprs:
-            df = df.with_columns(cast_exprs)
+        df = cast_ohlcv_dtypes(df)
 
         df = df.sort(["instrument", "date_epoch"])
         df = remove_price_oscillations(df, price_col="close", verbose=True)
@@ -644,16 +673,7 @@ class DuckDBParquetDataProvider:
         # Derive exchange and bare symbol
         df = _parse_fmp_symbols_polars(df, self.EXCHANGE_SUFFIX)
 
-        numeric_cols = ["date_epoch", "open", "high", "low", "close", "average_price", "volume"]
-        cast_exprs = []
-        for col in numeric_cols:
-            if col in df.columns:
-                if col == "date_epoch":
-                    cast_exprs.append(pl.col(col).cast(pl.Int64).alias(col))
-                else:
-                    cast_exprs.append(pl.col(col).cast(pl.Float64).alias(col))
-        if cast_exprs:
-            df = df.with_columns(cast_exprs)
+        df = cast_ohlcv_dtypes(df)
 
         df = df.sort(["instrument", "date_epoch"])
         df = remove_price_oscillations(df, price_col="close", verbose=True)
@@ -892,16 +912,7 @@ class BhavcopyDataProvider:
         df = pl.read_parquet(io.BytesIO(results))
 
         # Cast numeric types
-        numeric_cols = ["date_epoch", "open", "high", "low", "close", "average_price", "volume"]
-        cast_exprs = []
-        for col in numeric_cols:
-            if col in df.columns:
-                if col == "date_epoch":
-                    cast_exprs.append(pl.col(col).cast(pl.Int64).alias(col))
-                else:
-                    cast_exprs.append(pl.col(col).cast(pl.Float64).alias(col))
-        if cast_exprs:
-            df = df.with_columns(cast_exprs)
+        df = cast_ohlcv_dtypes(df)
 
         # Add exchange and instrument columns (all NSE)
         df = df.with_columns([
@@ -966,16 +977,7 @@ class NseChartingDataProvider:
         df = pl.read_parquet(io.BytesIO(results))
 
         # Cast numeric types
-        numeric_cols = ["date_epoch", "open", "high", "low", "close", "average_price", "volume"]
-        cast_exprs = []
-        for col in numeric_cols:
-            if col in df.columns:
-                if col == "date_epoch":
-                    cast_exprs.append(pl.col(col).cast(pl.Int64).alias(col))
-                else:
-                    cast_exprs.append(pl.col(col).cast(pl.Float64).alias(col))
-        if cast_exprs:
-            df = df.with_columns(cast_exprs)
+        df = cast_ohlcv_dtypes(df)
 
         # Add exchange and instrument columns
         df = df.with_columns([
