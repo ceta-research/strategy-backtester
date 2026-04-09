@@ -108,6 +108,9 @@ def run_pipeline(config_path, data_provider=None):
         "end_epoch": static["end_epoch"],
         "prefetch_days": static["prefetch_days"],
         "total_exit_configs": exit_total,
+        "slippage_rate": static.get("slippage_rate", 0.0005),
+        "multiprocessing_workers": static.get("multiprocessing_workers", 4),
+        "anomalous_drop_threshold_pct": static.get("anomalous_drop_threshold_pct", 20),
     }
 
     # Fetch data
@@ -119,7 +122,16 @@ def run_pipeline(config_path, data_provider=None):
         elif provider_type == "nse_charting":
             data_provider = NseChartingDataProvider()
         else:
-            data_provider = CRDataProvider(format="parquet")
+            data_provider = CRDataProvider(
+                format="parquet",
+                timeout=static.get("cr_api_timeout", 600),
+                memory_mb=static.get("cr_api_memory_mb", 16384),
+                threads=static.get("cr_api_threads", 6),
+                disk_mb=static.get("cr_api_disk_mb", 40960),
+                spike_threshold=static.get("price_oscillation_spike", 2.0),
+                mild_threshold=static.get("price_oscillation_mild", 1.3),
+                min_mild_count=static.get("price_oscillation_min_count", 5),
+            )
 
     # Extract exchanges from scanner config
     exchanges = set()

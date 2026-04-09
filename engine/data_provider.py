@@ -207,16 +207,32 @@ def _parse_fmp_symbols_polars(df: pl.DataFrame, exchange_suffix: dict) -> pl.Dat
 class CRDataProvider:
     """Fetch OHLCV data from Ceta Research API via SQL."""
 
-    def __init__(self, api_key=None, format="json"):
+    def __init__(self, api_key=None, format="json", timeout=600, memory_mb=16384,
+                 threads=6, disk_mb=40960,
+                 spike_threshold=2.0, mild_threshold=1.3, min_mild_count=5):
         """
         Args:
             api_key: CR API key (falls back to CR_API_KEY env var).
             format: Response format - "json" (default, backward compat) or
                     "parquet" (much faster for bulk data: no JSON conversion,
                     smaller transfer, faster parsing).
+            timeout: CR API query timeout in seconds.
+            memory_mb: CR API memory allocation in MB.
+            threads: CR API parallel threads.
+            disk_mb: CR API disk allocation in MB.
+            spike_threshold: Price oscillation tier 1 threshold (x multiplier).
+            mild_threshold: Price oscillation tier 2 threshold (x multiplier).
+            min_mild_count: Min tier 2 oscillations to flag a symbol.
         """
         self.client = CetaResearch(api_key=api_key)
         self._format = format
+        self._timeout = timeout
+        self._memory_mb = memory_mb
+        self._threads = threads
+        self._disk_mb = disk_mb
+        self._spike_threshold = spike_threshold
+        self._mild_threshold = mild_threshold
+        self._min_mild_count = min_mild_count
 
     # FMP symbol suffix per exchange (empty string = no suffix, uses profile join)
     EXCHANGE_SUFFIX = {
@@ -382,12 +398,12 @@ class CRDataProvider:
 
         results = self.client.query(
             sql,
-            timeout=600,
+            timeout=self._timeout,
             limit=10000000,
             verbose=True,
-            memory_mb=16384,
-            threads=6,
-            disk_mb=40960,
+            memory_mb=self._memory_mb,
+            threads=self._threads,
+            disk_mb=self._disk_mb,
             format=self._format,
         )
 
@@ -405,7 +421,13 @@ class CRDataProvider:
         df = cast_ohlcv_dtypes(df)
 
         df = df.sort(["instrument", "date_epoch"])
-        df = remove_price_oscillations(df, price_col="close", verbose=True)
+        df = remove_price_oscillations(
+            df, price_col="close",
+            spike_threshold=self._spike_threshold,
+            mild_threshold=self._mild_threshold,
+            min_mild_count=self._min_mild_count,
+            verbose=True,
+        )
 
         print(f"  Fetched {df.height} rows, {df['instrument'].n_unique()} instruments")
         return df

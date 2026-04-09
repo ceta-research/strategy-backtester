@@ -16,7 +16,6 @@ from engine.constants import SECONDS_IN_ONE_DAY
 
 
 class OrderGenerationUtil:
-    PRICE_DROP_THRESHOLD = 20
 
     def __init__(self, df_tick_data: pl.DataFrame):
         self.df_tick_data = df_tick_data
@@ -146,13 +145,15 @@ class OrderGenerationUtil:
             instrument_name = instrument_tuple[0]
             instrument_tick_data_map[instrument_name] = group.sort("date_epoch")
 
+        drop_threshold = context.get("anomalous_drop_threshold_pct", 20)
         instrument_tasks = []
         for instrument, group_df in instrument_tick_data_map.items():
             instrument_tasks.append(
-                (instrument, self.order_config_mapping[instrument], group_df, context)
+                (instrument, self.order_config_mapping[instrument], group_df, context, drop_threshold)
             )
 
-        max_workers = min(cpu_count() - 1, 4) if cpu_count() > 1 else 1
+        max_workers_cap = context.get("multiprocessing_workers", 4)
+        max_workers = min(cpu_count() - 1, max_workers_cap) if cpu_count() > 1 else 1
         with Pool(processes=max_workers) as pool:
             results = pool.starmap(generate_exit_attributes_for_instrument, instrument_tasks)
 
@@ -160,12 +161,13 @@ class OrderGenerationUtil:
             self.order_config_mapping[instrument] = instrument_order_config
 
 
-def generate_exit_attributes_for_instrument(instrument, instrument_order_config, df_instrument_tick_data, context):
+def generate_exit_attributes_for_instrument(instrument, instrument_order_config, df_instrument_tick_data, context,
+                                             drop_threshold=20):
     """Compute exit attributes for a single instrument.
 
     For each entry order, walk forward through price data to find exit point based on:
     - Trailing stop-loss breach (exit at next day's open)
-    - Anomalous price drop >20% (exit at 80% of last good price)
+    - Anomalous price drop (exit at 80% of last good price)
     - End of data (exit at last close)
     """
     # Pre-extract columns as lists for fast iteration
@@ -208,7 +210,7 @@ def generate_exit_attributes_for_instrument(instrument, instrument_order_config,
 
                 # Handle anomalous price drops (merger/de-merger/etc.)
                 diff_since_reference_price = (close_price - last_close) * 100 / last_close
-                if abs(diff_since_reference_price) > OrderGenerationUtil.PRICE_DROP_THRESHOLD:
+                if abs(diff_since_reference_price) > drop_threshold:
                     if this_epoch in instrument_order_config[entry_epoch]:
                         _order_attributes = instrument_order_config[entry_epoch][this_epoch]
                         _order_attributes["exit_config_ids"] = (

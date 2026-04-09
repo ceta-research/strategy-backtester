@@ -735,6 +735,20 @@ def _build_static_config(static: dict) -> dict:
         "data_granularity": static.get("data_granularity", "day"),
         "strategy_type": static.get("strategy_type", "eod_technical"),
         "data_provider": static.get("data_provider", "cr"),
+        # Simulator
+        "slippage_rate": static.get("slippage_rate", 0.0005),
+        # Order generator
+        "multiprocessing_workers": static.get("multiprocessing_workers", 4),
+        "anomalous_drop_threshold_pct": static.get("anomalous_drop_threshold_pct", 20),
+        # CR API resources (for CRDataProvider)
+        "cr_api_timeout": static.get("cr_api_timeout", 600),
+        "cr_api_memory_mb": static.get("cr_api_memory_mb", 16384),
+        "cr_api_threads": static.get("cr_api_threads", 6),
+        "cr_api_disk_mb": static.get("cr_api_disk_mb", 40960),
+        # Price oscillation filter
+        "price_oscillation_spike": static.get("price_oscillation_spike", 2.0),
+        "price_oscillation_mild": static.get("price_oscillation_mild", 1.3),
+        "price_oscillation_min_count": static.get("price_oscillation_min_count", 5),
     }
 
 

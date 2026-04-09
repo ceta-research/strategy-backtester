@@ -13,7 +13,8 @@ from engine.constants import SECONDS_IN_ONE_DAY
 from engine.charges import calculate_charges
 
 
-def _process_exits(orders, current_positions, current_positions_count, margin_available, trade_log):
+def _process_exits(orders, current_positions, current_positions_count, margin_available, trade_log,
+                    slippage_rate=0.0005):
     """Process all exit orders for a given epoch. Returns updated state."""
     for exit_order in orders["exits"]:
         order_id = f"{exit_order['instrument']}_{exit_order['entry_epoch']}_{exit_order['exit_epoch']}"
@@ -31,7 +32,7 @@ def _process_exits(orders, current_positions, current_positions_count, margin_av
                 trade_type="DELIVERY",
                 which_side="SELL_SIDE",
             )
-            sell_slippage = position["quantity"] * position["exit_price"] * 0.0005
+            sell_slippage = position["quantity"] * position["exit_price"] * slippage_rate
             margin_available += position["quantity"] * position["exit_price"] - sell_charges - sell_slippage
 
             trade_log.append({
@@ -56,7 +57,7 @@ def _process_exits(orders, current_positions, current_positions_count, margin_av
 def _process_entries(orders, current_positions, current_positions_count, margin_available,
                      order_value, current_account_value, max_positions, max_positions_per_instrument,
                      sim_config, epoch_wise_instrument_stats, simulation_date_epoch,
-                     config_order_ids, date_orders):
+                     config_order_ids, date_orders, slippage_rate=0.0005):
     """Process all entry orders for a given epoch. Returns updated state."""
     for entry_order in orders["entries"]:
         if current_positions_count >= max_positions:
@@ -98,7 +99,7 @@ def _process_entries(orders, current_positions, current_positions_count, margin_
             which_side="BUY_SIDE",
         )
 
-        slippage = order_quantity * entry_order["entry_price"] * 0.0005
+        slippage = order_quantity * entry_order["entry_price"] * slippage_rate
         required_margin_for_entry = order_quantity * entry_order["entry_price"] + charges + slippage
 
         if margin_available >= required_margin_for_entry and order_quantity > 0:
@@ -142,6 +143,7 @@ def process(context, df_orders, epoch_wise_instrument_stats, current_snapshot, s
     max_positions = sim_config["max_positions"]
     max_positions_per_instrument = sim_config["max_positions_per_instrument"]
     exit_before_entry = sim_config.get("exit_before_entry", False)
+    slippage_rate = context.get("slippage_rate", 0.0005)
 
     if not current_snapshot:
         current_snapshot = {
@@ -230,7 +232,8 @@ def process(context, df_orders, epoch_wise_instrument_stats, current_snapshot, s
             if exit_before_entry:
                 # Exits first: frees capital + position slots before entries
                 current_positions_count, margin_available = _process_exits(
-                    orders, current_positions, current_positions_count, margin_available, trade_log)
+                    orders, current_positions, current_positions_count, margin_available, trade_log,
+                    slippage_rate=slippage_rate)
 
                 # Recompute order value with freed capital
                 current_position_value = sum(
@@ -245,17 +248,18 @@ def process(context, df_orders, epoch_wise_instrument_stats, current_snapshot, s
                     orders, current_positions, current_positions_count, margin_available,
                     order_value, current_account_value, max_positions, max_positions_per_instrument,
                     sim_config, epoch_wise_instrument_stats, simulation_date_epoch,
-                    config_order_ids, date_orders)
+                    config_order_ids, date_orders, slippage_rate=slippage_rate)
             else:
                 # Default: entries first, then exits (matches ATO_Simulator)
                 current_positions_count, margin_available = _process_entries(
                     orders, current_positions, current_positions_count, margin_available,
                     order_value, current_account_value, max_positions, max_positions_per_instrument,
                     sim_config, epoch_wise_instrument_stats, simulation_date_epoch,
-                    config_order_ids, date_orders)
+                    config_order_ids, date_orders, slippage_rate=slippage_rate)
 
                 current_positions_count, margin_available = _process_exits(
-                    orders, current_positions, current_positions_count, margin_available, trade_log)
+                    orders, current_positions, current_positions_count, margin_available, trade_log,
+                    slippage_rate=slippage_rate)
 
         # MTM update
         if simulation_date_epoch in mtm_epochs:
