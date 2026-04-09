@@ -222,8 +222,12 @@ def walk_forward_exit(
     epochs: list, closes: list, start_idx: int,
     entry_epoch: int, entry_price: float, peak_price: float,
     tsl_pct: float, max_hold_days: int,
+    opens: list = None,
 ) -> tuple:
     """Walk forward from entry to find exit via peak recovery + TSL.
+
+    Signal is evaluated at close[T]. If opens is provided, exit at open[T+1]
+    (MOC execution matching standalone behavior). Otherwise exit at close[T].
 
     Args:
         epochs: list of date_epoch values for the instrument
@@ -234,12 +238,19 @@ def walk_forward_exit(
         peak_price: rolling peak price at entry (target for recovery)
         tsl_pct: trailing stop-loss percentage (0 = no TSL, just peak recovery)
         max_hold_days: max holding period in calendar days (0 = no limit)
+        opens: optional list of open prices; if provided, exit at next-day open
 
     Returns:
         (exit_epoch, exit_price) or (None, None) if no exit found and no data remains
     """
-    exit_epoch = None
-    exit_price = None
+    def _exit_at(j):
+        """Return exit epoch/price: next-day open if available, else close[j]."""
+        if opens is not None and j + 1 < len(epochs):
+            next_open = opens[j + 1]
+            if next_open is not None and next_open > 0:
+                return epochs[j + 1], next_open
+        return epochs[j], closes[j]
+
     trail_high = entry_price
 
     if tsl_pct == 0:
@@ -249,9 +260,9 @@ def walk_forward_exit(
                 continue
             hold_days = (epochs[j] - entry_epoch) / 86400
             if max_hold_days > 0 and hold_days >= max_hold_days:
-                return epochs[j], c
+                return _exit_at(j)
             if c >= peak_price:
-                return epochs[j], c
+                return _exit_at(j)
     else:
         reached_peak = False
         for j in range(start_idx, len(epochs)):
@@ -262,11 +273,11 @@ def walk_forward_exit(
                 trail_high = c
             hold_days = (epochs[j] - entry_epoch) / 86400
             if max_hold_days > 0 and hold_days >= max_hold_days:
-                return epochs[j], c
+                return _exit_at(j)
             if c >= peak_price:
                 reached_peak = True
             if reached_peak and c <= trail_high * (1 - tsl_pct):
-                return epochs[j], c
+                return _exit_at(j)
 
     # No exit trigger found - exit at last available bar
     if len(epochs) > start_idx:
@@ -307,7 +318,10 @@ def finalize_orders(all_order_rows: list[dict], elapsed: float) -> pl.DataFrame:
         return empty_orders()
 
     df_orders = pl.DataFrame(all_order_rows)
-    df_orders = df_orders.select(ORDER_COLUMNS).sort(["instrument", "entry_epoch", "exit_epoch"])
+    # Select standard columns plus any extra columns present (e.g. dip_pct for ranking)
+    cols = [c for c in ORDER_COLUMNS if c in df_orders.columns]
+    extra_cols = [c for c in df_orders.columns if c not in ORDER_COLUMNS]
+    df_orders = df_orders.select(cols + extra_cols).sort(["instrument", "entry_epoch", "exit_epoch"])
     print(f"  Signal gen: {elapsed}s, {df_orders.height} orders")
     return df_orders
 

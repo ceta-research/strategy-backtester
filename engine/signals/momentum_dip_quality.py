@@ -355,6 +355,34 @@ class MomentumDipQualitySignalGenerator:
             ).unique(subset=["uid"])
             df_signals = df_signals.join(scanner_ids_df, on="uid", how="left")
 
+            # Period-average turnover filter: compute avg(close * volume) per
+            # instrument across the ENTIRE sim range, keep only those above the
+            # scanner threshold.  This produces a FIXED set of instruments
+            # (matches standalone's fetch_universe SQL approach).
+            _turnover_threshold = 70_000_000  # default NSE threshold
+            for scanner_cfg in get_scanner_config_iterator(context):
+                thresh_val = scanner_cfg.get("avg_day_transaction_threshold")
+                if isinstance(thresh_val, dict):
+                    _turnover_threshold = thresh_val.get("threshold", _turnover_threshold)
+                elif isinstance(thresh_val, (int, float)):
+                    _turnover_threshold = thresh_val
+                break
+
+            period_avg = (
+                df_signals
+                .group_by("instrument")
+                .agg(
+                    (pl.col("close") * pl.col("volume")).mean().alias("avg_turnover"),
+                    pl.col("close").mean().alias("avg_close"),
+                )
+                .filter(
+                    (pl.col("avg_turnover") > _turnover_threshold)
+                    & (pl.col("avg_close") > 50)
+                )
+            )
+            period_universe_set = set(period_avg["instrument"].to_list())
+            print(f"  Period-avg turnover filter: {len(period_universe_set)} instruments")
+
             # Build quality universe (re-screen periodically)
             epochs = sorted(df_signals["date_epoch"].unique().to_list())
             rescreen_interval = rescreen_days * 86400
@@ -371,13 +399,14 @@ class MomentumDipQualitySignalGenerator:
                     continue
                 day_data = df_signals.filter(
                     (pl.col("date_epoch") == epoch)
-                    & (pl.col("scanner_config_ids").is_not_null())
+                    & (pl.col("instrument").is_in(list(period_universe_set)))
                     & (pl.col("is_quality") == True)  # noqa: E712
                 )
                 quality_universe[epoch] = set(day_data["instrument"].to_list())
                 last_screen_epoch = epoch
 
             # Build momentum universe (top N% by trailing return)
+            # Rank only period-universe instruments (fixed set, matches standalone)
             momentum_universe = {}
             last_rank_epoch = None
             for epoch in epochs:
@@ -390,7 +419,7 @@ class MomentumDipQualitySignalGenerator:
                 day_data = (
                     df_signals.filter(
                         (pl.col("date_epoch") == epoch)
-                        & (pl.col("scanner_config_ids").is_not_null())
+                        & (pl.col("instrument").is_in(list(period_universe_set)))
                         & (pl.col("momentum_return").is_not_null())
                     )
                     .sort("momentum_return", descending=True)
@@ -442,13 +471,14 @@ class MomentumDipQualitySignalGenerator:
                 exit_data[inst_name] = {
                     "epochs": g["date_epoch"].to_list(),
                     "closes": g["close"].to_list(),
+                    "opens": g["open"].to_list(),
                 }
 
-            # Entry filter: quality + dip + scanner + optional regime
+            # Entry filter: quality + dip + period universe + optional regime
             entry_filter = (
                 (pl.col("dip_pct") >= dip_threshold)
                 & (pl.col("is_quality") == True)  # noqa: E712
-                & (pl.col("scanner_config_ids").is_not_null())
+                & (pl.col("instrument").is_in(list(period_universe_set)))
                 & (pl.col("next_epoch").is_not_null())
                 & (pl.col("next_open").is_not_null())
                 & (pl.col("rolling_peak").is_not_null())
@@ -468,6 +498,7 @@ class MomentumDipQualitySignalGenerator:
                     "next_volume",
                     "scanner_config_ids",
                     "rolling_peak",
+                    "dip_pct",
                 ])
                 .to_dicts()
             )
@@ -542,9 +573,10 @@ class MomentumDipQualitySignalGenerator:
                         "exit_price": exit_price,
                         "entry_volume": entry["next_volume"] or 0,
                         "exit_volume": 0,
-                        "scanner_config_ids": entry["scanner_config_ids"],
+                        "scanner_config_ids": entry.get("scanner_config_ids") or "1",
                         "entry_config_ids": str(entry_config["id"]),
                         "exit_config_ids": str(exit_config["id"]),
+                        "dip_pct": entry.get("dip_pct", 0),
                     })
                     orders_this_config += 1
 

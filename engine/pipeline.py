@@ -20,7 +20,7 @@ from engine.config_loader import (
     get_simulation_config_iterator,
 )
 from engine.config_sweep import create_config_iterator
-from engine.data_provider import CRDataProvider, BhavcopyDataProvider
+from engine.data_provider import CRDataProvider, BhavcopyDataProvider, NseChartingDataProvider
 from engine import simulator
 from engine.ranking import sort_orders
 from engine.utils import create_epoch_wise_instrument_stats, create_config_df_loc_lookup
@@ -54,6 +54,7 @@ import engine.signals.momentum_rebalance  # noqa: F401
 import engine.signals.earnings_dip  # noqa: F401
 import engine.signals.quality_dip_tiered  # noqa: F401
 import engine.signals.enhanced_breakout  # noqa: F401
+import engine.signals.ml_supertrend  # noqa: F401
 from engine.signals.base import get_signal_generator, sanitize_orders
 
 
@@ -114,6 +115,8 @@ def run_pipeline(config_path, data_provider=None):
         provider_type = static.get("data_provider", "cr")
         if provider_type == "bhavcopy":
             data_provider = BhavcopyDataProvider()
+        elif provider_type == "nse_charting":
+            data_provider = NseChartingDataProvider()
         else:
             data_provider = CRDataProvider(format="parquet")
 

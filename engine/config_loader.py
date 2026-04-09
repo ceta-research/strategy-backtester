@@ -619,6 +619,30 @@ def _build_exit_config_enhanced_breakout(exit_cfg: dict) -> dict:
     }
 
 
+def _build_entry_config_ml_supertrend(entry: dict) -> dict:
+    return {
+        "lookback_years": entry.get("lookback_years", [10]),
+        "min_positive_years": entry.get("min_positive_years", [8]),
+        "dip_threshold_pct": entry.get("dip_threshold_pct", [10]),
+        "peak_lookback_days": entry.get("peak_lookback_days", [252]),
+        "max_osc_position": entry.get("max_osc_position", [0.50]),
+        "supertrend_mode": entry.get("supertrend_mode", ["reversal"]),
+        "atr_period": entry.get("atr_period", [20]),
+        "atr_multiplier": entry.get("atr_multiplier", [2.0]),
+        "bounce_threshold_pct": entry.get("bounce_threshold_pct", [2.0]),
+        "st_flip_lookback": entry.get("st_flip_lookback", [1]),
+        "rescreen_interval_days": entry.get("rescreen_interval_days", [63]),
+    }
+
+
+def _build_exit_config_ml_supertrend(exit_cfg: dict) -> dict:
+    return {
+        "tsl_pct": exit_cfg.get("tsl_pct", [10]),
+        "max_hold_days": exit_cfg.get("max_hold_days", [252]),
+        "supertrend_exit": exit_cfg.get("supertrend_exit", [False]),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Strategy dispatch tables
 # ---------------------------------------------------------------------------
@@ -650,6 +674,7 @@ _ENTRY_BUILDERS = {
     "earnings_dip": _build_entry_config_earnings_dip,
     "quality_dip_tiered": _build_entry_config_quality_dip_tiered,
     "enhanced_breakout": _build_entry_config_enhanced_breakout,
+    "ml_supertrend": _build_entry_config_ml_supertrend,
 }
 
 _EXIT_BUILDERS = {
@@ -679,6 +704,7 @@ _EXIT_BUILDERS = {
     "earnings_dip": _build_exit_config_earnings_dip,
     "quality_dip_tiered": _build_exit_config_quality_dip_tiered,
     "enhanced_breakout": _build_exit_config_enhanced_breakout,
+    "ml_supertrend": _build_exit_config_ml_supertrend,
 }
 
 
@@ -708,6 +734,7 @@ def _build_static_config(static: dict) -> dict:
         "prefetch_days": static.get("prefetch_days", 400),
         "data_granularity": static.get("data_granularity", "day"),
         "strategy_type": static.get("strategy_type", "eod_technical"),
+        "data_provider": static.get("data_provider", "cr"),
     }
 
 

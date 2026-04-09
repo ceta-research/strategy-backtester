@@ -1,4 +1,4 @@
-"""Order ranking functions: top_performer, top_gainer, top_average_txn.
+"""Order ranking functions: top_performer, top_gainer, top_average_txn, top_dipper.
 
 Ported from ATO_Simulator/simulator/steps/simulate_step/util.py (lines 232-399)
 and simulate_step_loader.py sort_orders() dispatcher.
@@ -32,6 +32,10 @@ def sort_orders(df_config_orders: pl.DataFrame, sim_config: dict, df_tick_data: 
             epoch_wise_instrument_stats = create_epoch_wise_instrument_stats(df_tick_data)
         df_config_orders = sort_orders_by_top_performer(
             df_config_orders, epoch_wise_instrument_stats, order_ranking_window_days
+        )
+    elif order_sorting_type == "top_dipper":
+        df_config_orders = sort_orders_by_deepest_dip(
+            df_config_orders, df_tick_data, order_ranking_window_days
         )
 
     return df_config_orders
@@ -180,6 +184,57 @@ def calculate_daywise_instrument_score(df_orders: pl.DataFrame, instrument_day_w
     )
     df_score = df_score.sort(["entry_epoch", "rank"])
     return df_score
+
+
+def sort_orders_by_deepest_dip(df_orders: pl.DataFrame, df_tick_data: pl.DataFrame, order_ranking_window_days: int) -> pl.DataFrame:
+    """Rank orders by dip depth from rolling peak (deepest first).
+
+    For dip-buy strategies, deepest dips = most mispriced = best entries.
+    Matches standalone quality_dip_buy_lib.py entry ordering (L1028-1030).
+
+    If orders contain a 'dip_pct' column (from signal generator), uses it directly.
+    Otherwise, computes dip from tick data using the ranking window as peak lookback.
+    """
+    if "rank" in df_orders.columns:
+        df_orders = df_orders.drop("rank")
+
+    # Use pre-computed dip_pct from signal generator if available
+    if "dip_pct" in df_orders.columns:
+        df_orders = df_orders.with_columns(
+            pl.col("dip_pct").rank(descending=True).over("entry_epoch").alias("rank")
+        )
+        df_orders = df_orders.sort(["entry_epoch", "rank"])
+        return df_orders
+
+    # Fallback: compute dip from tick data
+    df_tick_data = df_tick_data.with_columns(pl.col("instrument").cast(pl.Utf8))
+    _df = df_tick_data.select(["date_epoch", "instrument", "close"]).sort(["instrument", "date_epoch"])
+
+    _df = _df.with_columns(
+        pl.col("close").shift(1).over("instrument").alias("prev_close")
+    )
+    _df = _df.with_columns(
+        pl.col("prev_close")
+        .rolling_max(window_size=order_ranking_window_days, min_samples=1)
+        .over("instrument")
+        .alias("rolling_peak")
+    )
+    _df = _df.with_columns(
+        ((pl.col("rolling_peak") - pl.col("prev_close")) / pl.col("rolling_peak")).alias("dip_pct")
+    )
+    _df = _df.with_columns(
+        pl.col("dip_pct").rank(descending=True).over("date_epoch").alias("rank")
+    )
+
+    rank_df = _df.select([
+        pl.col("date_epoch").alias("entry_epoch"),
+        "instrument",
+        "rank",
+    ])
+
+    df_orders = df_orders.join(rank_df, on=["instrument", "entry_epoch"], how="left")
+    df_orders = df_orders.sort(["entry_epoch", "rank"])
+    return df_orders
 
 
 def sort_orders_by_top_performer(df_orders: pl.DataFrame, instrument_day_wise_close: dict, order_ranking_window_days: int) -> pl.DataFrame:
