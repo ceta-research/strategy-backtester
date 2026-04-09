@@ -20,40 +20,7 @@ from engine.config_loader import (
     get_entry_config_iterator,
     get_exit_config_iterator,
 )
-from engine.signals.base import register_strategy, add_next_day_values
-
-
-def _build_regime_filter(df_tick_data, regime_instrument, regime_sma_period):
-    """Build set of bullish epochs where instrument > SMA."""
-    if not regime_instrument or regime_sma_period <= 0:
-        return set()
-
-    df_regime = df_tick_data.filter(
-        pl.col("instrument") == regime_instrument
-    ).sort("date_epoch")
-
-    if df_regime.is_empty():
-        print(f"  Warning: regime instrument {regime_instrument} not found")
-        return set()
-
-    df_regime = df_regime.with_columns(
-        pl.col("close")
-        .rolling_mean(window_size=regime_sma_period, min_samples=regime_sma_period)
-        .alias("regime_sma")
-    )
-
-    bull_epochs = set(
-        df_regime.filter(
-            (pl.col("close") > pl.col("regime_sma"))
-            & (pl.col("regime_sma").is_not_null())
-        )["date_epoch"].to_list()
-    )
-
-    total = df_regime.filter(pl.col("regime_sma").is_not_null()).height
-    pct = len(bull_epochs) / total * 100 if total > 0 else 0
-    print(f"  Regime: {regime_instrument} > SMA({regime_sma_period}), "
-          f"{len(bull_epochs)}/{total} bullish ({pct:.0f}%)")
-    return bull_epochs
+from engine.signals.base import register_strategy, add_next_day_values, build_regime_filter
 
 
 class MomentumCascadeSignalGenerator:
@@ -150,7 +117,7 @@ class MomentumCascadeSignalGenerator:
             ri = entry_config.get("regime_instrument", "")
             rp = entry_config.get("regime_sma_period", 0)
             if ri and rp > 0 and (ri, rp) not in regime_cache:
-                regime_cache[(ri, rp)] = _build_regime_filter(df_tick_data, ri, rp)
+                regime_cache[(ri, rp)] = build_regime_filter(df_tick_data, ri, rp)
 
         # Build scanner pass set for quick lookup
         scanner_pass = set()

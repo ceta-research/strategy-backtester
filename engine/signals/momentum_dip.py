@@ -16,18 +16,7 @@ import time
 import polars as pl
 
 from engine.config_loader import get_scanner_config_iterator, get_entry_config_iterator, get_exit_config_iterator
-from engine.signals.base import register_strategy, add_next_day_values
-
-
-def _compute_rsi(series: pl.Expr, period: int) -> pl.Expr:
-    """Compute RSI using exponential moving average of gains/losses."""
-    delta = series.diff()
-    gain = pl.when(delta > 0).then(delta).otherwise(0.0)
-    loss = pl.when(delta < 0).then(-delta).otherwise(0.0)
-    avg_gain = gain.ewm_mean(span=period, adjust=False, min_samples=period)
-    avg_loss = loss.ewm_mean(span=period, adjust=False, min_samples=period)
-    rs = avg_gain / avg_loss
-    return 100.0 - (100.0 / (1.0 + rs))
+from engine.signals.base import register_strategy, add_next_day_values, compute_rsi
 
 
 class MomentumDipSignalGenerator:
@@ -103,7 +92,7 @@ class MomentumDipSignalGenerator:
 
         # RSI(14)
         df_ind = df_ind.with_columns(
-            _compute_rsi(pl.col("close"), 14).over("instrument").alias("rsi_14")
+            compute_rsi(pl.col("close"), 14).over("instrument").alias("rsi_14")
         )
 
         # Phase 3: Generate orders

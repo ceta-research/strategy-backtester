@@ -27,6 +27,8 @@ if "/session" not in sys.path and os.path.isdir("/session/lib"):
 from lib.cr_client import CetaResearch
 from engine.charges import calculate_charges
 from lib.backtest_result import BacktestResult, SweepResult
+from lib.indicators import compute_z
+from lib.data_fetchers import fetch_close, align
 
 
 # ── Fixed config ─────────────────────────────────────────────────────────────
@@ -36,49 +38,6 @@ Z_ENTRY = 1.0
 Z_EXIT = -0.5
 SLIPPAGE_PCT = 0.0005  # 5 bps
 CAPITAL = 10_000_000
-
-
-# ── Data ─────────────────────────────────────────────────────────────────────
-
-def fetch_close(cr, symbol, source, start_epoch, end_epoch):
-    warmup = start_epoch - 500 * 86400
-    if source == "nse":
-        sql = f"""SELECT date_epoch, close FROM nse.nse_charting_day
-                  WHERE symbol = '{symbol}' AND date_epoch >= {warmup}
-                    AND date_epoch <= {end_epoch} ORDER BY date_epoch"""
-    else:
-        sql = f"""SELECT dateEpoch as date_epoch, adjClose as close FROM fmp.stock_eod
-                  WHERE symbol = '{symbol}' AND dateEpoch >= {warmup}
-                    AND dateEpoch <= {end_epoch} ORDER BY dateEpoch"""
-    for attempt in range(3):
-        try:
-            return {int(r["date_epoch"]): float(r["close"])
-                    for r in cr.query(sql, timeout=180, limit=10000000,
-                                      memory_mb=8192, threads=4)
-                    if float(r.get("close") or 0) > 0}
-        except Exception as e:
-            if attempt < 2:
-                time.sleep(5)
-            else:
-                return {}
-
-
-def align(datasets, start_epoch):
-    common = sorted(set.intersection(*[set(d.keys()) for d in datasets]))
-    return [e for e in common if e >= start_epoch]
-
-
-# ── Indicators ───────────────────────────────────────────────────────────────
-
-def compute_z(values, lookback):
-    z = [0.0] * len(values)
-    for i in range(lookback, len(values)):
-        w = values[i - lookback:i]
-        m = sum(w) / len(w)
-        v = sum((x - m) ** 2 for x in w) / len(w)
-        s = math.sqrt(v) if v > 0 else 1e-9
-        z[i] = (values[i] - m) / s
-    return z
 
 
 # ── Simulation ───────────────────────────────────────────────────────────────

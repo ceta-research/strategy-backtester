@@ -15,20 +15,9 @@ import time
 import polars as pl
 
 from engine.config_loader import get_scanner_config_iterator, get_entry_config_iterator, get_exit_config_iterator
-from engine.signals.base import register_strategy, add_next_day_values
+from engine.signals.base import register_strategy, add_next_day_values, compute_rsi, build_regime_filter
 
 TRADING_DAYS_PER_YEAR = 252
-
-
-def _compute_rsi(series: pl.Expr, period: int) -> pl.Expr:
-    """Compute RSI using exponential moving average of gains/losses."""
-    delta = series.diff()
-    gain = pl.when(delta > 0).then(delta).otherwise(0.0)
-    loss = pl.when(delta < 0).then(-delta).otherwise(0.0)
-    avg_gain = gain.ewm_mean(span=period, adjust=False, min_samples=period)
-    avg_loss = loss.ewm_mean(span=period, adjust=False, min_samples=period)
-    rs = avg_gain / avg_loss
-    return 100.0 - (100.0 / (1.0 + rs))
 
 
 def _fetch_sector_map():
@@ -57,44 +46,6 @@ def _fetch_sector_map():
         return {}
 
 
-def _build_regime_filter(df_tick_data, regime_instrument, regime_sma_period):
-    """Build set of epochs where the regime instrument is above its SMA.
-
-    Returns set of date_epochs where regime is bullish (close > SMA).
-    Empty set means all epochs are allowed (no filter).
-    """
-    if not regime_instrument or regime_sma_period <= 0:
-        return set()
-
-    df_regime = df_tick_data.filter(
-        pl.col("instrument") == regime_instrument
-    ).sort("date_epoch")
-
-    if df_regime.is_empty():
-        print(f"  Warning: regime instrument {regime_instrument} not found in data")
-        return set()
-
-    df_regime = df_regime.with_columns(
-        pl.col("close")
-        .rolling_mean(window_size=regime_sma_period, min_samples=regime_sma_period)
-        .alias("regime_sma")
-    )
-
-    bull_epochs = set(
-        df_regime.filter(
-            (pl.col("close") > pl.col("regime_sma"))
-            & (pl.col("regime_sma").is_not_null())
-        )["date_epoch"].to_list()
-    )
-
-    total = df_regime.filter(pl.col("regime_sma").is_not_null()).height
-    pct = len(bull_epochs) / total * 100 if total > 0 else 0
-    print(f"  Regime filter: {regime_instrument} > SMA({regime_sma_period}), "
-          f"{len(bull_epochs)}/{total} days bullish ({pct:.0f}%)")
-
-    return bull_epochs
-
-
 class QualityDipBuySignalGenerator:
     """Buy dips in stocks with consistent positive yearly returns."""
 
@@ -121,7 +72,7 @@ class QualityDipBuySignalGenerator:
         # Pre-build regime filters (one per unique instrument+period combo)
         regime_cache = {}
         for ri, rp in regime_configs:
-            regime_cache[(ri, rp)] = _build_regime_filter(df_tick_data, ri, rp)
+            regime_cache[(ri, rp)] = build_regime_filter(df_tick_data, ri, rp)
 
         # Phase 1: Scanner (liquidity filter)
         shortlist_tracker = {}
@@ -186,7 +137,7 @@ class QualityDipBuySignalGenerator:
 
         # Compute RSI(14) once for all instruments
         df_ind = df_ind.with_columns(
-            _compute_rsi(pl.col("close"), 14).over("instrument").alias("rsi_14")
+            compute_rsi(pl.col("close"), 14).over("instrument").alias("rsi_14")
         )
 
         # Phase 3: Generate orders

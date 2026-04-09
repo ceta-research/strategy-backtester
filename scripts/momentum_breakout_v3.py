@@ -36,23 +36,10 @@ from scripts.quality_dip_buy_fundamental import (
 )
 from scripts.momentum_breakout import compute_breakout_entries
 from engine.charges import calculate_charges
+from lib.data_fetchers import intersect_universes
 
 STRATEGY_NAME = "momentum_breakout_v3"
 SLIPPAGE = 0.0005
-
-
-def intersect_universes(quality_universe, momentum_universe):
-    combined = {}
-    for epoch in set(quality_universe.keys()) | set(momentum_universe.keys()):
-        q = quality_universe.get(epoch, set())
-        m = momentum_universe.get(epoch, set())
-        intersection = q & m
-        if intersection:
-            combined[epoch] = intersection
-    pool_sizes = [len(v) for v in combined.values() if v]
-    avg_pool = sum(pool_sizes) / len(pool_sizes) if pool_sizes else 0
-    print(f"  Combined universe: {len(combined)} epochs, avg pool={avg_pool:.0f} stocks")
-    return combined
 
 
 def merge_entries(breakout_entries, dip_entries):

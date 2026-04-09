@@ -27,69 +27,11 @@ if "/session" not in sys.path and os.path.isdir("/session/lib"):
 from lib.cr_client import CetaResearch
 from engine.charges import calculate_charges
 from lib.backtest_result import BacktestResult, SweepResult, MultiSweepResult
+from lib.indicators import compute_z, compute_sma, compute_realized_vol
+from lib.data_fetchers import fetch_close, align
 
 CAPITAL = 10_000_000
 SLIPPAGE = 0.0005
-
-
-# ── Data + Helpers ───────────────────────────────────────────────────────────
-
-def fetch_close(cr, symbol, start_epoch, end_epoch):
-    warmup = start_epoch - 500 * 86400
-    sql = f"""SELECT dateEpoch as date_epoch, adjClose as close FROM fmp.stock_eod
-              WHERE symbol = '{symbol}' AND dateEpoch >= {warmup}
-                AND dateEpoch <= {end_epoch} ORDER BY dateEpoch"""
-    for attempt in range(3):
-        try:
-            return {int(r["date_epoch"]): float(r["close"])
-                    for r in cr.query(sql, timeout=180, limit=10000000,
-                                      memory_mb=8192, threads=4)
-                    if float(r.get("close") or 0) > 0}
-        except:
-            if attempt < 2:
-                time.sleep(5)
-            else:
-                return {}
-
-
-def align(datasets, start_epoch):
-    common = sorted(set.intersection(*[set(d.keys()) for d in datasets]))
-    return [e for e in common if e >= start_epoch]
-
-
-def compute_z(values, lookback):
-    z = [0.0] * len(values)
-    for i in range(lookback, len(values)):
-        w = values[i - lookback:i]
-        m = sum(w) / len(w)
-        v = sum((x - m) ** 2 for x in w) / len(w)
-        s = math.sqrt(v) if v > 0 else 1e-9
-        z[i] = (values[i] - m) / s
-    return z
-
-
-def compute_sma(values, period):
-    sma = [0.0] * len(values)
-    r = 0.0
-    for i in range(len(values)):
-        r += values[i]
-        if i >= period:
-            r -= values[i - period]
-        sma[i] = r / min(i + 1, period)
-    return sma
-
-
-def compute_realized_vol(closes, window):
-    vol = [0.0] * len(closes)
-    for i in range(1, len(closes)):
-        start = max(1, i - window + 1)
-        rets = [math.log(closes[j] / closes[j - 1])
-                for j in range(start, i + 1) if closes[j - 1] > 0]
-        if len(rets) >= 2:
-            mean = sum(rets) / len(rets)
-            var = sum((r - mean) ** 2 for r in rets) / (len(rets) - 1)
-            vol[i] = math.sqrt(var) * math.sqrt(252)
-    return vol
 
 
 def us_charges(value, side):

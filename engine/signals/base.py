@@ -286,6 +286,55 @@ def walk_forward_exit(
     return None, None
 
 
+def compute_rsi(series: pl.Expr, period: int) -> pl.Expr:
+    """Compute RSI using exponential moving average of gains/losses."""
+    delta = series.diff()
+    gain = pl.when(delta > 0).then(delta).otherwise(0.0)
+    loss = pl.when(delta < 0).then(-delta).otherwise(0.0)
+    avg_gain = gain.ewm_mean(span=period, adjust=False, min_samples=period)
+    avg_loss = loss.ewm_mean(span=period, adjust=False, min_samples=period)
+    rs = avg_gain / avg_loss
+    return 100.0 - (100.0 / (1.0 + rs))
+
+
+def build_regime_filter(df_tick_data, regime_instrument, regime_sma_period):
+    """Build set of epochs where the regime instrument is above its SMA.
+
+    Returns set of date_epochs where regime is bullish (close > SMA).
+    Empty set means all epochs are allowed (no filter).
+    """
+    if not regime_instrument or regime_sma_period <= 0:
+        return set()
+
+    df_regime = df_tick_data.filter(
+        pl.col("instrument") == regime_instrument
+    ).sort("date_epoch")
+
+    if df_regime.is_empty():
+        print(f"  Warning: regime instrument {regime_instrument} not found in data")
+        return set()
+
+    df_regime = df_regime.with_columns(
+        pl.col("close")
+        .rolling_mean(window_size=regime_sma_period, min_samples=regime_sma_period)
+        .alias("regime_sma")
+    )
+
+    bull_epochs = set(
+        df_regime.filter(
+            (pl.col("close") > pl.col("regime_sma"))
+            & (pl.col("regime_sma").is_not_null())
+        )["date_epoch"].to_list()
+    )
+
+    total = df_regime.filter(pl.col("regime_sma").is_not_null()).height
+    pct = len(bull_epochs) / total * 100 if total > 0 else 0
+    print(f"  Regime filter: {regime_instrument} > SMA({regime_sma_period}), "
+          f"{len(bull_epochs)}/{total} days bullish ({pct:.0f}%)")
+
+    return bull_epochs
+
+
 EMPTY_ORDERS_SCHEMA = {
     "instrument": pl.Utf8,
     "entry_epoch": pl.Float64,

@@ -35,8 +35,9 @@ import json
 import requests
 
 DEFAULT_BASE_URL = "https://api.cetaresearch.com/api/v1"
-DEFAULT_POLL_INTERVAL = 5.0  # seconds (keep low to avoid 1000 req/hr rate limit on polls)
+DEFAULT_POLL_INTERVAL = 5.0  # seconds
 DEFAULT_TIMEOUT = 300  # seconds
+TERMINAL_STATUSES = ("completed", "failed", "execution_timed_out", "wait_timed_out", "cancelled")
 
 
 def _read_dotenv_key(key):
@@ -198,7 +199,7 @@ class CetaResearch:
             task = resp.json()
             status = task.get("status", "unknown")
 
-            if status in ("completed", "failed", "execution_timed_out", "wait_timed_out", "cancelled"):
+            if status in TERMINAL_STATUSES:
                 return task
 
             if verbose:
@@ -499,8 +500,7 @@ class CetaResearch:
             result = self.get_execution_status(task_id)
             status = result.get("status", "unknown")
 
-            if status in ("completed", "failed", "execution_timed_out",
-                          "wait_timed_out", "cancelled"):
+            if status in TERMINAL_STATUSES:
                 return result
 
             if verbose:
@@ -835,8 +835,7 @@ class CetaResearch:
 
             status = result.get("status", "unknown")
 
-            if status in ("completed", "failed", "execution_timed_out",
-                          "wait_timed_out", "cancelled"):
+            if status in TERMINAL_STATUSES:
                 return result
 
             if verbose:
@@ -870,26 +869,20 @@ class CetaResearch:
             return {"X-CSRF-Token": token}
         return {}
 
-    def _post_with_csrf(self, url, **kwargs):
-        """POST with CSRF token."""
+    def _request_with_csrf(self, method, url, **kwargs):
+        """Make an HTTP request with CSRF token."""
         headers = kwargs.pop("headers", {})
         headers.update(self._csrf_headers())
-        return self.session.post(url, headers=headers, **kwargs)
+        return self.session.request(method, url, headers=headers, **kwargs)
+
+    def _post_with_csrf(self, url, **kwargs):
+        return self._request_with_csrf("POST", url, **kwargs)
 
     def _put_with_csrf(self, url, **kwargs):
-        """PUT with CSRF token."""
-        headers = kwargs.pop("headers", {})
-        headers.update(self._csrf_headers())
-        return self.session.put(url, headers=headers, **kwargs)
+        return self._request_with_csrf("PUT", url, **kwargs)
 
     def _patch_with_csrf(self, url, **kwargs):
-        """PATCH with CSRF token."""
-        headers = kwargs.pop("headers", {})
-        headers.update(self._csrf_headers())
-        return self.session.patch(url, headers=headers, **kwargs)
+        return self._request_with_csrf("PATCH", url, **kwargs)
 
     def _delete_with_csrf(self, url, **kwargs):
-        """DELETE with CSRF token."""
-        headers = kwargs.pop("headers", {})
-        headers.update(self._csrf_headers())
-        return self.session.delete(url, headers=headers, **kwargs)
+        return self._request_with_csrf("DELETE", url, **kwargs)

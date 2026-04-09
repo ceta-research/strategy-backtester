@@ -32,6 +32,7 @@ from scripts.quality_dip_buy_lib import (
 from scripts.quality_dip_buy_fundamental import (
     fetch_fundamentals, filter_entries_by_fundamentals,
 )
+from lib.data_fetchers import intersect_universes
 
 STRATEGY_NAME = "momentum_dip_buy"
 
@@ -43,30 +44,6 @@ TSL_PCT = 10
 MAX_HOLD_DAYS = 504
 ROE_THRESHOLD = 15
 PE_THRESHOLD = 25
-
-
-def intersect_universes(quality_universe, momentum_universe):
-    """Intersect quality and momentum universes epoch-by-epoch.
-
-    For each epoch present in both, result is the set intersection.
-    Epochs in only one universe use the other's empty set.
-
-    Returns:
-        dict[epoch, set[symbol]]
-    """
-    combined = {}
-    all_epochs = set(quality_universe.keys()) | set(momentum_universe.keys())
-    for epoch in all_epochs:
-        q = quality_universe.get(epoch, set())
-        m = momentum_universe.get(epoch, set())
-        intersection = q & m
-        if intersection:
-            combined[epoch] = intersection
-
-    pool_sizes = [len(v) for v in combined.values() if v]
-    avg_pool = sum(pool_sizes) / len(pool_sizes) if pool_sizes else 0
-    print(f"  Combined universe: {len(combined)} epochs, avg pool={avg_pool:.0f} stocks")
-    return combined
 
 
 def main():

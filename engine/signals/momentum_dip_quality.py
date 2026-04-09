@@ -25,7 +25,10 @@ from engine.config_loader import (
     get_entry_config_iterator,
     get_exit_config_iterator,
 )
-from engine.signals.base import register_strategy, add_next_day_values, run_scanner, walk_forward_exit, finalize_orders
+from engine.signals.base import register_strategy, add_next_day_values, run_scanner, walk_forward_exit, finalize_orders, build_regime_filter
+
+# Re-export for backward compat (other signal generators import this)
+_build_regime_filter = build_regime_filter
 
 TRADING_DAYS_PER_YEAR = 252
 FILING_LAG_DAYS = 45
@@ -137,39 +140,6 @@ def _get_fundamental_at(fundamentals, symbol, epoch, lag_days=FILING_LAG_DAYS):
     return best
 
 
-def _build_regime_filter(df_tick_data, regime_instrument, regime_sma_period):
-    """Build set of epochs where regime instrument is above its SMA."""
-    if not regime_instrument or regime_sma_period <= 0:
-        return set()
-
-    df_regime = df_tick_data.filter(
-        pl.col("instrument") == regime_instrument
-    ).sort("date_epoch")
-
-    if df_regime.is_empty():
-        print(f"  Warning: regime instrument {regime_instrument} not found")
-        return set()
-
-    df_regime = df_regime.with_columns(
-        pl.col("close")
-        .rolling_mean(window_size=regime_sma_period, min_samples=regime_sma_period)
-        .alias("regime_sma")
-    )
-
-    bull_epochs = set(
-        df_regime.filter(
-            (pl.col("close") > pl.col("regime_sma"))
-            & (pl.col("regime_sma").is_not_null())
-        )["date_epoch"].to_list()
-    )
-
-    total = df_regime.filter(pl.col("regime_sma").is_not_null()).height
-    pct = len(bull_epochs) / total * 100 if total > 0 else 0
-    print(
-        f"  Regime: {regime_instrument} > SMA({regime_sma_period}), "
-        f"{len(bull_epochs)}/{total} days bullish ({pct:.0f}%)"
-    )
-    return bull_epochs
 
 
 def _passes_fundamental_filter(
@@ -251,7 +221,7 @@ class MomentumDipQualitySignalGenerator:
         # Pre-build regime filters
         regime_cache = {}
         for ri, rp in regime_configs:
-            regime_cache[(ri, rp)] = _build_regime_filter(df_tick_data, ri, rp)
+            regime_cache[(ri, rp)] = build_regime_filter(df_tick_data, ri, rp)
 
         # ── Phase 1: Scanner (per-day liquidity filter) ──
         shortlist_tracker, df_trimmed = run_scanner(context, df_tick_data)
@@ -369,7 +339,7 @@ class MomentumDipQualitySignalGenerator:
                 break
 
             period_avg = (
-                df_signals
+                df_ind  # Use full data range (incl. prefetch) to match standalone
                 .group_by("instrument")
                 .agg(
                     (pl.col("close") * pl.col("volume")).mean().alias("avg_turnover"),
