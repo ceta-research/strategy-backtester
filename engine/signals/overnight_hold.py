@@ -189,5 +189,18 @@ class OvernightHoldSignalGenerator:
         print(f"  Signal gen: {entry_elapsed}s, {df_orders.height} orders")
         return df_orders
 
+    @staticmethod
+    def build_entry_config(entry_cfg: dict) -> dict:
+        return {
+            "buy_on_down_day": entry_cfg.get("buy_on_down_day", [False]),
+            "min_rsi_14": entry_cfg.get("min_rsi_14", [0]),
+        }
+
+    @staticmethod
+    def build_exit_config(exit_cfg: dict) -> dict:
+        return {
+            "exit_at": exit_cfg.get("exit_at", ["next_open"]),
+            "max_hold_days": exit_cfg.get("max_hold_days", [1]),
+        }
 
 register_strategy("overnight_hold", OvernightHoldSignalGenerator)

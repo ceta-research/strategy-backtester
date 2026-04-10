@@ -315,5 +315,21 @@ class SqueezeSignalGenerator:
         print(f"  Signal gen: {entry_elapsed}s, {df_orders.height} orders")
         return df_orders
 
+    @staticmethod
+    def build_entry_config(entry_cfg: dict) -> dict:
+        return {
+            "bb_period": entry_cfg.get("bb_period", [20]),
+            "bb_std": entry_cfg.get("bb_std", [2.0]),
+            "kc_period": entry_cfg.get("kc_period", [20]),
+            "kc_mult": entry_cfg.get("kc_mult", [1.5]),
+            "mom_period": entry_cfg.get("mom_period", [12]),
+        }
+
+    @staticmethod
+    def build_exit_config(exit_cfg: dict) -> dict:
+        return {
+            "stop_pct": exit_cfg.get("stop_pct", [0.05]),
+            "max_hold_days": exit_cfg.get("max_hold_days", [20]),
+        }
 
 register_strategy("squeeze", SqueezeSignalGenerator)

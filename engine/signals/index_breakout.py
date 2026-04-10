@@ -187,5 +187,19 @@ class IndexBreakoutSignalGenerator:
         entry_elapsed = round(time.time() - t1, 2)
         return finalize_orders(all_order_rows, entry_elapsed)
 
+    @staticmethod
+    def build_entry_config(entry_cfg: dict) -> dict:
+        return {
+            "lookback_days": entry_cfg.get("lookback_days", [3]),
+            "regime_instrument": entry_cfg.get("regime_instrument", [""]),
+            "regime_sma_period": entry_cfg.get("regime_sma_period", [0]),
+        }
+
+    @staticmethod
+    def build_exit_config(exit_cfg: dict) -> dict:
+        return {
+            "tsl_pct": exit_cfg.get("tsl_pct", [5]),
+            "max_hold_days": exit_cfg.get("max_hold_days", [0]),
+        }
 
 register_strategy("index_breakout", IndexBreakoutSignalGenerator)

@@ -236,5 +236,18 @@ class IndexSmaCrossoverSignalGenerator:
         print(f"  Signal gen: {entry_elapsed}s, {df_orders.height} orders")
         return df_orders
 
+    @staticmethod
+    def build_entry_config(entry_cfg: dict) -> dict:
+        return {
+            "sma_short": entry_cfg.get("sma_short", [10]),
+            "sma_long": entry_cfg.get("sma_long", [50]),
+        }
+
+    @staticmethod
+    def build_exit_config(exit_cfg: dict) -> dict:
+        return {
+            "stop_loss_pct": exit_cfg.get("stop_loss_pct", [0]),
+            "max_hold_days": exit_cfg.get("max_hold_days", [0]),
+        }
 
 register_strategy("index_sma_crossover", IndexSmaCrossoverSignalGenerator)

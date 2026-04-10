@@ -29,5 +29,21 @@ class EodTechnicalSignalGenerator:
 
         return df_orders
 
+    @staticmethod
+    def build_entry_config(entry_cfg: dict) -> dict:
+        return {
+            "n_day_ma": entry_cfg.get("n_day_ma", [3]),
+            "n_day_high": entry_cfg.get("n_day_high", [2]),
+            "direction_score": entry_cfg.get("direction_score", [
+                {"n_day_ma": 3, "score": 0.54}
+            ]),
+        }
+
+    @staticmethod
+    def build_exit_config(exit_cfg: dict) -> dict:
+        return {
+            "min_hold_time_days": exit_cfg.get("min_hold_time_days", [0]),
+            "trailing_stop_loss": exit_cfg.get("trailing_stop_loss", [15]),
+        }
 
 register_strategy("eod_technical", EodTechnicalSignalGenerator)

@@ -298,5 +298,19 @@ class ConnorsRsiSignalGenerator:
         print(f"  Signal gen: {entry_elapsed}s, {df_orders.height} orders")
         return df_orders
 
+    @staticmethod
+    def build_entry_config(entry_cfg: dict) -> dict:
+        return {
+            "rsi_period": entry_cfg.get("rsi_period", [2]),
+            "rsi_entry_threshold": entry_cfg.get("rsi_entry_threshold", [5]),
+            "sma_trend_period": entry_cfg.get("sma_trend_period", [200]),
+        }
+
+    @staticmethod
+    def build_exit_config(exit_cfg: dict) -> dict:
+        return {
+            "exit_sma_period": exit_cfg.get("exit_sma_period", [5]),
+            "max_hold_days": exit_cfg.get("max_hold_days", [20]),
+        }
 
 register_strategy("connors_rsi", ConnorsRsiSignalGenerator)

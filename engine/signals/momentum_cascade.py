@@ -321,5 +321,23 @@ class MomentumCascadeSignalGenerator:
         print(f"  Signal gen: {entry_elapsed}s, {df_orders.height} orders")
         return df_orders
 
+    @staticmethod
+    def build_entry_config(entry_cfg: dict) -> dict:
+        return {
+            "fast_lookback_days": entry_cfg.get("fast_lookback_days", [42]),
+            "slow_lookback_days": entry_cfg.get("slow_lookback_days", [126]),
+            "accel_threshold_pct": entry_cfg.get("accel_threshold_pct", [2]),
+            "min_momentum_pct": entry_cfg.get("min_momentum_pct", [20]),
+            "breakout_window": entry_cfg.get("breakout_window", [63]),
+            "regime_instrument": entry_cfg.get("regime_instrument", [""]),
+            "regime_sma_period": entry_cfg.get("regime_sma_period", [0]),
+        }
+
+    @staticmethod
+    def build_exit_config(exit_cfg: dict) -> dict:
+        return {
+            "tsl_pct": exit_cfg.get("tsl_pct", [12]),
+            "max_hold_days": exit_cfg.get("max_hold_days", [504]),
+        }
 
 register_strategy("momentum_cascade", MomentumCascadeSignalGenerator)

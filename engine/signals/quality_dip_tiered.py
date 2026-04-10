@@ -247,5 +247,25 @@ class QualityDipTieredSignalGenerator:
         entry_elapsed = round(time.time() - t1, 2)
         return finalize_orders(all_order_rows, entry_elapsed)
 
+    @staticmethod
+    def build_entry_config(entry_cfg: dict) -> dict:
+        return {
+            "consecutive_positive_years": entry_cfg.get("consecutive_positive_years", [2]),
+            "min_yearly_return_pct": entry_cfg.get("min_yearly_return_pct", [0]),
+            "n_tiers": entry_cfg.get("n_tiers", [1]),
+            "tier_multiplier": entry_cfg.get("tier_multiplier", [1.5]),
+            "base_dip_threshold_pct": entry_cfg.get("base_dip_threshold_pct", [5]),
+            "peak_lookback_days": entry_cfg.get("peak_lookback_days", [63]),
+            "rescreen_interval_days": entry_cfg.get("rescreen_interval_days", [63]),
+            "regime_instrument": entry_cfg.get("regime_instrument", [""]),
+            "regime_sma_period": entry_cfg.get("regime_sma_period", [0]),
+        }
+
+    @staticmethod
+    def build_exit_config(exit_cfg: dict) -> dict:
+        return {
+            "tsl_pct": exit_cfg.get("tsl_pct", [10]),
+            "max_hold_days": exit_cfg.get("max_hold_days", [504]),
+        }
 
 register_strategy("quality_dip_tiered", QualityDipTieredSignalGenerator)

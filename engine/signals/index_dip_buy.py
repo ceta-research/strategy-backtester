@@ -252,5 +252,19 @@ class IndexDipBuySignalGenerator:
         print(f"  Signal gen: {entry_elapsed}s, {df_orders.height} orders")
         return df_orders
 
+    @staticmethod
+    def build_entry_config(entry_cfg: dict) -> dict:
+        return {
+            "sma_short": entry_cfg.get("sma_short", [20]),
+            "sma_long": entry_cfg.get("sma_long", [200]),
+            "rsi_threshold": entry_cfg.get("rsi_threshold", [0]),
+        }
+
+    @staticmethod
+    def build_exit_config(exit_cfg: dict) -> dict:
+        return {
+            "max_hold_days": exit_cfg.get("max_hold_days", [20]),
+            "stop_loss_pct": exit_cfg.get("stop_loss_pct", [0]),
+        }
 
 register_strategy("index_dip_buy", IndexDipBuySignalGenerator)

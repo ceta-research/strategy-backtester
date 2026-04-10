@@ -400,5 +400,25 @@ class QualityDipBuySignalGenerator:
         print(f"  Signal gen: {entry_elapsed}s, {df_orders.height} orders")
         return df_orders
 
+    @staticmethod
+    def build_entry_config(entry_cfg: dict) -> dict:
+        return {
+            "consecutive_positive_years": entry_cfg.get("consecutive_positive_years", [3]),
+            "min_yearly_return_pct": entry_cfg.get("min_yearly_return_pct", [0]),
+            "dip_threshold_pct": entry_cfg.get("dip_threshold_pct", [10]),
+            "peak_lookback_days": entry_cfg.get("peak_lookback_days", [252]),
+            "rescreen_interval_days": entry_cfg.get("rescreen_interval_days", [63]),
+            "max_per_sector": entry_cfg.get("max_per_sector", [0]),
+            "rsi_threshold": entry_cfg.get("rsi_threshold", [0]),
+            "regime_instrument": entry_cfg.get("regime_instrument", [""]),
+            "regime_sma_period": entry_cfg.get("regime_sma_period", [0]),
+        }
+
+    @staticmethod
+    def build_exit_config(exit_cfg: dict) -> dict:
+        return {
+            "tsl_pct": exit_cfg.get("tsl_pct", [0]),
+            "max_hold_days": exit_cfg.get("max_hold_days", [0]),
+        }
 
 register_strategy("quality_dip_buy", QualityDipBuySignalGenerator)

@@ -273,5 +273,17 @@ class HolpLohpSignalGenerator:
         print(f"  Signal gen: {entry_elapsed}s, {df_orders.height} orders")
         return df_orders
 
+    @staticmethod
+    def build_entry_config(entry_cfg: dict) -> dict:
+        return {
+            "lookback_period": entry_cfg.get("lookback_period", [20]),
+        }
+
+    @staticmethod
+    def build_exit_config(exit_cfg: dict) -> dict:
+        return {
+            "trailing_start_day": exit_cfg.get("trailing_start_day", [3]),
+            "max_hold_days": exit_cfg.get("max_hold_days", [20]),
+        }
 
 register_strategy("holp_lohp", HolpLohpSignalGenerator)

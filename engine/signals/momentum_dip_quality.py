@@ -454,5 +454,33 @@ class MomentumDipQualitySignalGenerator:
         entry_elapsed = round(time.time() - t1, 2)
         return finalize_orders(all_order_rows, entry_elapsed)
 
+    @staticmethod
+    def build_entry_config(entry_cfg: dict) -> dict:
+        return {
+            "consecutive_positive_years": entry_cfg.get("consecutive_positive_years", [2]),
+            "min_yearly_return_pct": entry_cfg.get("min_yearly_return_pct", [0]),
+            "momentum_lookback_days": entry_cfg.get("momentum_lookback_days", [63]),
+            "momentum_percentile": entry_cfg.get("momentum_percentile", [0.30]),
+            "rerank_interval_days": entry_cfg.get("rerank_interval_days", [63]),
+            "dip_threshold_pct": entry_cfg.get("dip_threshold_pct", [5]),
+            "peak_lookback_days": entry_cfg.get("peak_lookback_days", [63]),
+            "rescreen_interval_days": entry_cfg.get("rescreen_interval_days", [63]),
+            "roe_threshold": entry_cfg.get("roe_threshold", [15]),
+            "pe_threshold": entry_cfg.get("pe_threshold", [25]),
+            "de_threshold": entry_cfg.get("de_threshold", [0]),
+            "fundamental_missing_mode": entry_cfg.get("fundamental_missing_mode", ["skip"]),
+            "regime_instrument": entry_cfg.get("regime_instrument", [""]),
+            "regime_sma_period": entry_cfg.get("regime_sma_period", [0]),
+            "direction_score_n_day_ma": entry_cfg.get("direction_score_n_day_ma", [0]),
+            "direction_score_threshold": entry_cfg.get("direction_score_threshold", [0]),
+        }
+
+    @staticmethod
+    def build_exit_config(exit_cfg: dict) -> dict:
+        return {
+            "tsl_pct": exit_cfg.get("tsl_pct", [10]),
+            "max_hold_days": exit_cfg.get("max_hold_days", [504]),
+            "require_peak_recovery": exit_cfg.get("require_peak_recovery", [True]),
+        }
 
 register_strategy("momentum_dip_quality", MomentumDipQualitySignalGenerator)

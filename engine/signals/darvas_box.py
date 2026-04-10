@@ -252,5 +252,18 @@ class DarvasBoxSignalGenerator:
         print(f"  Signal gen: {entry_elapsed}s, {df_orders.height} orders")
         return df_orders
 
+    @staticmethod
+    def build_entry_config(entry_cfg: dict) -> dict:
+        return {
+            "box_min_days": entry_cfg.get("box_min_days", [10]),
+            "volume_breakout_mult": entry_cfg.get("volume_breakout_mult", [1.5]),
+        }
+
+    @staticmethod
+    def build_exit_config(exit_cfg: dict) -> dict:
+        return {
+            "trailing_stop_pct": exit_cfg.get("trailing_stop_pct", [0.08]),
+            "max_hold_days": exit_cfg.get("max_hold_days", [30]),
+        }
 
 register_strategy("darvas_box", DarvasBoxSignalGenerator)

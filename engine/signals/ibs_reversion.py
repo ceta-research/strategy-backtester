@@ -238,5 +238,18 @@ class IbsReversionSignalGenerator:
         print(f"  Signal gen: {entry_elapsed}s, {df_orders.height} orders")
         return df_orders
 
+    @staticmethod
+    def build_entry_config(entry_cfg: dict) -> dict:
+        return {
+            "ibs_entry_threshold": entry_cfg.get("ibs_entry_threshold", [0.2]),
+            "sma_trend_period": entry_cfg.get("sma_trend_period", [200]),
+        }
+
+    @staticmethod
+    def build_exit_config(exit_cfg: dict) -> dict:
+        return {
+            "ibs_exit_threshold": exit_cfg.get("ibs_exit_threshold", [0.8]),
+            "max_hold_days": exit_cfg.get("max_hold_days", [10]),
+        }
 
 register_strategy("ibs_mean_reversion", IbsReversionSignalGenerator)

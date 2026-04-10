@@ -669,6 +669,26 @@ class FactorCompositeSignalGenerator:
         print(f"  Total signal gen: {total}s")
         return df_orders
 
+    @staticmethod
+    def build_entry_config(entry_cfg: dict) -> dict:
+        return {
+            "momentum_lookback_days": entry_cfg.get("momentum_lookback_days", [252]),
+            "momentum_skip_days": entry_cfg.get("momentum_skip_days", [21]),
+            "factor_weights": entry_cfg.get("factor_weights", [
+                {"momentum": 0.4, "gross_profitability": 0.3, "value": 0.3}
+            ]),
+            "regime_filter_sma": entry_cfg.get("regime_filter_sma", [200]),
+            "top_n_stocks": entry_cfg.get("top_n_stocks", [30]),
+        }
+
+    @staticmethod
+    def build_exit_config(exit_cfg: dict) -> dict:
+        return {
+            "vol_target_annual": exit_cfg.get("vol_target_annual", [0.15]),
+            "vol_lookback_days": exit_cfg.get("vol_lookback_days", [126]),
+            "stop_loss_pct": exit_cfg.get("stop_loss_pct", [0.15]),
+        }
+
 
 def _empty_orders() -> pl.DataFrame:
     column_order = [

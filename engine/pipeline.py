@@ -26,37 +26,7 @@ from engine.ranking import sort_orders
 from engine.utils import create_epoch_wise_instrument_stats, create_config_df_loc_lookup
 from lib.backtest_result import BacktestResult, SweepResult
 
-# Import signal generators to trigger registration
-import engine.signals.eod_technical  # noqa: F401
-import engine.signals.connors_rsi  # noqa: F401
-import engine.signals.ibs_reversion  # noqa: F401
-import engine.signals.gap_fill  # noqa: F401
-import engine.signals.overnight_hold  # noqa: F401
-import engine.signals.darvas_box  # noqa: F401
-import engine.signals.swing_master  # noqa: F401
-import engine.signals.squeeze  # noqa: F401
-import engine.signals.holp_lohp  # noqa: F401
-import engine.signals.factor_composite  # noqa: F401
-import engine.signals.trending_value  # noqa: F401
-import engine.signals.bb_mean_reversion  # noqa: F401
-import engine.signals.extended_ibs  # noqa: F401
-import engine.signals.momentum_dip  # noqa: F401
-import engine.signals.index_green_candle  # noqa: F401
-import engine.signals.index_sma_crossover  # noqa: F401
-import engine.signals.index_dip_buy  # noqa: F401
-import engine.signals.quality_dip_buy  # noqa: F401
-import engine.signals.low_pe  # noqa: F401
-import engine.signals.momentum_cascade  # noqa: F401
-import engine.signals.momentum_dip_quality  # noqa: F401
-import engine.signals.forced_selling_dip  # noqa: F401
-import engine.signals.index_breakout  # noqa: F401
-import engine.signals.momentum_rebalance  # noqa: F401
-import engine.signals.earnings_dip  # noqa: F401
-import engine.signals.quality_dip_tiered  # noqa: F401
-import engine.signals.enhanced_breakout  # noqa: F401
-import engine.signals.ml_supertrend  # noqa: F401
-import engine.signals.momentum_top_gainers  # noqa: F401
-import engine.signals.eod_breakout  # noqa: F401
+import engine.signals  # noqa: F401 — registers all signal generators
 from engine.signals.base import get_signal_generator, sanitize_orders, validate_orders
 
 

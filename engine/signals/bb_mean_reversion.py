@@ -238,5 +238,18 @@ class BbMeanReversionSignalGenerator:
         print(f"  Signal gen: {entry_elapsed}s, {df_orders.height} orders")
         return df_orders
 
+    @staticmethod
+    def build_entry_config(entry_cfg: dict) -> dict:
+        return {
+            "bb_period": entry_cfg.get("bb_period", [20]),
+            "bb_std": entry_cfg.get("bb_std", [2.0]),
+            "sma_trend_period": entry_cfg.get("sma_trend_period", [200]),
+        }
+
+    @staticmethod
+    def build_exit_config(exit_cfg: dict) -> dict:
+        return {
+            "max_hold_days": exit_cfg.get("max_hold_days", [400]),
+        }
 
 register_strategy("bb_mean_reversion", BbMeanReversionSignalGenerator)

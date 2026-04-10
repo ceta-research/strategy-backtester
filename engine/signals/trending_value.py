@@ -588,6 +588,26 @@ class TrendingValueSignalGenerator:
         print(f"  Total: {round(time.time() - t0, 2)}s")
         return df_orders
 
+    @staticmethod
+    def build_entry_config(entry_cfg: dict) -> dict:
+        return {
+            "max_debt_to_assets": entry_cfg.get("max_debt_to_assets", [0.6]),
+            "min_roe": entry_cfg.get("min_roe", [0.0]),
+            "growth_lookback_years": entry_cfg.get("growth_lookback_years", [3]),
+            "growth_weights": entry_cfg.get("growth_weights", [
+                {"revenue": 0.5, "earnings": 0.5}
+            ]),
+            "top_n_stocks": entry_cfg.get("top_n_stocks", [20]),
+            "rebalance_frequency": entry_cfg.get("rebalance_frequency", ["quarterly"]),
+        }
+
+    @staticmethod
+    def build_exit_config(exit_cfg: dict) -> dict:
+        return {
+            "min_hold_days": exit_cfg.get("min_hold_days", [365]),
+            "trailing_stop_pct": exit_cfg.get("trailing_stop_pct", [0.20]),
+        }
+
 
 def _get_open(inst_daily: dict, inst: str, epoch: int) -> float | None:
     """Look up open price for an instrument at a specific epoch."""

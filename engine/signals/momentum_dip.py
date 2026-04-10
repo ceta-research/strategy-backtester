@@ -259,5 +259,20 @@ class MomentumDipSignalGenerator:
         print(f"  Signal gen: {entry_elapsed}s, {df_orders.height} orders")
         return df_orders
 
+    @staticmethod
+    def build_entry_config(entry_cfg: dict) -> dict:
+        return {
+            "rsi_threshold": entry_cfg.get("rsi_threshold", [30]),
+            "momentum_lookback_days": entry_cfg.get("momentum_lookback_days", [126]),
+            "top_n": entry_cfg.get("top_n", [50]),
+            "rerank_interval_days": entry_cfg.get("rerank_interval_days", [21]),
+        }
+
+    @staticmethod
+    def build_exit_config(exit_cfg: dict) -> dict:
+        return {
+            "profit_target_pct": exit_cfg.get("profit_target_pct", [0.03]),
+            "max_hold_days": exit_cfg.get("max_hold_days", [10]),
+        }
 
 register_strategy("momentum_dip", MomentumDipSignalGenerator)

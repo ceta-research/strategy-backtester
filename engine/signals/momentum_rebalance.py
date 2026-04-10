@@ -203,5 +203,20 @@ class MomentumRebalanceSignalGenerator:
         entry_elapsed = round(time.time() - t1, 2)
         return finalize_orders(all_order_rows, entry_elapsed)
 
+    @staticmethod
+    def build_entry_config(entry_cfg: dict) -> dict:
+        return {
+            "momentum_lookback_days": entry_cfg.get("momentum_lookback_days", [126]),
+            "rebalance_interval_days": entry_cfg.get("rebalance_interval_days", [21]),
+            "num_positions": entry_cfg.get("num_positions", [10]),
+            "regime_instrument": entry_cfg.get("regime_instrument", [""]),
+            "regime_sma_period": entry_cfg.get("regime_sma_period", [0]),
+        }
+
+    @staticmethod
+    def build_exit_config(exit_cfg: dict) -> dict:
+        return {
+            "max_hold_days": exit_cfg.get("max_hold_days", [0]),
+        }
 
 register_strategy("momentum_rebalance", MomentumRebalanceSignalGenerator)

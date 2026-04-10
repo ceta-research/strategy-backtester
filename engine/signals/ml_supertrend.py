@@ -579,5 +579,28 @@ class MLSupertrendSignalGenerator:
         entry_elapsed = round(time.time() - t2, 2)
         return finalize_orders(all_order_rows, entry_elapsed)
 
+    @staticmethod
+    def build_entry_config(entry_cfg: dict) -> dict:
+        return {
+            "lookback_years": entry_cfg.get("lookback_years", [10]),
+            "min_positive_years": entry_cfg.get("min_positive_years", [8]),
+            "dip_threshold_pct": entry_cfg.get("dip_threshold_pct", [10]),
+            "peak_lookback_days": entry_cfg.get("peak_lookback_days", [252]),
+            "max_osc_position": entry_cfg.get("max_osc_position", [0.50]),
+            "supertrend_mode": entry_cfg.get("supertrend_mode", ["reversal"]),
+            "atr_period": entry_cfg.get("atr_period", [20]),
+            "atr_multiplier": entry_cfg.get("atr_multiplier", [2.0]),
+            "bounce_threshold_pct": entry_cfg.get("bounce_threshold_pct", [2.0]),
+            "st_flip_lookback": entry_cfg.get("st_flip_lookback", [1]),
+            "rescreen_interval_days": entry_cfg.get("rescreen_interval_days", [63]),
+        }
+
+    @staticmethod
+    def build_exit_config(exit_cfg: dict) -> dict:
+        return {
+            "tsl_pct": exit_cfg.get("tsl_pct", [10]),
+            "max_hold_days": exit_cfg.get("max_hold_days", [252]),
+            "supertrend_exit": exit_cfg.get("supertrend_exit", [False]),
+        }
 
 register_strategy("ml_supertrend", MLSupertrendSignalGenerator)

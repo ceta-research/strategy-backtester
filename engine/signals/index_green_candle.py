@@ -248,5 +248,18 @@ class IndexGreenCandleSignalGenerator:
         print(f"  Signal gen: {entry_elapsed}s, {df_orders.height} orders")
         return df_orders
 
+    @staticmethod
+    def build_entry_config(entry_cfg: dict) -> dict:
+        return {
+            "green_candles": entry_cfg.get("green_candles", [2]),
+        }
+
+    @staticmethod
+    def build_exit_config(exit_cfg: dict) -> dict:
+        return {
+            "red_candles_exit": exit_cfg.get("red_candles_exit", [1]),
+            "take_profit_pct": exit_cfg.get("take_profit_pct", [0]),
+            "stop_loss_pct": exit_cfg.get("stop_loss_pct", [0]),
+        }
 
 register_strategy("index_green_candle", IndexGreenCandleSignalGenerator)

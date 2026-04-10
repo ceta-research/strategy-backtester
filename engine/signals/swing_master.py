@@ -272,5 +272,21 @@ class SwingMasterSignalGenerator:
         print(f"  Signal gen: {entry_elapsed}s, {df_orders.height} orders")
         return df_orders
 
+    @staticmethod
+    def build_entry_config(entry_cfg: dict) -> dict:
+        return {
+            "sma_short": entry_cfg.get("sma_short", [10]),
+            "sma_long": entry_cfg.get("sma_long", [20]),
+            "pullback_days": entry_cfg.get("pullback_days", [3]),
+        }
+
+    @staticmethod
+    def build_exit_config(exit_cfg: dict) -> dict:
+        return {
+            "target_pct": exit_cfg.get("target_pct", [0.07]),
+            "stop_pct": exit_cfg.get("stop_pct", [0.04]),
+            "max_hold_days": exit_cfg.get("max_hold_days", [20]),
+            "trailing_buffer_pct": exit_cfg.get("trailing_buffer_pct", [0.002]),
+        }
 
 register_strategy("swing_master", SwingMasterSignalGenerator)

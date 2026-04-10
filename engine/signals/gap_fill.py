@@ -165,5 +165,18 @@ class GapFillSignalGenerator:
         print(f"  Signal gen: {entry_elapsed}s, {df_orders.height} orders")
         return df_orders
 
+    @staticmethod
+    def build_entry_config(entry_cfg: dict) -> dict:
+        return {
+            "min_gap_down_pct": entry_cfg.get("min_gap_down_pct", [0.01]),
+            "max_gap_down_pct": entry_cfg.get("max_gap_down_pct", [0.04]),
+        }
+
+    @staticmethod
+    def build_exit_config(exit_cfg: dict) -> dict:
+        return {
+            "exit_at": exit_cfg.get("exit_at", ["close"]),
+            "max_hold_days": exit_cfg.get("max_hold_days", [1]),
+        }
 
 register_strategy("gap_fill", GapFillSignalGenerator)
