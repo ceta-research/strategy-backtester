@@ -422,5 +422,23 @@ class LowPeSignalGenerator:
         print(f"  Total signal gen: {total}s")
         return df_orders
 
+    @staticmethod
+    def build_entry_config(entry_cfg: dict) -> dict:
+        return {
+            "pe_max": entry_cfg.get("pe_max", [15]),
+            "pe_min": entry_cfg.get("pe_min", [0]),
+            "roe_min": entry_cfg.get("roe_min", [0.10]),
+            "de_max": entry_cfg.get("de_max", [1.0]),
+            "mktcap_min": entry_cfg.get("mktcap_min", [1e9]),
+            "max_stocks": entry_cfg.get("max_stocks", [30]),
+            "min_stocks": entry_cfg.get("min_stocks", [10]),
+        }
+
+    @staticmethod
+    def build_exit_config(exit_cfg: dict) -> dict:
+        return {
+            "stop_loss_pct": exit_cfg.get("stop_loss_pct", [0]),
+        }
+
 
 register_strategy("low_pe", LowPeSignalGenerator)

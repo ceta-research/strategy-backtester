@@ -10,14 +10,15 @@ engine/
   simulator.py             Position management, charges, slippage, MTM. DO NOT MODIFY.
   ranking.py               Order sorting (top_gainer, top_dipper, etc). DO NOT MODIFY.
   data_provider.py         Data loading (CRDataProvider, Bhavcopy, NseCharting). DO NOT MODIFY.
-  config_loader.py         YAML parsing, config iteration. DO NOT MODIFY.
+  config_loader.py         Shared YAML parsing + dispatch to signal generator builders. DO NOT MODIFY.
   config_sweep.py          Cartesian product of config params. DO NOT MODIFY.
   charges.py               Exchange-specific transaction costs. DO NOT MODIFY.
   constants.py             Shared constants. DO NOT MODIFY.
 
   signals/
+    __init__.py            Imports all signal generators (add yours here). APPEND ONLY.
     base.py                Protocol + shared utilities. DO NOT MODIFY (see exceptions below).
-    my_strategy.py         YOUR strategy. All strategy logic lives here.
+    my_strategy.py         YOUR strategy. All logic + config schema lives here.
 
 strategies/
   my_strategy/
@@ -26,10 +27,16 @@ strategies/
 
 ### The contract
 
-Every signal generator implements one method:
+Every signal generator implements three methods:
 
 ```python
 def generate_orders(self, context: dict, df_tick_data: pl.DataFrame) -> pl.DataFrame
+
+@staticmethod
+def build_entry_config(entry_cfg: dict) -> dict   # YAML entry section -> config dict
+
+@staticmethod
+def build_exit_config(exit_cfg: dict) -> dict      # YAML exit section -> config dict
 ```
 
 **Receives**: `df_tick_data` with columns `[instrument, date_epoch, open, high, low, close, volume, average_price, exchange, symbol]`. Raw OHLCV. No pre-filtering except date range (start - prefetch to end).
@@ -104,6 +111,22 @@ from engine.signals.base import (
 
 class MyStrategySignalGenerator:
 
+    @staticmethod
+    def build_entry_config(entry_cfg: dict) -> dict:
+        """Define which YAML entry params this strategy uses and their defaults."""
+        return {
+            "lookback_days": entry_cfg.get("lookback_days", [10]),
+            "threshold_pct": entry_cfg.get("threshold_pct", [5]),
+        }
+
+    @staticmethod
+    def build_exit_config(exit_cfg: dict) -> dict:
+        """Define which YAML exit params this strategy uses and their defaults."""
+        return {
+            "tsl_pct": exit_cfg.get("tsl_pct", [10]),
+            "max_hold_days": exit_cfg.get("max_hold_days", [252]),
+        }
+
     def generate_orders(self, context, df_tick_data):
         print("\n--- My Strategy Signal Generation ---")
         t0 = time.time()
@@ -165,10 +188,10 @@ register_strategy("my_strategy", MyStrategySignalGenerator)
 
 ### Step 2: Register the import
 
-Add one line to `engine/pipeline.py`:
+Add one line to `engine/signals/__init__.py`:
 
 ```python
-import engine.signals.my_strategy  # noqa: F401
+from engine.signals import my_strategy  # noqa: F401
 ```
 
 ### Step 3: Create the YAML config
@@ -270,11 +293,13 @@ python scripts/cloud_sweep.py --parallel 3 --batch-size 24
 
 ### 1. Never modify the base engine for a strategy
 
-These files are shared by 28 signal generators. Changes here affect everything:
+These files are shared by 30 signal generators. Changes here affect everything:
 
 - `pipeline.py`, `simulator.py`, `ranking.py`, `data_provider.py`
 - `signals/base.py` (except adding new shared utilities that don't break existing signatures)
 - `config_loader.py`, `config_sweep.py`, `charges.py`
+
+**config_loader.py is truly DO NOT MODIFY.** It contains only shared config parsing (scanner, simulation, static) and dispatches to your signal generator's `build_entry_config()` / `build_exit_config()` methods automatically. Adding new strategy params requires editing only your signal generator file.
 
 If your strategy needs different simulation behavior (e.g., exit-before-entry ordering, dynamic position sizing), that's a config option on the simulator, not a code change in simulator.py. Propose the config option, don't hardcode the behavior.
 
@@ -282,6 +307,7 @@ If your strategy needs different simulation behavior (e.g., exit-before-entry or
 
 Your signal generator file contains ALL strategy-specific logic:
 
+- **Config schema** (`build_entry_config`, `build_exit_config`) — defines your YAML params and defaults
 - Universe filtering (quality screens, turnover filters, sector filters)
 - Indicator computation (momentum, dip detection, regime filters)
 - Entry signal logic
@@ -438,14 +464,15 @@ A gap larger than 5pp means the engine has a bug or the standalone has a bias. D
 Before submitting a new signal generator:
 
 - [ ] Single file in `engine/signals/`, registered via `register_strategy()`
-- [ ] Import added to `pipeline.py`
+- [ ] Defines `build_entry_config()` and `build_exit_config()` as `@staticmethod` on the class
+- [ ] Import added to `engine/signals/__init__.py`
 - [ ] YAML config in `strategies/{name}/`
 - [ ] All params are lists in YAML (sweepable)
 - [ ] Uses `add_next_day_values` for MOC execution (no same-bar entry)
 - [ ] Uses `run_scanner` for liquidity (or documents why not)
 - [ ] Uses `finalize_orders` to return standard DataFrame
 - [ ] Does NOT import from other signal generators
-- [ ] Does NOT modify base engine files
+- [ ] Does NOT modify base engine files (especially `config_loader.py`)
 - [ ] Tested with at least 2 values per key param to verify sweep works
 - [ ] Runs on CR cloud via `run_remote.py` (not just locally)
 - [ ] Standalone exploration script exists in `scripts/` for reference

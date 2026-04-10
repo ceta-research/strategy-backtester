@@ -204,6 +204,23 @@ class EodBreakoutSignalGenerator:
         elapsed = round(time.time() - t1, 2)
         return finalize_orders(all_order_rows, elapsed)
 
+    @staticmethod
+    def build_entry_config(entry_cfg: dict) -> dict:
+        return {
+            "n_day_ma": entry_cfg.get("n_day_ma", [3]),
+            "n_day_high": entry_cfg.get("n_day_high", [2]),
+            "direction_score": entry_cfg.get("direction_score", [
+                {"n_day_ma": 3, "score": 0.54}
+            ]),
+        }
+
+    @staticmethod
+    def build_exit_config(exit_cfg: dict) -> dict:
+        return {
+            "min_hold_time_days": exit_cfg.get("min_hold_time_days", [0]),
+            "trailing_stop_loss": exit_cfg.get("trailing_stop_loss", [15]),
+        }
+
 
 def _walk_forward_tsl(epochs, closes, opens, next_opens, next_epochs,
                       start_idx, entry_epoch, tsl_pct, min_hold_days):
