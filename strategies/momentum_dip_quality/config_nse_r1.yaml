@@ -1,0 +1,54 @@
+# Round 1: Core thesis params sweep (momentum + dip)
+# Sweep: momentum_lookback (3) x momentum_percentile (3) x dip_threshold (3) = 27 entry configs
+# Fixed: champion defaults for quality/fundamental/regime/exit/sim
+# Data: nse_charting (native NSE, split-adjusted)
+
+static:
+  strategy_type: momentum_dip_quality
+  start_margin: 10000000
+  start_epoch: 1262304000   # 2010-01-01
+  end_epoch: 1773878400     # 2026-03-17
+  prefetch_days: 1500
+  data_granularity: day
+  data_provider: nse_charting
+
+scanner:
+  instruments:
+    - [{exchange: NSE, symbols: []}]
+  price_threshold: [50]
+  avg_day_transaction_threshold:
+    - {period: 125, threshold: 70000000}
+  n_day_gain_threshold:
+    - {n: 360, threshold: -999}
+
+entry:
+  consecutive_positive_years: [2]
+  min_yearly_return_pct: [0]
+  momentum_lookback_days: [63, 126, 252]
+  momentum_percentile: [0.20, 0.30, 0.40]
+  rerank_interval_days: [63]
+  dip_threshold_pct: [3, 5, 7]
+  peak_lookback_days: [63]
+  rescreen_interval_days: [63]
+  roe_threshold: [15]
+  pe_threshold: [25]
+  de_threshold: [1.0]
+  fundamental_missing_mode: ['skip']
+  regime_instrument: ['NSE:NIFTYBEES']
+  regime_sma_period: [200]
+
+exit:
+  tsl_pct: [10]
+  max_hold_days: [504]
+
+simulation:
+  default_sorting_type: [top_gainer]
+  order_sorting_type: [top_gainer]
+  order_ranking_window_days: [30]
+  max_positions: [10]
+  max_positions_per_instrument: [1]
+  order_value_multiplier: [1.0]
+  max_order_value:
+    - {type: fixed, value: 1000000000}
+
+# Total: 1 scanner x 27 entry x 1 exit x 1 sim = 27 configs
