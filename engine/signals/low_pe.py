@@ -31,11 +31,10 @@ from datetime import datetime, timezone
 import polars as pl
 
 from engine.config_loader import (
-    get_scanner_config_iterator,
     get_entry_config_iterator,
     get_exit_config_iterator,
 )
-from engine.signals.base import register_strategy
+from engine.signals.base import register_strategy, run_scanner
 from engine.signals.factor_composite import (
     _fmp_symbol_to_instrument,
     _epoch_to_ym,
@@ -186,60 +185,8 @@ class LowPeSignalGenerator:
         end_epoch = context.get("end_epoch", context["static_config"]["end_epoch"])
 
         # Phase 1: Scanner (liquidity filter)
-        shortlist_tracker = {}
-        df = df_tick_data.clone()
-
-        for scanner_config in get_scanner_config_iterator(context):
-            df_scan = df.clone()
-
-            filter_exprs = []
-            for instrument in scanner_config["instruments"]:
-                if instrument["symbols"]:
-                    filter_exprs.append(
-                        (pl.col("exchange") == instrument["exchange"])
-                        & (pl.col("symbol").is_in(instrument["symbols"]))
-                    )
-                else:
-                    filter_exprs.append(pl.col("exchange") == instrument["exchange"])
-            if filter_exprs:
-                combined = filter_exprs[0]
-                for expr in filter_exprs[1:]:
-                    combined = combined | expr
-                df_scan = df_scan.filter(combined)
-
-            atc = scanner_config["avg_day_transaction_threshold"]
-            df_scan = df_scan.with_columns(
-                (pl.col("volume") * pl.col("average_price")).alias("avg_txn_turnover")
-            )
-            df_scan = df_scan.sort(["instrument", "date_epoch"]).with_columns(
-                pl.col("avg_txn_turnover")
-                .rolling_mean(window_size=atc["period"], min_samples=1)
-                .over("instrument")
-                .alias("avg_txn_turnover")
-            )
-            df_scan = df_scan.drop_nulls()
-            df_scan = df_scan.filter(pl.col("close") > scanner_config["price_threshold"])
-            df_scan = df_scan.filter(pl.col("avg_txn_turnover") > atc["threshold"])
-
-            uid_series = df_scan.select(
-                (pl.col("instrument").cast(pl.Utf8) + pl.lit(":") + pl.col("date_epoch").cast(pl.Utf8)).alias("uid")
-            )["uid"]
-            shortlist_tracker[scanner_config["id"]] = set(uid_series.to_list())
-
-        # Build scanner_config_ids lookup
-        df_trimmed = df.filter(pl.col("date_epoch") >= start_epoch).drop_nulls()
-        df_trimmed = df_trimmed.with_columns(
-            (pl.col("instrument").cast(pl.Utf8) + pl.lit(":") + pl.col("date_epoch").cast(pl.Utf8)).alias("uid")
-        )
-        signal_sets = {k: set(v) for k, v in shortlist_tracker.items()}
-        uids = df_trimmed["uid"].to_list()
-        uid_to_signals = {}
-        for uid in uids:
-            signals = [str(k) for k, v in signal_sets.items() if uid in v]
-            uid_to_signals[uid] = ",".join(sorted(signals)) if signals else None
-
-        scanner_elapsed = round(time.time() - t0, 2)
-        print(f"  Scanner: {scanner_elapsed}s, {df_trimmed.height} rows")
+        _, df_trimmed = run_scanner(context, df_tick_data)
+        uid_to_signals = dict(zip(df_trimmed["uid"].to_list(), df_trimmed["scanner_config_ids"].to_list()))
 
         # Phase 2: Identify quarterly rebalance dates
         all_dates = sorted(df_trimmed["date_epoch"].unique().to_list())

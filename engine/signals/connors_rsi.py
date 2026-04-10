@@ -11,8 +11,8 @@ import time
 
 import polars as pl
 
-from engine.config_loader import get_scanner_config_iterator, get_entry_config_iterator, get_exit_config_iterator
-from engine.signals.base import register_strategy, fill_missing_dates, backfill_close, add_next_day_values
+from engine.config_loader import get_entry_config_iterator, get_exit_config_iterator
+from engine.signals.base import register_strategy, fill_missing_dates, backfill_close, add_next_day_values, run_scanner
 
 
 def compute_rsi(df: pl.DataFrame, period: int, col: str = "close") -> pl.DataFrame:
@@ -57,67 +57,8 @@ class ConnorsRsiSignalGenerator:
         # Phase 1: Scanner (liquidity filter)
         # No fill_missing_dates needed - RSI/SMA handle gaps naturally.
         # fill_missing_dates would OOM on large universes (16K+ instruments).
-        df = df_tick_data.clone()
-        shortlist_tracker = {}
-
-        for scanner_config in get_scanner_config_iterator(context):
-            df_scan = df.clone()
-
-            # Exchange/symbol filter
-            filter_exprs = []
-            for instrument in scanner_config["instruments"]:
-                if instrument["symbols"]:
-                    filter_exprs.append(
-                        (pl.col("exchange") == instrument["exchange"])
-                        & (pl.col("symbol").is_in(instrument["symbols"]))
-                    )
-                else:
-                    filter_exprs.append(pl.col("exchange") == instrument["exchange"])
-            if filter_exprs:
-                combined = filter_exprs[0]
-                for expr in filter_exprs[1:]:
-                    combined = combined | expr
-                df_scan = df_scan.filter(combined)
-
-            # Avg turnover filter
-            atc = scanner_config["avg_day_transaction_threshold"]
-            df_scan = df_scan.with_columns(
-                (pl.col("volume") * pl.col("average_price")).alias("avg_txn_turnover")
-            )
-            df_scan = df_scan.sort(["instrument", "date_epoch"]).with_columns(
-                pl.col("avg_txn_turnover")
-                .rolling_mean(window_size=atc["period"], min_samples=1)
-                .over("instrument")
-                .alias("avg_txn_turnover")
-            )
-            df_scan = df_scan.drop_nulls()
-            df_scan = df_scan.filter(pl.col("close") > scanner_config["price_threshold"])
-            df_scan = df_scan.filter(pl.col("avg_txn_turnover") > atc["threshold"])
-
-            uid_series = df_scan.select(
-                (pl.col("instrument").cast(pl.Utf8) + pl.lit(":") + pl.col("date_epoch").cast(pl.Utf8)).alias("uid")
-            )["uid"]
-            shortlist_tracker[scanner_config["id"]] = set(uid_series.to_list())
-
-        # Trim prefetch, tag scanner signals
+        _, df = run_scanner(context, df_tick_data)
         start_epoch = context.get("start_epoch", context["static_config"]["start_epoch"])
-        df = df.filter(pl.col("date_epoch") >= start_epoch).drop_nulls()
-        df = df.with_columns(
-            (pl.col("instrument").cast(pl.Utf8) + pl.lit(":") + pl.col("date_epoch").cast(pl.Utf8)).alias("uid")
-        )
-
-        signal_sets = {k: set(v) for k, v in shortlist_tracker.items()}
-        uids = df["uid"].to_list()
-        uid_to_signals = {}
-        for uid in uids:
-            signals = [str(k) for k, v in signal_sets.items() if uid in v]
-            uid_to_signals[uid] = ",".join(sorted(signals)) if signals else None
-        df = df.with_columns(
-            pl.Series("scanner_config_ids", [uid_to_signals.get(u) for u in uids], dtype=pl.Utf8)
-        )
-
-        scanner_elapsed = round(time.time() - t0, 2)
-        print(f"  Scanner: {scanner_elapsed}s, {df.height} rows")
 
         # Phase 2: Compute indicators on full data (need prefetch for SMA/RSI warmup)
         df_ind = df_tick_data.clone()
