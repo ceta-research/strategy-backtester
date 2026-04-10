@@ -752,6 +752,7 @@ def _build_simulation_config(sim: dict) -> dict:
         "max_order_value": sim.get("max_order_value", [
             {"type": "percentage_of_instrument_avg_txn", "value": 4.5}
         ]),
+        "exit_before_entry": sim.get("exit_before_entry", [False]),
     }
 
 
