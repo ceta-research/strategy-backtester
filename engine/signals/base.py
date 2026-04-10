@@ -556,6 +556,21 @@ def empty_orders() -> pl.DataFrame:
     return pl.DataFrame(schema=EMPTY_ORDERS_SCHEMA)
 
 
+def validate_orders(df_orders: pl.DataFrame, strategy_type: str) -> None:
+    """Validate that generate_orders() output has required columns.
+
+    Raises ValueError with a clear message if columns are missing,
+    so bugs in signal generators surface immediately instead of causing
+    cryptic errors deep in the simulator.
+    """
+    missing = [col for col in ORDER_COLUMNS if col not in df_orders.columns]
+    if missing:
+        raise ValueError(
+            f"{strategy_type}.generate_orders() output missing columns: {', '.join(missing)}. "
+            f"Required: {ORDER_COLUMNS}"
+        )
+
+
 def finalize_orders(all_order_rows: list[dict], elapsed: float) -> pl.DataFrame:
     """Convert order rows to sorted DataFrame, or return empty if none."""
     if not all_order_rows:

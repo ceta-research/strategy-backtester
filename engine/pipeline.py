@@ -55,8 +55,9 @@ import engine.signals.earnings_dip  # noqa: F401
 import engine.signals.quality_dip_tiered  # noqa: F401
 import engine.signals.enhanced_breakout  # noqa: F401
 import engine.signals.ml_supertrend  # noqa: F401
+import engine.signals.momentum_top_gainers  # noqa: F401
 import engine.signals.eod_breakout  # noqa: F401
-from engine.signals.base import get_signal_generator, sanitize_orders
+from engine.signals.base import get_signal_generator, sanitize_orders, validate_orders
 
 
 def run_pipeline(config_path, data_provider=None):
@@ -162,6 +163,9 @@ def run_pipeline(config_path, data_provider=None):
 
     # Signal generation (strategy-specific scanner + order gen)
     df_orders = signal_gen.generate_orders(context, df_tick_data)
+
+    if not df_orders.is_empty():
+        validate_orders(df_orders, strategy_type)
 
     if df_orders.is_empty():
         print("No orders generated. Aborting.")
