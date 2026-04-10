@@ -223,8 +223,9 @@ def walk_forward_exit(
     entry_epoch: int, entry_price: float, peak_price: float,
     tsl_pct: float, max_hold_days: int,
     opens: list = None,
+    require_peak_recovery: bool = True,
 ) -> tuple:
-    """Walk forward from entry to find exit via peak recovery + TSL.
+    """Walk forward from entry to find exit via TSL (with optional peak recovery gate).
 
     Signal is evaluated at close[T]. If opens is provided, exit at open[T+1]
     (MOC execution matching standalone behavior). Otherwise exit at close[T].
@@ -239,6 +240,9 @@ def walk_forward_exit(
         tsl_pct: trailing stop-loss percentage (0 = no TSL, just peak recovery)
         max_hold_days: max holding period in calendar days (0 = no limit)
         opens: optional list of open prices; if provided, exit at next-day open
+        require_peak_recovery: if True (default), TSL only activates after price
+            recovers to peak_price. If False, TSL is active from entry (matches
+            ATO_Simulator behavior — pure trailing stop).
 
     Returns:
         (exit_epoch, exit_price) or (None, None) if no exit found and no data remains
@@ -264,7 +268,7 @@ def walk_forward_exit(
             if c >= peak_price:
                 return _exit_at(j)
     else:
-        reached_peak = False
+        reached_peak = not require_peak_recovery  # If no gate, TSL active immediately
         for j in range(start_idx, len(epochs)):
             c = closes[j]
             if c is None:
@@ -284,6 +288,55 @@ def walk_forward_exit(
         return epochs[-1], closes[-1]
 
     return None, None
+
+
+def compute_direction_score(df_tick_data: pl.DataFrame, n_day_ma: int = 3) -> dict:
+    """Compute market breadth direction score per epoch.
+
+    For each date, calculates what fraction of instruments have close > N-day MA.
+    Returns dict mapping epoch -> direction_score (0.0 to 1.0).
+    Matches ATO_Simulator's direction_score filter logic.
+
+    Args:
+        df_tick_data: Full tick data (all instruments)
+        n_day_ma: Moving average period (default 3, matching ATO config)
+
+    Returns:
+        dict of {epoch: float} where float is fraction of instruments in uptrend
+    """
+    df = df_tick_data.select(["instrument", "date_epoch", "close"]).sort(
+        ["instrument", "date_epoch"]
+    )
+
+    # N-day MA per instrument
+    df = df.with_columns(
+        pl.col("close")
+        .rolling_mean(window_size=n_day_ma, min_samples=1)
+        .over("instrument")
+        .alias("n_day_ma")
+    )
+
+    # Uptrend flag: 1 if close > MA, else 0
+    df = df.with_columns(
+        pl.when(pl.col("close") > pl.col("n_day_ma"))
+        .then(1.0)
+        .otherwise(0.0)
+        .alias("uptrend")
+    )
+
+    # Aggregate: mean uptrend across all instruments per date
+    direction_scores = (
+        df.group_by("date_epoch")
+        .agg(pl.col("uptrend").mean().alias("direction_score"))
+        .sort("date_epoch")
+    )
+
+    return dict(
+        zip(
+            direction_scores["date_epoch"].to_list(),
+            direction_scores["direction_score"].to_list(),
+        )
+    )
 
 
 def compute_rsi(series: pl.Expr, period: int) -> pl.Expr:

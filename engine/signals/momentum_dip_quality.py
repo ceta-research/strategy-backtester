@@ -28,6 +28,7 @@ from engine.config_loader import (
 from engine.signals.base import (
     register_strategy, add_next_day_values, run_scanner, walk_forward_exit, finalize_orders,
     build_regime_filter, fetch_fundamentals, passes_fundamental_filter,
+    compute_direction_score,
 )
 
 TRADING_DAYS_PER_YEAR = 252
@@ -81,6 +82,21 @@ class MomentumDipQualitySignalGenerator:
         for ri, rp in regime_configs:
             regime_cache[(ri, rp)] = build_regime_filter(df_tick_data, ri, rp)
 
+        # Pre-compute direction score (market breadth) if any config uses it
+        direction_score_cache = {}
+        direction_ma_periods = set()
+        for entry_config in get_entry_config_iterator(context):
+            ds_ma = entry_config.get("direction_score_n_day_ma", 0)
+            if ds_ma > 0:
+                direction_ma_periods.add(ds_ma)
+        for ds_ma in direction_ma_periods:
+            direction_score_cache[ds_ma] = compute_direction_score(
+                df_tick_data, n_day_ma=ds_ma
+            )
+            scores = list(direction_score_cache[ds_ma].values())
+            avg_score = sum(scores) / len(scores) if scores else 0
+            print(f"  Direction score ({ds_ma}d MA): avg {avg_score:.2f}")
+
         # ── Phase 1: Scanner (per-day liquidity filter) ──
         shortlist_tracker, df_trimmed = run_scanner(context, df_tick_data)
 
@@ -110,11 +126,17 @@ class MomentumDipQualitySignalGenerator:
             )
             regime_instrument = entry_config.get("regime_instrument", "")
             regime_sma_period = entry_config.get("regime_sma_period", 0)
+            direction_n_day_ma = entry_config.get("direction_score_n_day_ma", 0)
+            direction_threshold = entry_config.get("direction_score_threshold", 0)
 
             bull_epochs = regime_cache.get(
                 (regime_instrument, regime_sma_period), set()
             )
             use_regime = bool(bull_epochs)
+
+            # Direction score (market breadth) gate
+            direction_scores = direction_score_cache.get(direction_n_day_ma, {})
+            use_direction = bool(direction_scores) and direction_threshold > 0
 
             df_signals = df_ind.clone()
 
@@ -287,6 +309,10 @@ class MomentumDipQualitySignalGenerator:
                 extras.append(
                     f"regime={regime_instrument}>SMA{regime_sma_period}"
                 )
+            if use_direction:
+                extras.append(
+                    f"direction>{direction_threshold}({direction_n_day_ma}d)"
+                )
             print(
                 f"  Universe: avg {avg_pool:.0f} stocks ({', '.join(extras)})"
             )
@@ -339,6 +365,7 @@ class MomentumDipQualitySignalGenerator:
             for exit_config in get_exit_config_iterator(context):
                 tsl_pct = exit_config["tsl_pct"] / 100.0
                 max_hold_days = exit_config["max_hold_days"]
+                require_peak_recovery = exit_config.get("require_peak_recovery", True)
                 orders_this_config = 0
 
                 for entry in entry_rows:
@@ -349,6 +376,12 @@ class MomentumDipQualitySignalGenerator:
                     universe = combined_universe.get(epoch, set())
                     if inst not in universe:
                         continue
+
+                    # Direction score (market breadth) gate
+                    if use_direction:
+                        ds = direction_scores.get(epoch, 0)
+                        if ds <= direction_threshold:
+                            continue
 
                     # Fundamental filter
                     if fundamentals and (
@@ -391,6 +424,7 @@ class MomentumDipQualitySignalGenerator:
                         entry_epoch, entry_price, peak_price,
                         tsl_pct, max_hold_days,
                         opens=ed["opens"],
+                        require_peak_recovery=require_peak_recovery,
                     )
 
                     if exit_epoch is None or exit_price is None:
@@ -411,9 +445,10 @@ class MomentumDipQualitySignalGenerator:
                     })
                     orders_this_config += 1
 
+                peak_tag = "" if require_peak_recovery else " (pure TSL)"
                 print(
                     f"    Exit TSL={tsl_pct * 100:.0f}% "
-                    f"hold={max_hold_days}d: {orders_this_config} orders"
+                    f"hold={max_hold_days}d{peak_tag}: {orders_this_config} orders"
                 )
 
         entry_elapsed = round(time.time() - t1, 2)

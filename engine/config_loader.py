@@ -456,6 +456,8 @@ def _build_entry_config_momentum_dip_quality(entry: dict) -> dict:
         "fundamental_missing_mode": entry.get("fundamental_missing_mode", ["skip"]),
         "regime_instrument": entry.get("regime_instrument", [""]),
         "regime_sma_period": entry.get("regime_sma_period", [0]),
+        "direction_score_n_day_ma": entry.get("direction_score_n_day_ma", [0]),
+        "direction_score_threshold": entry.get("direction_score_threshold", [0]),
     }
 
 
@@ -463,6 +465,7 @@ def _build_exit_config_momentum_dip_quality(exit_cfg: dict) -> dict:
     return {
         "tsl_pct": exit_cfg.get("tsl_pct", [10]),
         "max_hold_days": exit_cfg.get("max_hold_days", [504]),
+        "require_peak_recovery": exit_cfg.get("require_peak_recovery", [True]),
     }
 
 
@@ -619,6 +622,30 @@ def _build_exit_config_enhanced_breakout(exit_cfg: dict) -> dict:
     }
 
 
+# ---------------------------------------------------------------------------
+# Momentum Top Gainers entry/exit (buy trailing winners, TSL exit)
+# ---------------------------------------------------------------------------
+
+def _build_entry_config_momentum_top_gainers(entry: dict) -> dict:
+    return {
+        "momentum_lookback_days": entry.get("momentum_lookback_days", [252]),
+        "top_n_pct": entry.get("top_n_pct", [0.20]),
+        "rebalance_interval_days": entry.get("rebalance_interval_days", [21]),
+        "min_momentum_pct": entry.get("min_momentum_pct", [0]),
+        "regime_instrument": entry.get("regime_instrument", [""]),
+        "regime_sma_period": entry.get("regime_sma_period", [0]),
+        "direction_score_n_day_ma": entry.get("direction_score_n_day_ma", [0]),
+        "direction_score_threshold": entry.get("direction_score_threshold", [0]),
+    }
+
+
+def _build_exit_config_momentum_top_gainers(exit_cfg: dict) -> dict:
+    return {
+        "tsl_pct": exit_cfg.get("tsl_pct", [15]),
+        "max_hold_days": exit_cfg.get("max_hold_days", [252]),
+    }
+
+
 def _build_entry_config_ml_supertrend(entry: dict) -> dict:
     return {
         "lookback_years": entry.get("lookback_years", [10]),
@@ -674,6 +701,7 @@ _ENTRY_BUILDERS = {
     "earnings_dip": _build_entry_config_earnings_dip,
     "quality_dip_tiered": _build_entry_config_quality_dip_tiered,
     "enhanced_breakout": _build_entry_config_enhanced_breakout,
+    "momentum_top_gainers": _build_entry_config_momentum_top_gainers,
     "ml_supertrend": _build_entry_config_ml_supertrend,
 }
 
@@ -704,6 +732,7 @@ _EXIT_BUILDERS = {
     "earnings_dip": _build_exit_config_earnings_dip,
     "quality_dip_tiered": _build_exit_config_quality_dip_tiered,
     "enhanced_breakout": _build_exit_config_enhanced_breakout,
+    "momentum_top_gainers": _build_exit_config_momentum_top_gainers,
     "ml_supertrend": _build_exit_config_ml_supertrend,
 }
 
