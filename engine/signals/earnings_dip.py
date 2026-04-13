@@ -1,11 +1,15 @@
 """Earnings Surprise + Post-Earnings Dip Strategy.
 
-Ports scripts/earnings_surprise_dip.py to the engine pipeline.
+Ports scripts/earnings_surprise_dip.py and scripts/earnings_volume_confirm.py
+to the engine pipeline.
 
 Entry signal:
 - Quality stock (N consecutive years positive returns)
 - Earnings beat: epsActual > epsEstimated * (1 + surprise_threshold)
 - Post-earnings dip: price drops X% from post-earnings peak within N days
+- Optional volume confirmation (volume_ratio_max > 0):
+  - Earnings day volume > 1.5x 20-day average (market noticed the beat)
+  - Dip day volume < volume_ratio_max * earnings day volume (exhaustion)
 - Optional fundamental filters (ROE, PE, D/E with 45-day lag)
 - Optional regime filter (benchmark > SMA)
 - Entry at next-day open (MOC execution)
@@ -234,6 +238,7 @@ class EarningsDipSignalGenerator:
             )
             regime_instrument = entry_config.get("regime_instrument", "")
             regime_sma_period = entry_config.get("regime_sma_period", 0)
+            volume_ratio_max = entry_config.get("volume_ratio_max", 0)
 
             bull_epochs = regime_cache.get(
                 (regime_instrument, regime_sma_period), set()
@@ -322,6 +327,8 @@ class EarningsDipSignalGenerator:
                 extras.append(f"PE<{pe_threshold}")
             if de_threshold > 0:
                 extras.append(f"D/E<{de_threshold}")
+            if volume_ratio_max > 0:
+                extras.append(f"vol_ratio<{volume_ratio_max}")
             if use_regime:
                 extras.append(
                     f"regime={regime_instrument}>SMA{regime_sma_period}"
@@ -339,6 +346,7 @@ class EarningsDipSignalGenerator:
                     "epochs": g["date_epoch"].to_list(),
                     "closes": g["close"].to_list(),
                     "opens": g["next_open"].to_list(),
+                    "volumes": g["volume"].to_list(),
                     "next_epochs": g["next_epoch"].to_list(),
                     "next_volumes": g["next_volume"].to_list(),
                     "scanner_ids": g["scanner_config_ids"].to_list(),
@@ -367,6 +375,7 @@ class EarningsDipSignalGenerator:
                 pd_epochs = pd_data["epochs"]
                 pd_closes = pd_data["closes"]
                 pd_opens = pd_data["opens"]
+                pd_volumes = pd_data["volumes"]
                 pd_next_epochs = pd_data["next_epochs"]
                 pd_next_volumes = pd_data["next_volumes"]
                 pd_scanner_ids = pd_data["scanner_ids"]
@@ -404,6 +413,22 @@ class EarningsDipSignalGenerator:
                         if not found_quality:
                             continue
 
+                    # Volume confirmation: earnings day must have high
+                    # volume (>1.5x 20-day avg) to confirm market noticed
+                    vol_lookback = 20
+                    earn_vol = 0
+                    if volume_ratio_max > 0:
+                        if earn_idx < vol_lookback:
+                            continue
+                        avg_vol = sum(
+                            pd_volumes[earn_idx - vol_lookback:earn_idx]
+                        ) / vol_lookback
+                        if avg_vol <= 0:
+                            continue
+                        earn_vol = pd_volumes[earn_idx] or 0
+                        if earn_vol < avg_vol * 1.5:
+                            continue
+
                     # Find post-earnings peak (highest close in first 5
                     # trading days after earnings)
                     peak_end = min(earn_idx + 5, len(pd_closes) - 1)
@@ -428,6 +453,13 @@ class EarningsDipSignalGenerator:
                         dip_from_peak = (post_peak - close_i) / post_peak
                         if dip_from_peak < dip_threshold:
                             continue
+
+                        # Volume confirmation: dip day volume must be low
+                        # relative to earnings day (exhaustion, not selling)
+                        if volume_ratio_max > 0 and earn_vol > 0:
+                            dip_vol = pd_volumes[i] or 0
+                            if dip_vol > volume_ratio_max * earn_vol:
+                                continue
 
                         # Must pass scanner on signal day
                         if pd_scanner_ids[i] is None:
@@ -552,6 +584,7 @@ class EarningsDipSignalGenerator:
             "fundamental_missing_mode": entry_cfg.get("fundamental_missing_mode", ["skip"]),
             "regime_instrument": entry_cfg.get("regime_instrument", [""]),
             "regime_sma_period": entry_cfg.get("regime_sma_period", [0]),
+            "volume_ratio_max": entry_cfg.get("volume_ratio_max", [0]),
         }
 
     @staticmethod

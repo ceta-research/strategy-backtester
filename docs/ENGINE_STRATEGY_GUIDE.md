@@ -133,7 +133,7 @@ Every parameter combination you test increases the risk of overfitting. With 100
 
 **Goal:** Find which parameters matter and which are noise.
 
-**Method:** Fix all parameters at reasonable defaults. Sweep ONE parameter at a time across its full plausible range (5-8 values, from extreme low to extreme high). This produces N_params x ~6 configs per run.
+**Method:** Fix all parameters at reasonable defaults. Sweep ONE parameter at a time across its full plausible range (8-10 values, from extreme low to extreme high). This produces N_params x ~9 configs per run.
 
 ```yaml
 # Example: sweep momentum lookback while fixing everything else
@@ -150,7 +150,7 @@ entry:
 - Parameters that are monotonic = the optimum may be at the edge you tested, extend the range
 - Parameters with noisy/random pattern = likely overfitting, fix at default
 
-**Budget:** ~6-12 configs per parameter x N_params. For 8 params, that's ~50-100 configs total.
+**Budget:** ~8-10 configs per parameter x N_params. For 8 params, that's ~64-80 configs total.
 
 **Real example (momentum_top_gainers, 7 params, 762 total Phase 1 configs):**
 
