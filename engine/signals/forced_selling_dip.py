@@ -347,7 +347,7 @@ class ForcedSellingDipSignalGenerator:
 
             # Filter by idiosyncratic dip (stock dropped more than sector)
             for exit_config in get_exit_config_iterator(context):
-                tsl_pct = exit_config["tsl_pct"] / 100.0
+                trailing_stop_pct = exit_config["trailing_stop_pct"] / 100.0
                 max_hold_days = exit_config["max_hold_days"]
                 orders_this_config = 0
 
@@ -419,7 +419,7 @@ class ForcedSellingDipSignalGenerator:
                     exit_epoch, exit_price = walk_forward_exit(
                         ed["epochs"], ed["closes"], start_idx,
                         entry_epoch, entry_price, peak_price,
-                        tsl_pct, max_hold_days,
+                        trailing_stop_pct, max_hold_days,
                     )
 
                     if exit_epoch is None or exit_price is None:
@@ -440,7 +440,7 @@ class ForcedSellingDipSignalGenerator:
                     orders_this_config += 1
 
                 print(
-                    f"    Exit TSL={tsl_pct * 100:.0f}% "
+                    f"    Exit TSL={trailing_stop_pct * 100:.0f}% "
                     f"hold={max_hold_days}d: {orders_this_config} orders"
                 )
 
@@ -468,7 +468,7 @@ class ForcedSellingDipSignalGenerator:
     @staticmethod
     def build_exit_config(exit_cfg: dict) -> dict:
         return {
-            "tsl_pct": exit_cfg.get("tsl_pct", [10]),
+            "trailing_stop_pct": exit_cfg.get("trailing_stop_pct", [10]),
             "max_hold_days": exit_cfg.get("max_hold_days", [504]),
         }
 

@@ -19,7 +19,7 @@ entry:
 
 exit:
   target_pct: [0, 0.015]
-  stop_pct: [0.01]
+  stop_loss_pct: [0.01]
   trailing_stop_pct: [0.01, 0.02]
   min_hold_bars: [0]
   use_bar_hilo: [true]

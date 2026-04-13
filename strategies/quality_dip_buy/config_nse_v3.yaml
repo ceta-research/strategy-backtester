@@ -32,7 +32,7 @@ entry:
 
 # Exit: 1 x 1 = 1 combo (best from v2)
 exit:
-  tsl_pct: [10]
+  trailing_stop_pct: [10]
   max_hold_days: [504]
 
 # Simulation: 3 combos

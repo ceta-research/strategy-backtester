@@ -26,7 +26,7 @@ entry:
   regime_sma_period: [50, 200]
 
 exit:
-  tsl_pct: [10, 12, 13]
+  trailing_stop_pct: [10, 12, 13]
   max_hold_days: [504]
 
 # No meaningful ranking: top_average_txn with 1-day window = sort by liquidity (neutral)

@@ -363,7 +363,7 @@ class MomentumDipQualitySignalGenerator:
 
             # Walk forward for each exit config
             for exit_config in get_exit_config_iterator(context):
-                tsl_pct = exit_config["tsl_pct"] / 100.0
+                trailing_stop_pct = exit_config["trailing_stop_pct"] / 100.0
                 max_hold_days = exit_config["max_hold_days"]
                 require_peak_recovery = exit_config.get("require_peak_recovery", True)
                 orders_this_config = 0
@@ -422,7 +422,7 @@ class MomentumDipQualitySignalGenerator:
                     exit_epoch, exit_price = walk_forward_exit(
                         ed["epochs"], ed["closes"], start_idx,
                         entry_epoch, entry_price, peak_price,
-                        tsl_pct, max_hold_days,
+                        trailing_stop_pct, max_hold_days,
                         opens=ed["opens"],
                         require_peak_recovery=require_peak_recovery,
                     )
@@ -447,7 +447,7 @@ class MomentumDipQualitySignalGenerator:
 
                 peak_tag = "" if require_peak_recovery else " (pure TSL)"
                 print(
-                    f"    Exit TSL={tsl_pct * 100:.0f}% "
+                    f"    Exit TSL={trailing_stop_pct * 100:.0f}% "
                     f"hold={max_hold_days}d{peak_tag}: {orders_this_config} orders"
                 )
 
@@ -478,7 +478,7 @@ class MomentumDipQualitySignalGenerator:
     @staticmethod
     def build_exit_config(exit_cfg: dict) -> dict:
         return {
-            "tsl_pct": exit_cfg.get("tsl_pct", [10]),
+            "trailing_stop_pct": exit_cfg.get("trailing_stop_pct", [10]),
             "max_hold_days": exit_cfg.get("max_hold_days", [504]),
             "require_peak_recovery": exit_cfg.get("require_peak_recovery", [True]),
         }

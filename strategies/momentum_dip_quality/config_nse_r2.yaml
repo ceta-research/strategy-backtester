@@ -1,6 +1,6 @@
 # Round 2: Exit + sim sweep with R1 winners locked
 # R1 winners: mom=126, pct=0.20, dip=5
-# Sweep: tsl_pct (4) x max_hold_days (3) x max_positions (4) = 48 configs
+# Sweep: trailing_stop_pct (4) x max_hold_days (3) x max_positions (4) = 48 configs
 # Data: nse_charting (native NSE)
 
 static:
@@ -38,7 +38,7 @@ entry:
   regime_sma_period: [200]
 
 exit:
-  tsl_pct: [7, 10, 15, 20]
+  trailing_stop_pct: [7, 10, 15, 20]
   max_hold_days: [252, 504, 756]
 
 simulation:

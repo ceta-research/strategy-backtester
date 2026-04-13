@@ -33,7 +33,7 @@ entry:
 
 exit:
   min_hold_time_days: [0, 4]
-  trailing_stop_loss: [15]
+  trailing_stop_pct: [15]
 
 simulation:
   default_sorting_type: [top_gainer]
@@ -71,7 +71,7 @@ def test_validate_config_bad_epochs():
     config = {
         "scanner_config_input": {"price_threshold": [50]},
         "entry_config_input": {"n_day_ma": [3]},
-        "exit_config_input": {"trailing_stop_loss": [15], "min_hold_time_days": [0]},
+        "exit_config_input": {"trailing_stop_pct": [15], "min_hold_time_days": [0]},
         "simulation_config_input": {"max_positions": [20]},
         "static_config": {"start_epoch": 200, "end_epoch": 100, "prefetch_days": 400},
     }
@@ -86,7 +86,7 @@ def test_validate_config_bad_max_positions():
     config = {
         "scanner_config_input": {"price_threshold": [50]},
         "entry_config_input": {"n_day_ma": [3]},
-        "exit_config_input": {"trailing_stop_loss": [15], "min_hold_time_days": [0]},
+        "exit_config_input": {"trailing_stop_pct": [15], "min_hold_time_days": [0]},
         "simulation_config_input": {"max_positions": [0]},
         "static_config": {"start_epoch": 100, "end_epoch": 200, "prefetch_days": 400},
     }

@@ -231,7 +231,7 @@ class QualityDipBuySignalGenerator:
 
             # Walk forward for each exit config
             for exit_config in get_exit_config_iterator(context):
-                tsl_pct = exit_config["tsl_pct"] / 100.0
+                trailing_stop_pct = exit_config["trailing_stop_pct"] / 100.0
                 max_hold_days = exit_config["max_hold_days"]
 
                 for entry in entry_rows:
@@ -265,7 +265,7 @@ class QualityDipBuySignalGenerator:
                     exit_price = None
                     trail_high = entry_price
 
-                    if tsl_pct == 0:
+                    if trailing_stop_pct == 0:
                         for j in range(start_idx, len(ed["epochs"])):
                             c = ed["closes"][j]
                             if c is None:
@@ -294,7 +294,7 @@ class QualityDipBuySignalGenerator:
                                 break
                             if c >= peak_price:
                                 reached_peak = True
-                            if reached_peak and c <= trail_high * (1 - tsl_pct):
+                            if reached_peak and c <= trail_high * (1 - trailing_stop_pct):
                                 exit_epoch = ed["epochs"][j]
                                 exit_price = c
                                 break
@@ -361,7 +361,7 @@ class QualityDipBuySignalGenerator:
     @staticmethod
     def build_exit_config(exit_cfg: dict) -> dict:
         return {
-            "tsl_pct": exit_cfg.get("tsl_pct", [0]),
+            "trailing_stop_pct": exit_cfg.get("trailing_stop_pct", [0]),
             "max_hold_days": exit_cfg.get("max_hold_days", [0]),
         }
 

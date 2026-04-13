@@ -23,7 +23,7 @@ entry:
 
 exit:
   min_hold_time_days: [0]
-  trailing_stop_loss: [8, 12, 15, 20, 25]
+  trailing_stop_pct: [8, 12, 15, 20, 25]
 
 simulation:
   default_sorting_type: [top_gainer]

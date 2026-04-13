@@ -1,0 +1,45 @@
+# Quick validation run: 12 configs (3 lookbacks x 2 TSL x 2 positions)
+# Run first to validate, then use full config.yaml for sweep
+
+static:
+  strategy_type: momentum_top_gainers
+  start_margin: 10000000
+  start_epoch: 1262304000       # 2010-01-01
+  end_epoch: 1773878400         # 2026-03-17
+  prefetch_days: 600
+  data_granularity: day
+
+scanner:
+  instruments:
+    - [{exchange: NSE, symbols: []}]
+  price_threshold: [50]
+  avg_day_transaction_threshold:
+    - {period: 125, threshold: 70000000}
+  n_day_gain_threshold:
+    - {n: 360, threshold: -999}
+
+entry:
+  momentum_lookback_days: [126, 189, 252]
+  top_n_pct: [0.20]
+  rebalance_interval_days: [21]
+  min_momentum_pct: [5]
+  direction_score_n_day_ma: [3]
+  direction_score_threshold: [0.50]
+  regime_instrument: ['NSE:NIFTYBEES']
+  regime_sma_period: [200]
+
+exit:
+  trailing_stop_pct: [10, 15]
+  max_hold_days: [252]
+
+simulation:
+  default_sorting_type: [top_gainer]
+  order_sorting_type: [top_gainer]
+  order_ranking_window_days: [30]
+  max_positions: [10, 20]
+  max_positions_per_instrument: [1]
+  order_value_multiplier: [1.0]
+  max_order_value:
+    - {type: fixed, value: 1000000000}
+
+# Total: 3 x 2 x 2 = 12 configs

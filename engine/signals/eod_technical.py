@@ -43,7 +43,7 @@ class EodTechnicalSignalGenerator:
     def build_exit_config(exit_cfg: dict) -> dict:
         return {
             "min_hold_time_days": exit_cfg.get("min_hold_time_days", [0]),
-            "trailing_stop_loss": exit_cfg.get("trailing_stop_loss", [15]),
+            "trailing_stop_pct": exit_cfg.get("trailing_stop_pct", [15]),
         }
 
 register_strategy("eod_technical", EodTechnicalSignalGenerator)

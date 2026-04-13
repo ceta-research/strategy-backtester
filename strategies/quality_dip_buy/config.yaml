@@ -25,7 +25,7 @@ entry:
 
 # Exit: 3 x 2 = 6 combos
 exit:
-  tsl_pct: [0, 5, 10]          # 0 = hard exit at peak recovery, >0 = TSL after reaching peak
+  trailing_stop_pct: [0, 5, 10]          # 0 = hard exit at peak recovery, >0 = TSL after reaching peak
   max_hold_days: [0, 504]       # 0 = no limit (hold until target/TSL), 504 = ~2 years max
 
 # Simulation: 2 combos

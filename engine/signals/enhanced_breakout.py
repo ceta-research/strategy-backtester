@@ -375,7 +375,7 @@ class EnhancedBreakoutSignalGenerator:
 
             # Walk forward for each exit config
             for exit_config in get_exit_config_iterator(context):
-                tsl_pct = exit_config["tsl_pct"] / 100.0
+                trailing_stop_pct = exit_config["trailing_stop_pct"] / 100.0
                 max_hold_days = exit_config["max_hold_days"]
                 orders_this_config = 0
 
@@ -434,7 +434,7 @@ class EnhancedBreakoutSignalGenerator:
                         entry_epoch,
                         entry_price,
                         peak_price,
-                        tsl_pct,
+                        trailing_stop_pct,
                         max_hold_days,
                     )
 
@@ -458,7 +458,7 @@ class EnhancedBreakoutSignalGenerator:
                     orders_this_config += 1
 
                 print(
-                    f"    Exit TSL={tsl_pct * 100:.0f}% "
+                    f"    Exit TSL={trailing_stop_pct * 100:.0f}% "
                     f"hold={max_hold_days}d: {orders_this_config} orders"
                 )
 
@@ -488,7 +488,7 @@ class EnhancedBreakoutSignalGenerator:
     @staticmethod
     def build_exit_config(exit_cfg: dict) -> dict:
         return {
-            "tsl_pct": exit_cfg.get("tsl_pct", [12]),
+            "trailing_stop_pct": exit_cfg.get("trailing_stop_pct", [12]),
             "max_hold_days": exit_cfg.get("max_hold_days", [252]),
         }
 

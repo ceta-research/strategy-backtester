@@ -1,0 +1,51 @@
+# Targeted sweep based on quick run findings:
+# - 252d lookback wins, also test 189d
+# - 15% TSL wins, expand to 12/15/20/25
+# - 10 positions wins, test 5/10/15
+# - Test direction filter on/off and thresholds
+# - Test with/without regime filter
+
+static:
+  strategy_type: momentum_top_gainers
+  start_margin: 10000000
+  start_epoch: 1262304000       # 2010-01-01
+  end_epoch: 1773878400         # 2026-03-17
+  prefetch_days: 600
+  data_granularity: day
+
+scanner:
+  instruments:
+    - [{exchange: NSE, symbols: []}]
+  price_threshold: [50]
+  avg_day_transaction_threshold:
+    - {period: 125, threshold: 70000000}
+  n_day_gain_threshold:
+    - {n: 360, threshold: -999}
+
+entry:
+  momentum_lookback_days: [189, 252]
+  top_n_pct: [0.10, 0.20]
+  rebalance_interval_days: [21, 42]
+  min_momentum_pct: [5]
+  # Direction: off (0) vs 3d-MA at 0.50
+  direction_score_n_day_ma: [0, 3]
+  direction_score_threshold: [0.50]
+  # Regime: with NIFTYBEES 200 SMA
+  regime_instrument: ['NSE:NIFTYBEES']
+  regime_sma_period: [200]
+
+exit:
+  trailing_stop_pct: [12, 15, 20, 25]
+  max_hold_days: [252, 504]
+
+simulation:
+  default_sorting_type: [top_gainer]
+  order_sorting_type: [top_gainer]
+  order_ranking_window_days: [30]
+  max_positions: [5, 10, 15]
+  max_positions_per_instrument: [1]
+  order_value_multiplier: [1.0]
+  max_order_value:
+    - {type: fixed, value: 1000000000}
+
+# Total: 2x2x2 x 2x1 x 4x2 x 3 = 8 x 2 x 8 x 3 = 384 configs

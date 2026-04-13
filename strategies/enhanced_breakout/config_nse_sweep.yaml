@@ -49,7 +49,7 @@ entry:
   # are single-valued so total = 2 x 2 x 2 x 2 x 2 = 32
 
 exit:
-  tsl_pct: [8, 10, 15]
+  trailing_stop_pct: [8, 10, 15]
   max_hold_days: [252, 504]
 
 simulation:

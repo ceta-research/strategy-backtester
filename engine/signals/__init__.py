@@ -5,7 +5,7 @@ Importing this package registers all signal generators with the strategy registr
 
 from engine.signals import eod_technical  # noqa: F401
 from engine.signals import connors_rsi  # noqa: F401
-from engine.signals import ibs_reversion  # noqa: F401
+from engine.signals import ibs_mean_reversion  # noqa: F401
 from engine.signals import gap_fill  # noqa: F401
 from engine.signals import overnight_hold  # noqa: F401
 from engine.signals import darvas_box  # noqa: F401

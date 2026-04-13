@@ -60,7 +60,7 @@ def patched_get_entry_config_input():
 def patched_get_exit_config_input():
     return {
         "min_hold_time_days": [0, 4],
-        "trailing_stop_loss": [15],
+        "trailing_stop_pct": [15],
     }
 
 

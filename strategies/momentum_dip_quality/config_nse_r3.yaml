@@ -40,7 +40,7 @@ entry:
   regime_sma_period: [200]
 
 exit:
-  tsl_pct: [5, 7, 10]
+  trailing_stop_pct: [5, 7, 10]
   max_hold_days: [252]
 
 simulation:

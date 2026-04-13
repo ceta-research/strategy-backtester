@@ -28,7 +28,7 @@ entry:
 
 # Exit: 3 x 1 = 3 combos
 exit:
-  tsl_pct: [10, 12, 13]
+  trailing_stop_pct: [10, 12, 13]
   max_hold_days: [504]
 
 # Simulation: 3 x 2 x 2 = 12 combos

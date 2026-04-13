@@ -158,7 +158,7 @@ def make_config():
         },
         "exit": {
             "min_hold_time_days": [4],
-            "trailing_stop_loss": [10],
+            "trailing_stop_pct": [10],
         },
         "simulation": {
             "default_sorting_type": ["top_gainer"],

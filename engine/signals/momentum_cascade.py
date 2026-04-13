@@ -175,7 +175,7 @@ class MomentumCascadeSignalGenerator:
 
             # Walk forward for each exit config
             for exit_config in get_exit_config_iterator(context):
-                tsl_pct = exit_config["tsl_pct"] / 100.0
+                trailing_stop_pct = exit_config["trailing_stop_pct"] / 100.0
                 max_hold_days = exit_config["max_hold_days"]
 
                 for entry in entry_signals:
@@ -212,7 +212,7 @@ class MomentumCascadeSignalGenerator:
                             break
                         if c >= peak_price:
                             reached_peak = True
-                        if reached_peak and tsl_pct > 0 and c <= trail_high * (1 - tsl_pct):
+                        if reached_peak and trailing_stop_pct > 0 and c <= trail_high * (1 - trailing_stop_pct):
                             exit_epoch = d["epochs"][j]
                             exit_price = c
                             break
@@ -278,7 +278,7 @@ class MomentumCascadeSignalGenerator:
     @staticmethod
     def build_exit_config(exit_cfg: dict) -> dict:
         return {
-            "tsl_pct": exit_cfg.get("tsl_pct", [12]),
+            "trailing_stop_pct": exit_cfg.get("trailing_stop_pct", [12]),
             "max_hold_days": exit_cfg.get("max_hold_days", [504]),
         }
 

@@ -152,7 +152,7 @@ class EodBreakoutSignalGenerator:
 
             # Walk forward for each exit config
             for exit_config in get_exit_config_iterator(context):
-                tsl_pct = exit_config["trailing_stop_loss"]
+                trailing_stop_pct = exit_config["trailing_stop_pct"]
                 min_hold_days = exit_config.get("min_hold_time_days", 0)
                 orders_this_config = 0
 
@@ -178,7 +178,7 @@ class EodBreakoutSignalGenerator:
                         ed["epochs"], ed["closes"], ed["opens"],
                         ed["next_opens"], ed["next_epochs"],
                         start_idx, entry_epoch,
-                        tsl_pct, min_hold_days,
+                        trailing_stop_pct, min_hold_days,
                     )
 
                     if exit_epoch is None or exit_price is None:
@@ -198,7 +198,7 @@ class EodBreakoutSignalGenerator:
                     })
                     orders_this_config += 1
 
-                print(f"    Exit TSL={tsl_pct}% min_hold={min_hold_days}d: "
+                print(f"    Exit TSL={trailing_stop_pct}% min_hold={min_hold_days}d: "
                       f"{orders_this_config} orders")
 
         elapsed = round(time.time() - t1, 2)
@@ -218,15 +218,15 @@ class EodBreakoutSignalGenerator:
     def build_exit_config(exit_cfg: dict) -> dict:
         return {
             "min_hold_time_days": exit_cfg.get("min_hold_time_days", [0]),
-            "trailing_stop_loss": exit_cfg.get("trailing_stop_loss", [15]),
+            "trailing_stop_pct": exit_cfg.get("trailing_stop_pct", [15]),
         }
 
 
 def _walk_forward_tsl(epochs, closes, opens, next_opens, next_epochs,
-                      start_idx, entry_epoch, tsl_pct, min_hold_days):
+                      start_idx, entry_epoch, trailing_stop_pct, min_hold_days):
     """Walk forward from entry to find TSL exit, matching ATO_Simulator logic.
 
-    TSL: exit at next-day open when drawdown from max price > tsl_pct.
+    TSL: exit at next-day open when drawdown from max price > trailing_stop_pct.
     Price gap >20%: forced exit at 80% of last close.
     Last bar: exit at close.
 
@@ -262,7 +262,7 @@ def _walk_forward_tsl(epochs, closes, opens, next_opens, next_epochs,
         # TSL check
         if max_price > 0:
             drawdown_pct = (max_price - c) / max_price * 100
-            if drawdown_pct > tsl_pct:
+            if drawdown_pct > trailing_stop_pct:
                 # Exit at next-day open
                 if j + 1 < len(epochs):
                     next_open = next_opens[j]

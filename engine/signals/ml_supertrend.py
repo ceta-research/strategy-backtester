@@ -471,7 +471,7 @@ class MLSupertrendSignalGenerator:
 
             # Walk forward for each exit config
             for exit_config in get_exit_config_iterator(context):
-                tsl_pct = exit_config["tsl_pct"] / 100.0
+                trailing_stop_pct = exit_config["trailing_stop_pct"] / 100.0
                 max_hold_days = exit_config["max_hold_days"]
                 use_st_exit = exit_config.get("supertrend_exit", False)
                 orders_this_config = 0
@@ -523,7 +523,7 @@ class MLSupertrendSignalGenerator:
                                 trail_high = c
 
                             # TSL check
-                            if tsl_pct > 0 and c <= trail_high * (1 - tsl_pct):
+                            if trailing_stop_pct > 0 and c <= trail_high * (1 - trailing_stop_pct):
                                 exit_epoch_val = ed["epochs"][j]
                                 exit_price_val = c
                                 break
@@ -550,7 +550,7 @@ class MLSupertrendSignalGenerator:
                         exit_epoch_val, exit_price_val = walk_forward_exit(
                             ed["epochs"], ed["closes"], start_idx,
                             entry_epoch, entry_price, peak_price,
-                            tsl_pct, max_hold_days,
+                            trailing_stop_pct, max_hold_days,
                         )
 
                     if exit_epoch_val is None or exit_price_val is None:
@@ -572,7 +572,7 @@ class MLSupertrendSignalGenerator:
 
                 st_exit_str = "+ST_exit" if use_st_exit else ""
                 print(
-                    f"    Exit TSL={tsl_pct * 100:.0f}%{st_exit_str} "
+                    f"    Exit TSL={trailing_stop_pct * 100:.0f}%{st_exit_str} "
                     f"hold={max_hold_days}d: {orders_this_config} orders"
                 )
 
@@ -598,7 +598,7 @@ class MLSupertrendSignalGenerator:
     @staticmethod
     def build_exit_config(exit_cfg: dict) -> dict:
         return {
-            "tsl_pct": exit_cfg.get("tsl_pct", [10]),
+            "trailing_stop_pct": exit_cfg.get("trailing_stop_pct", [10]),
             "max_hold_days": exit_cfg.get("max_hold_days", [252]),
             "supertrend_exit": exit_cfg.get("supertrend_exit", [False]),
         }

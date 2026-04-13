@@ -128,7 +128,7 @@ class SqueezeSignalGenerator:
                 continue
 
             for exit_config in get_exit_config_iterator(context):
-                stop_pct = exit_config["stop_pct"]
+                stop_loss_pct = exit_config["stop_loss_pct"]
                 max_hold_days = exit_config["max_hold_days"]
 
                 entry_rows = df_entries.select([
@@ -185,7 +185,7 @@ class SqueezeSignalGenerator:
                     except ValueError:
                         continue
 
-                    stop_price = entry_price * (1 - stop_pct)
+                    stop_price = entry_price * (1 - stop_loss_pct)
                     exit_epoch = None
                     exit_price = None
                     prev_mom = None
@@ -272,7 +272,7 @@ class SqueezeSignalGenerator:
     @staticmethod
     def build_exit_config(exit_cfg: dict) -> dict:
         return {
-            "stop_pct": exit_cfg.get("stop_pct", [0.05]),
+            "stop_loss_pct": exit_cfg.get("stop_loss_pct", [0.05]),
             "max_hold_days": exit_cfg.get("max_hold_days", [20]),
         }
 

@@ -1,0 +1,56 @@
+# Wide-range sweep: test extreme values for ALL parameters
+# Each param has: very small, small, champion, large, very large
+# Fix non-target params at champion values to isolate each dimension
+
+static:
+  strategy_type: momentum_top_gainers
+  start_margin: 10000000
+  start_epoch: 1262304000       # 2010-01-01
+  end_epoch: 1773878400         # 2026-03-17
+  prefetch_days: 1200           # Need more prefetch for 504d lookback
+  data_granularity: day
+
+scanner:
+  instruments:
+    - [{exchange: NSE, symbols: []}]
+  price_threshold: [50]
+  avg_day_transaction_threshold:
+    - {period: 125, threshold: 70000000}
+  n_day_gain_threshold:
+    - {n: 360, threshold: -999}
+
+entry:
+  # Lookback: 1 month to 2 years
+  momentum_lookback_days: [21, 63, 126, 189, 252, 378, 504]
+  # Universe: top 5% to top 50%
+  top_n_pct: [0.05, 0.10, 0.20, 0.30, 0.50]
+  # Rebalance: daily to yearly
+  rebalance_interval_days: [1, 5, 10, 21, 42, 63, 126, 252]
+  # Min momentum
+  min_momentum_pct: [5]
+  # Direction filter
+  direction_score_n_day_ma: [3]
+  direction_score_threshold: [0.45]
+  # Regime
+  regime_instrument: ['NSE:NIFTYBEES']
+  regime_sma_period: [200]
+
+exit:
+  # TSL: very tight to very wide
+  trailing_stop_pct: [3, 5, 8, 12, 18, 22, 30, 40, 50]
+  # Hold: 1 month to 3 years
+  max_hold_days: [21, 63, 126, 252, 378, 504, 756]
+
+simulation:
+  default_sorting_type: [top_gainer]
+  order_sorting_type: [top_gainer]
+  order_ranking_window_days: [30]
+  # Positions: 1 to 30
+  max_positions: [1, 3, 5, 10, 15, 20, 30]
+  max_positions_per_instrument: [1]
+  order_value_multiplier: [1.0]
+  max_order_value:
+    - {type: fixed, value: 1000000000}
+
+# Total: 7x5x8 x 9x7 x 7 = 280 x 63 x 7 = 123,480 -- WAY too many
+# Need to split into focused 1D sweeps instead

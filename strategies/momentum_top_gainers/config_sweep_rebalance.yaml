@@ -1,0 +1,44 @@
+# 1D sweep: rebalance interval (1d to 252d)
+
+static:
+  strategy_type: momentum_top_gainers
+  start_margin: 10000000
+  start_epoch: 1262304000
+  end_epoch: 1773878400
+  prefetch_days: 600
+  data_granularity: day
+
+scanner:
+  instruments:
+    - [{exchange: NSE, symbols: []}]
+  price_threshold: [50]
+  avg_day_transaction_threshold:
+    - {period: 125, threshold: 70000000}
+  n_day_gain_threshold:
+    - {n: 360, threshold: -999}
+
+entry:
+  momentum_lookback_days: [189]
+  top_n_pct: [0.25]
+  rebalance_interval_days: [1, 3, 5, 10, 15, 21, 30, 42, 50, 63, 84, 126, 189, 252]
+  min_momentum_pct: [5]
+  direction_score_n_day_ma: [3]
+  direction_score_threshold: [0.45]
+  regime_instrument: ['NSE:NIFTYBEES']
+  regime_sma_period: [200]
+
+exit:
+  trailing_stop_pct: [22]
+  max_hold_days: [378]
+
+simulation:
+  default_sorting_type: [top_gainer]
+  order_sorting_type: [top_gainer]
+  order_ranking_window_days: [30]
+  max_positions: [12]
+  max_positions_per_instrument: [1]
+  order_value_multiplier: [1.0]
+  max_order_value:
+    - {type: fixed, value: 1000000000}
+
+# Total: 14 configs

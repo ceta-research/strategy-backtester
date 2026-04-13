@@ -26,7 +26,7 @@ entry:
   regime_sma_period: [50]
 
 exit:
-  tsl_pct: [13]
+  trailing_stop_pct: [13]
   max_hold_days: [504]
 
 # Minimal sim config - matches standalone (equal weight, no ranking effects)

@@ -86,7 +86,7 @@ def main():
         },
         "exit": {
             "min_hold_time_days": [1, 3, 4],
-            "trailing_stop_loss": [10, 15, 20],
+            "trailing_stop_pct": [10, 15, 20],
         },
         "simulation": {
             "default_sorting_type": ["top_gainer"],

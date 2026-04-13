@@ -40,7 +40,7 @@ entry:
   direction_score_threshold: [0, 0.50, 0.54]
 
 exit:
-  tsl_pct: [5]
+  trailing_stop_pct: [5]
   max_hold_days: [63, 252]
   require_peak_recovery: [true]
 

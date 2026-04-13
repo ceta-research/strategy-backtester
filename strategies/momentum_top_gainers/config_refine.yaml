@@ -1,0 +1,49 @@
+# Focused refinement around champion (Calmar 0.65)
+# Fixed: dir=3d, regime=NIFTYBEES>SMA200, min_mom=5%
+# Varying: lookback, top_n, rebalance, TSL, hold, positions, direction threshold
+
+static:
+  strategy_type: momentum_top_gainers
+  start_margin: 10000000
+  start_epoch: 1262304000
+  end_epoch: 1773878400
+  prefetch_days: 600
+  data_granularity: day
+
+scanner:
+  instruments:
+    - [{exchange: NSE, symbols: []}]
+  price_threshold: [50]
+  avg_day_transaction_threshold:
+    - {period: 125, threshold: 70000000}
+  n_day_gain_threshold:
+    - {n: 360, threshold: -999}
+
+entry:
+  momentum_lookback_days: [168, 189, 210]
+  top_n_pct: [0.15, 0.20, 0.25]
+  rebalance_interval_days: [35, 42, 50]
+  min_momentum_pct: [5]
+  direction_score_n_day_ma: [3]
+  direction_score_threshold: [0.45, 0.50, 0.55]
+  regime_instrument: ['NSE:NIFTYBEES']
+  regime_sma_period: [200]
+
+exit:
+  trailing_stop_pct: [18, 20, 22]
+  max_hold_days: [378, 504]
+
+simulation:
+  default_sorting_type: [top_gainer]
+  order_sorting_type: [top_gainer]
+  order_ranking_window_days: [30]
+  max_positions: [12, 15]
+  max_positions_per_instrument: [1]
+  order_value_multiplier: [1.0]
+  max_order_value:
+    - {type: fixed, value: 1000000000}
+
+# Entry: 3x3x3x1x1x3 = 81
+# Exit: 3x2 = 6
+# Sim: 2
+# Total: 81 x 6 x 2 = 972 configs

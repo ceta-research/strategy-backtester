@@ -242,8 +242,8 @@ def generate_exit_attributes_for_instrument(instrument, instrument_order_config,
                     continue
 
                 draw_down_percent = (max_price - close_price) * 100 / max_price
-                trailing_stop_loss = exit_config["trailing_stop_loss"]
-                if draw_down_percent > trailing_stop_loss:
+                trailing_stop_pct = exit_config["trailing_stop_pct"]
+                if draw_down_percent > trailing_stop_pct:
                     order_exit_tracker.add(exit_config["id"])
                     if next_epoch in instrument_order_config[entry_epoch]:
                         _order_attributes = instrument_order_config[entry_epoch][next_epoch]

@@ -1,0 +1,52 @@
+# Momentum Top Gainers: buy trailing-period winners, exit via TSL
+# Sweep: 3 lookbacks x 2 top_n x 2 rebalance x 3 TSL x 2 hold x 2 direction x 2 positions
+# Total: 3 x 2 x 2 x 3 x 2 x 2 x 2 = 288 configs
+
+static:
+  strategy_type: momentum_top_gainers
+  start_margin: 10000000        # Rs 1 crore
+  start_epoch: 1262304000       # 2010-01-01
+  end_epoch: 1773878400         # 2026-03-17
+  prefetch_days: 600            # ~2.4 years for 252d lookback
+  data_granularity: day
+
+scanner:
+  instruments:
+    - [{exchange: NSE, symbols: []}]
+  price_threshold: [50]
+  avg_day_transaction_threshold:
+    - {period: 125, threshold: 70000000}
+  n_day_gain_threshold:
+    - {n: 360, threshold: -999}
+
+entry:
+  # Lookback: 6, 9, 12 months
+  momentum_lookback_days: [126, 189, 252]
+  # Top gainers: top 10%, 20%
+  top_n_pct: [0.10, 0.20]
+  # Rebalance: monthly, quarterly
+  rebalance_interval_days: [21, 63]
+  # Minimum trailing return to qualify
+  min_momentum_pct: [5]
+  # Direction filter: 3-day MA breadth
+  direction_score_n_day_ma: [3, 5]
+  direction_score_threshold: [0.50]
+  # Regime filter
+  regime_instrument: ['NSE:NIFTYBEES']
+  regime_sma_period: [200]
+
+exit:
+  # TSL: 8%, 12%, 20%
+  trailing_stop_pct: [8, 12, 20]
+  # Max hold: 6 months, 1 year
+  max_hold_days: [126, 252]
+
+simulation:
+  default_sorting_type: [top_gainer]
+  order_sorting_type: [top_gainer]
+  order_ranking_window_days: [30]
+  max_positions: [10, 20]
+  max_positions_per_instrument: [1]
+  order_value_multiplier: [1.0]
+  max_order_value:
+    - {type: fixed, value: 1000000000}

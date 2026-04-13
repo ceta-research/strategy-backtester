@@ -37,7 +37,7 @@ entry:
   regime_sma_period: [200]
 
 exit:
-  tsl_pct: [3, 5, 7, 10]
+  trailing_stop_pct: [3, 5, 7, 10]
   max_hold_days: [14, 21, 42, 63, 90, 126, 180, 252, 504]
 
 simulation:

@@ -69,7 +69,7 @@ entry:
     hint: SMA period for regime filter (0 = disabled)
 
 exit:
-  - name: tsl_pct
+  - name: trailing_stop_pct
     label: Trailing Stop %
     type: float
     default: 5.0

@@ -34,7 +34,7 @@ exit:
     range: [0, 30]
     hint: Minimum days to hold before exit allowed
 
-  - name: trailing_stop_loss
+  - name: trailing_stop_pct
     label: Trailing Stop %
     type: float
     default: 15

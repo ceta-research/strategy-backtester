@@ -221,7 +221,7 @@ def run_scanner(context: dict, df_tick_data: pl.DataFrame) -> tuple[dict[str, se
 def walk_forward_exit(
     epochs: list, closes: list, start_idx: int,
     entry_epoch: int, entry_price: float, peak_price: float,
-    tsl_pct: float, max_hold_days: int,
+    trailing_stop_pct: float, max_hold_days: int,
     opens: list = None,
     require_peak_recovery: bool = True,
 ) -> tuple:
@@ -237,7 +237,7 @@ def walk_forward_exit(
         entry_epoch: entry date epoch
         entry_price: entry price
         peak_price: rolling peak price at entry (target for recovery)
-        tsl_pct: trailing stop-loss percentage (0 = no TSL, just peak recovery)
+        trailing_stop_pct: trailing stop-loss percentage (0 = no TSL, just peak recovery)
         max_hold_days: max holding period in calendar days (0 = no limit)
         opens: optional list of open prices; if provided, exit at next-day open
         require_peak_recovery: if True (default), TSL only activates after price
@@ -257,7 +257,7 @@ def walk_forward_exit(
 
     trail_high = entry_price
 
-    if tsl_pct == 0:
+    if trailing_stop_pct == 0:
         for j in range(start_idx, len(epochs)):
             c = closes[j]
             if c is None:
@@ -280,7 +280,7 @@ def walk_forward_exit(
                 return _exit_at(j)
             if c >= peak_price:
                 reached_peak = True
-            if reached_peak and c <= trail_high * (1 - tsl_pct):
+            if reached_peak and c <= trail_high * (1 - trailing_stop_pct):
                 return _exit_at(j)
 
     # No exit trigger found - exit at last available bar

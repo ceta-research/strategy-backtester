@@ -32,7 +32,7 @@ exit:
   min_hold_time_days:
   - 0
   - 4
-  trailing_stop_loss:
+  trailing_stop_pct:
   - 15
 simulation:
   default_sorting_type:

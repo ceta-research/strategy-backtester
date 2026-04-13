@@ -34,7 +34,7 @@ entry:
   # 2 x 2 x 2 x 3 = 24 entry combos
 
 exit:
-  tsl_pct: [10, 15]
+  trailing_stop_pct: [10, 15]
   max_hold_days: [126, 252]
   supertrend_exit: [false]
   # 2 x 2 = 4 exit combos

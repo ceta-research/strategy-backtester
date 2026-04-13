@@ -35,7 +35,7 @@ exit:
     range: [0.01, 0.3]
     hint: Take profit percentage (0.07 = 7%)
 
-  - name: stop_pct
+  - name: stop_loss_pct
     label: Stop Loss %
     type: float
     default: 0.04

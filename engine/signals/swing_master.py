@@ -110,7 +110,7 @@ class SwingMasterSignalGenerator:
 
             for exit_config in get_exit_config_iterator(context):
                 target_pct = exit_config["target_pct"]
-                stop_pct = exit_config["stop_pct"]
+                stop_loss_pct = exit_config["stop_loss_pct"]
                 max_hold_days = exit_config["max_hold_days"]
                 trailing_buffer_pct = exit_config.get("trailing_buffer_pct", 0.002)
 
@@ -148,7 +148,7 @@ class SwingMasterSignalGenerator:
                         continue
 
                     target_price = entry_price * (1 + target_pct)
-                    stop_price = entry_price * (1 - stop_pct)
+                    stop_price = entry_price * (1 - stop_loss_pct)
                     exit_epoch = None
                     exit_price = None
 
@@ -228,7 +228,7 @@ class SwingMasterSignalGenerator:
     def build_exit_config(exit_cfg: dict) -> dict:
         return {
             "target_pct": exit_cfg.get("target_pct", [0.07]),
-            "stop_pct": exit_cfg.get("stop_pct", [0.04]),
+            "stop_loss_pct": exit_cfg.get("stop_loss_pct", [0.04]),
             "max_hold_days": exit_cfg.get("max_hold_days", [20]),
             "trailing_buffer_pct": exit_cfg.get("trailing_buffer_pct", [0.002]),
         }

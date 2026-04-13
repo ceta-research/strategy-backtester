@@ -94,7 +94,7 @@ def _build_entry_config_default(entry: dict) -> dict:
 def _build_exit_config_default(exit_cfg: dict) -> dict:
     return {
         "min_hold_time_days": exit_cfg.get("min_hold_time_days", [0]),
-        "trailing_stop_loss": exit_cfg.get("trailing_stop_loss", [15]),
+        "trailing_stop_pct": exit_cfg.get("trailing_stop_pct", [15]),
     }
 
 
@@ -165,9 +165,9 @@ def validate_config(config: dict) -> None:
     # Strategy-specific validation
     strategy_type = static.get("strategy_type", "eod_technical")
     if strategy_type == "eod_technical":
-        for tsl in config["exit_config_input"]["trailing_stop_loss"]:
+        for tsl in config["exit_config_input"]["trailing_stop_pct"]:
             if tsl <= 0:
-                raise ValueError("trailing_stop_loss must be > 0")
+                raise ValueError("trailing_stop_pct must be > 0")
 
 
 def get_scanner_config_iterator(context):

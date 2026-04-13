@@ -77,7 +77,7 @@ class IndexBreakoutSignalGenerator:
             df_signals = df_signals.join(scanner_ids_df, on="uid", how="left")
 
             for exit_config in get_exit_config_iterator(context):
-                tsl_pct = exit_config["tsl_pct"] / 100.0
+                trailing_stop_pct = exit_config["trailing_stop_pct"] / 100.0
                 max_hold_days = exit_config["max_hold_days"]
 
                 for inst_tuple, group in df_signals.group_by("instrument"):
@@ -148,9 +148,9 @@ class IndexBreakoutSignalGenerator:
                                     break
 
                             # Trailing stop-loss: position drops X% from peak
-                            if tsl_pct > 0:
+                            if trailing_stop_pct > 0:
                                 dd_pct = (trail_high - cj) / trail_high
-                                if dd_pct >= tsl_pct:
+                                if dd_pct >= trailing_stop_pct:
                                     exit_epoch = epochs[j]
                                     exit_price = cj
                                     break
@@ -198,7 +198,7 @@ class IndexBreakoutSignalGenerator:
     @staticmethod
     def build_exit_config(exit_cfg: dict) -> dict:
         return {
-            "tsl_pct": exit_cfg.get("tsl_pct", [5]),
+            "trailing_stop_pct": exit_cfg.get("trailing_stop_pct", [5]),
             "max_hold_days": exit_cfg.get("max_hold_days", [0]),
         }
 
