@@ -1,0 +1,287 @@
+# Optimization queue for all pipeline strategies.
+# Sessions claim the next PENDING item, work through Rounds 0-4.
+#
+# Status: PENDING | IN_PROGRESS | COMPLETE | SKIP
+# When claiming: set status to IN_PROGRESS, add session date.
+# When done: set status to COMPLETE, add best_calmar/best_cagr.
+#
+# Methodology: docs/OPTIMIZATION_RUNBOOK.md
+# Per-strategy detail: strategies/{name}/OPTIMIZATION.md
+# Results: results/{name}/round{N}_{description}.json
+# Status script: python scripts/optimization_status.py
+
+# ── High priority (biggest potential) ──
+
+- strategy: eod_breakout
+  status: PENDING
+  priority: 1
+  current_round: null
+  best_calmar: null
+  best_cagr: null
+  session: null
+  notes: "ATO_Simulator hit 32.5% CAGR, pipeline only 12.3%. Biggest gap. Template ready."
+
+- strategy: enhanced_breakout
+  status: PENDING
+  priority: 2
+  current_round: null
+  best_calmar: null
+  best_cagr: null
+  session: null
+  notes: "Never swept. Multi-layer: quality + momentum + volume + fundamentals."
+
+- strategy: momentum_cascade
+  status: PENDING
+  priority: 3
+  current_round: null
+  best_calmar: null
+  best_cagr: null
+  session: null
+  notes: "Never swept. Momentum acceleration + breakout."
+
+- strategy: momentum_top_gainers
+  status: PENDING
+  priority: 4
+  current_round: null
+  best_calmar: null
+  best_cagr: null
+  session: null
+  notes: "Rounds 1-2 done informally. Needs formal R0-R4 with runbook methodology."
+
+- strategy: momentum_dip_quality
+  status: PENDING
+  priority: 5
+  current_round: null
+  best_calmar: null
+  best_cagr: null
+  session: null
+  notes: "Champion (26.6% CAGR, Cal 0.95). Needs OOS validation only (R4)."
+
+# ── Medium priority (known strategies, never optimized) ──
+
+- strategy: earnings_dip
+  status: PENDING
+  priority: 6
+  current_round: null
+  best_calmar: null
+  best_cagr: null
+  session: null
+  notes: "Now includes volume confirmation (volume_ratio_max). Test with and without."
+
+- strategy: quality_dip_buy
+  status: PENDING
+  priority: 7
+  current_round: null
+  best_calmar: null
+  best_cagr: null
+  session: null
+  notes: "Base dip-buy. Simpler than momentum_dip_quality."
+
+- strategy: quality_dip_tiered
+  status: PENDING
+  priority: 8
+  current_round: null
+  best_calmar: null
+  best_cagr: null
+  session: null
+  notes: "Tiered entry variant of quality_dip_buy."
+
+- strategy: forced_selling_dip
+  status: PENDING
+  priority: 9
+  current_round: null
+  best_calmar: null
+  best_cagr: null
+  session: null
+  notes: "Sector-relative forced selling detection."
+
+- strategy: factor_composite
+  status: PENDING
+  priority: 10
+  current_round: null
+  best_calmar: null
+  best_cagr: null
+  session: null
+  notes: "Multi-factor ranking (momentum + profitability + value)."
+
+- strategy: trending_value
+  status: PENDING
+  priority: 11
+  current_round: null
+  best_calmar: null
+  best_cagr: null
+  session: null
+  notes: "O'Shaughnessy trending value. Long hold periods."
+
+- strategy: eod_technical
+  status: PENDING
+  priority: 12
+  current_round: null
+  best_calmar: null
+  best_cagr: null
+  session: null
+  notes: "Original ATO strategy. Similar to eod_breakout but different signal gen."
+
+- strategy: momentum_rebalance
+  status: PENDING
+  priority: 13
+  current_round: null
+  best_calmar: null
+  best_cagr: null
+  session: null
+  notes: "Pure Jegadeesh-Titman momentum. Exit at next rebalance."
+
+- strategy: momentum_dip
+  status: PENDING
+  priority: 14
+  current_round: null
+  best_calmar: null
+  best_cagr: null
+  session: null
+  notes: "Simple momentum + RSI dip."
+
+- strategy: low_pe
+  status: PENDING
+  priority: 15
+  current_round: null
+  best_calmar: null
+  best_cagr: null
+  session: null
+  notes: "Fundamental value strategy. Uses FMP financial_ratios."
+
+- strategy: ml_supertrend
+  status: PENDING
+  priority: 16
+  current_round: null
+  best_calmar: null
+  best_cagr: null
+  session: null
+  notes: "SuperTrend indicator with quality gate."
+
+# ── Lower priority (mean reversion / niche) ──
+
+- strategy: connors_rsi
+  status: PENDING
+  priority: 17
+  current_round: null
+  best_calmar: null
+  best_cagr: null
+  session: null
+  notes: "RSI(2) oversold + SMA trend filter."
+
+- strategy: ibs_mean_reversion
+  status: PENDING
+  priority: 18
+  current_round: null
+  best_calmar: null
+  best_cagr: null
+  session: null
+  notes: "Internal bar strength mean reversion."
+
+- strategy: extended_ibs
+  status: PENDING
+  priority: 19
+  current_round: null
+  best_calmar: null
+  best_cagr: null
+  session: null
+  notes: "Extended IBS with volatility filter."
+
+- strategy: bb_mean_reversion
+  status: PENDING
+  priority: 20
+  current_round: null
+  best_calmar: null
+  best_cagr: null
+  session: null
+  notes: "Bollinger Band mean reversion."
+
+- strategy: squeeze
+  status: PENDING
+  priority: 21
+  current_round: null
+  best_calmar: null
+  best_cagr: null
+  session: null
+  notes: "Bollinger/Keltner squeeze breakout."
+
+- strategy: darvas_box
+  status: PENDING
+  priority: 22
+  current_round: null
+  best_calmar: null
+  best_cagr: null
+  session: null
+  notes: "Darvas box breakout with volume confirmation."
+
+- strategy: swing_master
+  status: PENDING
+  priority: 23
+  current_round: null
+  best_calmar: null
+  best_cagr: null
+  session: null
+  notes: "SMA crossover swing trading."
+
+- strategy: gap_fill
+  status: PENDING
+  priority: 24
+  current_round: null
+  best_calmar: null
+  best_cagr: null
+  session: null
+  notes: "Gap-down fill strategy."
+
+- strategy: overnight_hold
+  status: PENDING
+  priority: 25
+  current_round: null
+  best_calmar: null
+  best_cagr: null
+  session: null
+  notes: "Overnight holding strategy."
+
+- strategy: holp_lohp
+  status: PENDING
+  priority: 26
+  current_round: null
+  best_calmar: null
+  best_cagr: null
+  session: null
+  notes: "High of low period / low of high period."
+
+- strategy: index_breakout
+  status: PENDING
+  priority: 27
+  current_round: null
+  best_calmar: null
+  best_cagr: null
+  session: null
+  notes: "Index-level breakout."
+
+- strategy: index_dip_buy
+  status: PENDING
+  priority: 28
+  current_round: null
+  best_calmar: null
+  best_cagr: null
+  session: null
+  notes: "Index-level dip buy."
+
+- strategy: index_green_candle
+  status: PENDING
+  priority: 29
+  current_round: null
+  best_calmar: null
+  best_cagr: null
+  session: null
+  notes: "Index green candle continuation."
+
+- strategy: index_sma_crossover
+  status: PENDING
+  priority: 30
+  current_round: null
+  best_calmar: null
+  best_cagr: null
+  session: null
+  notes: "Index SMA crossover."

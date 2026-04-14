@@ -270,17 +270,30 @@ Round 4 (validation) depends on the method — walk-forward multiplies by 5x.
 
 ## 6. Running Optimizations
 
+### Result naming convention
+
+Save results to `results/{strategy}/round{N}_{description}.json`:
+
+```
+results/eod_breakout/round0_baseline.json
+results/eod_breakout/round1_tsl.json
+results/eod_breakout/round1_n_day_ma.json
+results/eod_breakout/round2.json
+results/eod_breakout/round3_perturbation.json
+results/eod_breakout/round4_oos.json
+```
+
+### Commands
+
 ```bash
 # Run a sweep
-python run.py --config strategies/eod_breakout/config_round1_tsl.yaml --output results/eod_breakout_r1_tsl.json
+python run.py --config strategies/eod_breakout/config_round1_tsl.yaml \
+  --output results/eod_breakout/round1_tsl.json
 
-# Compare results across rounds
-python scripts/analyze_sweep.py results/eod_breakout_r1_tsl.json
+# View leaderboard for a single result
+python scripts/analyze_sweep.py results/eod_breakout/round1_tsl.json
 
-# Quick leaderboard
-python -c "
-from lib.backtest_result import SweepResult
-s = SweepResult.load('results/eod_breakout_r1_tsl.json')
-s.print_leaderboard(top_n=10)
-"
+# View optimization status across ALL strategies
+python scripts/optimization_status.py
+python scripts/optimization_status.py --verbose  # per-round detail
 ```
