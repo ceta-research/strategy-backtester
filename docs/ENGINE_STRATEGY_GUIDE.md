@@ -39,7 +39,7 @@ There are two ways to run a strategy: the **engine pipeline** (`engine/signals/`
 | **Data** | CRDataProvider or Bhavcopy (pipeline-managed) | Any source (custom fetch code) |
 | **Flexibility** | Must fit `generate_orders()` protocol | Arbitrary Python, any logic |
 | **Debugging** | Harder (runs all configs in one pass) | Easier (single file, run directly) |
-| **Setup** | 3 touchpoints (signal file, config builder, pipeline import) | Single self-contained file |
+| **Setup** | 3 touchpoints (signal file, `__init__.py` import, YAML config) | Single self-contained file |
 | **Portability** | Needs the engine installed | Copy-paste and run |
 
 **When to use which:**
@@ -79,7 +79,7 @@ class MyStrategySignalGenerator:
     @staticmethod
     def build_exit_config(exit_cfg: dict) -> dict:
         return {
-            "tsl_pct": exit_cfg.get("tsl_pct", [10]),
+            "trailing_stop_pct": exit_cfg.get("trailing_stop_pct", [10]),
             "max_hold_days": exit_cfg.get("max_hold_days", [252]),
         }
 
@@ -113,110 +113,31 @@ python run.py --config strategies/my_strategy/config.yaml --output results.json
 
 ## 3. Parameter Optimization Methodology
 
-### The Problem
+**Full runbook:** See `docs/OPTIMIZATION_RUNBOOK.md` for the complete step-by-step process, shared priors, analysis methods, and per-strategy tracking templates.
 
-Every parameter combination you test increases the risk of overfitting. With 1000 configs, the best result's apparent Sharpe is inflated by ~3.7 standard deviations (Bailey & Lopez de Prado). A strategy that "works" in 1 out of 1000 configs is noise, not alpha.
+### Quick Summary
 
-### Rules of Thumb
+| Round | Goal | Configs | Method |
+|-------|------|---------|--------|
+| Round 0 | Baseline | 1 | All params at known-good defaults |
+| Round 1 | Sensitivity | ~90 | Sweep one param at a time (8-10 values), classify as IMPORTANT / INSENSITIVE / MONOTONIC |
+| Round 2 | Interactions | ~250 | Cross 3-5 IMPORTANT params (3-5 values each near Round 1 peaks) |
+| Round 3 | Robustness | ~100 | Perturb top configs +/-15%, pick CENTER of stable region |
+| Round 4 | Validation | varies | Walk-forward, OOS split, cross-exchange, deflated Sharpe |
 
-| Guideline | Rule |
-|-----------|------|
-| Min trades per config | 200+ for meaningful Sharpe/Calmar |
-| Max configs (conservative) | sqrt(total_trades). 400 trades -> max ~20 configs |
-| Max configs (practical) | Keep under 500 per phase. Document why. |
-| Overfitting red flag | Best config Calmar is 2x+ the median config Calmar |
-| Robustness check | Top config's neighbors should also perform well |
-
-### Three-Phase Sweep
-
-#### Phase 1: Dimensional Scan (isolate what matters)
-
-**Goal:** Find which parameters matter and which are noise.
-
-**Method:** Fix all parameters at reasonable defaults. Sweep ONE parameter at a time across its full plausible range (8-10 values, from extreme low to extreme high). This produces N_params x ~9 configs per run.
-
-```yaml
-# Example: sweep momentum lookback while fixing everything else
-entry:
-  momentum_lookback_days: [21, 63, 126, 189, 252, 378, 504]  # SWEEP THIS
-  top_n_pct: [0.20]           # fixed
-  rebalance_interval_days: [42]  # fixed
-  # ... all other params fixed at single values
-```
-
-**What to look for:**
-- Parameters that produce a clear peak (bell curve) = important, use the peak
-- Parameters that are flat = insensitive, fix at any reasonable value
-- Parameters that are monotonic = the optimum may be at the edge you tested, extend the range
-- Parameters with noisy/random pattern = likely overfitting, fix at default
-
-**Budget:** ~8-10 configs per parameter x N_params. For 8 params, that's ~64-80 configs total.
-
-**Real example (momentum_top_gainers, 7 params, 762 total Phase 1 configs):**
-
-```
-LOOKBACK (21d-504d)  : bell curve, peak 189d        -> IMPORTANT
-REBALANCE (1d-252d)  : sharp spike at 42d           -> MOST IMPORTANT
-TSL (2%-60%)         : monotonic CAGR, Calmar peak  -> IMPORTANT
-HOLD (21d-1008d)     : peak at 378d                 -> MODERATE
-POSITIONS (1-40)     : monotonically increasing!     -> IMPORTANT (extend range)
-TOP N% (2%-70%)      : flat from 10-50%             -> INSENSITIVE (fix at 25%)
-DIRECTION (0-0.70)   : peak at 0.45-0.50            -> MODERATE
-```
-
-**Interpreting shapes:**
-- **Bell curve** (lookback, direction): clear optimum, use the peak
-- **Sharp spike** (rebalance): most important param, test fine-grained values nearby
-- **Monotonic** (positions): optimum is at/beyond the range edge, extend it
-- **Flat** (top_n%): parameter doesn't matter, fix at any reasonable value
-- **Monotonic then plateau** (TSL): higher CAGR but diminishing Calmar returns
-
-#### Phase 2: Interaction Sweep (find the best combo)
-
-**Goal:** Test interactions between the 2-4 parameters that mattered in Phase 1.
-
-**Method:** Cross the important parameters with 3-5 values each around their Phase 1 peaks. Keep all unimportant parameters fixed.
-
-```yaml
-# Example: cross the 3 params that mattered
-entry:
-  momentum_lookback_days: [168, 189, 210]    # 3 values around peak
-  rebalance_interval_days: [35, 42, 50]      # 3 values around peak
-  direction_score_threshold: [0.40, 0.45, 0.50]  # 3 values around peak
-  # everything else: fixed at single values
-exit:
-  tsl_pct: [18, 20, 22]  # 3 values if TSL was important
-  max_hold_days: [378]    # fixed if not important
-simulation:
-  max_positions: [12]     # fixed if not important
-```
-
-**Budget:** 3^3 to 5^3 = 27 to 125 configs for 3 important params. Up to 500 if 4 params.
-
-**Analysis:** Look at parameter importance (average Calmar by parameter value). Confirm Phase 1 findings hold in combination. Check robustness: the top config's neighbors should have similar performance.
-
-#### Phase 3: Validation (is it real?)
-
-**Goal:** Confirm the result is not overfit.
-
-**Methods (pick at least one):**
-
-1. **Out-of-sample split:** Optimize on 2010-2020, test on 2020-2026. If Calmar drops >50%, suspect overfitting.
-2. **Walk-forward:** Rolling 5yr train / 2yr test windows. Concatenated OOS results are the true estimate.
-3. **Neighbor stability:** Check top-10 configs. If they all share similar parameters and performance, the result is robust. If the top config is an isolated spike, it is likely noise.
-4. **Multiple exchanges:** If the strategy works on NSE, does a similar parameterization work on US/other exchanges?
+**Key principle:** Pick the center of a robust region, not the single best point. The best in-sample config is almost always overfit.
 
 ### Worked Example: momentum_top_gainers Optimization
 
-**Phase 1 (762 configs, 4 parallel 1D sweeps):**
+**Round 1 (762 configs, 4 parallel 1D sweeps):**
 Each sweep varies one dimension across extreme-to-extreme range. Results:
 - Identified 3 important params: lookback (bell curve at 189d), rebalance (spike at 42d), TSL (peak Calmar at 22%)
 - Identified 1 monotonic param: positions (keeps improving to 40, needs extended range)
 - Identified 2 insensitive params: top_n% (flat 10-50%), hold (broad peak 126-504d)
 - Identified 1 moderate param: direction threshold (peak at 0.45-0.50)
 
-**Phase 2 (972 configs, crossing important params):**
-Swept lookback x top_n x rebalance x direction_threshold (3-5 values each near Phase 1 peaks), with TSL and positions. Confirmed:
+**Round 2 (972 configs, crossing important params):**
+Swept lookback x top_n x rebalance x direction_threshold (3-5 values each near Round 1 peaks), with TSL and positions. Confirmed:
 - 42d rebalance dominates (avg Calmar 0.52 vs 0.27-0.32 for others)
 - Direction threshold 0.50 optimal
 - 189d lookback confirmed
@@ -287,7 +208,7 @@ from engine.signals.base import walk_forward_exit
 exit_epoch, exit_price = walk_forward_exit(
     epochs, closes, start_idx,
     entry_epoch, entry_price, peak_price,
-    tsl_pct=0.20, max_hold_days=378,
+    trailing_stop_pct=0.20, max_hold_days=378,
     opens=opens,
     require_peak_recovery=False,  # True for dip-buy, False for breakout/momentum
 )
