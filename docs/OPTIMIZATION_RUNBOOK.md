@@ -162,9 +162,11 @@ Apply at least one:
 - Optimize on 2010-2020, test on 2020-2026
 - Calmar drop >50% suggests overfitting
 
-**Cross-exchange:**
-- Run the champion config (or nearby values) on a different exchange
-- If the thesis is real, similar params should work (not identical results, but positive)
+**Cross-exchange (optional, for visibility):**
+- Run NSE champion config as-is on US/other exchanges
+- Not a pass/fail test — a strategy can be legitimately market-specific (different microstructure, retail participation, sector composition)
+- Useful as extra signal: if similar params also work on US, that's added confidence
+- Do NOT re-optimize per exchange unless you plan to trade there
 
 **Deflated Sharpe Ratio:**
 Quick formula to check if the observed Sharpe is statistically significant given the number of configs tested:

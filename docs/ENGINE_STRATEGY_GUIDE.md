@@ -123,7 +123,7 @@ python run.py --config strategies/my_strategy/config.yaml --output results.json
 | Round 1 | Sensitivity | ~90 | Sweep one param at a time (8-10 values), classify as IMPORTANT / INSENSITIVE / MONOTONIC |
 | Round 2 | Interactions | ~250 | Cross 3-5 IMPORTANT params (3-5 values each near Round 1 peaks) |
 | Round 3 | Robustness | ~100 | Perturb top configs +/-15%, pick CENTER of stable region |
-| Round 4 | Validation | varies | Walk-forward, OOS split, cross-exchange, deflated Sharpe |
+| Round 4 | Validation | varies | OOS split, walk-forward, deflated Sharpe, cross-exchange (optional) |
 
 **Key principle:** Pick the center of a robust region, not the single best point. The best in-sample config is almost always overfit.
 

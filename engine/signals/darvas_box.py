@@ -81,7 +81,7 @@ class DarvasBoxSignalGenerator:
                 continue
 
             for exit_config in get_exit_config_iterator(context):
-                trailing_stop_pct = exit_config["trailing_stop_pct"]
+                trailing_stop_pct = exit_config["trailing_stop_pct"] / 100.0
                 max_hold_days = exit_config["max_hold_days"]
 
                 entry_rows = df_entries.select([
@@ -205,7 +205,7 @@ class DarvasBoxSignalGenerator:
     @staticmethod
     def build_exit_config(exit_cfg: dict) -> dict:
         return {
-            "trailing_stop_pct": exit_cfg.get("trailing_stop_pct", [0.08]),
+            "trailing_stop_pct": exit_cfg.get("trailing_stop_pct", [8]),
             "max_hold_days": exit_cfg.get("max_hold_days", [30]),
         }
 

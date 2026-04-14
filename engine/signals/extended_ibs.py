@@ -158,7 +158,7 @@ class ExtendedIbsSignalGenerator:
             for exit_config in get_exit_config_iterator(context):
                 max_hold_days = exit_config["max_hold_days"]
                 stop_loss_pct = exit_config.get("stop_loss_pct", 0)
-                trailing_stop_pct = exit_config.get("trailing_stop_pct", 0)
+                trailing_stop_pct = exit_config.get("trailing_stop_pct", 0) / 100.0
 
                 # Build per-instrument exit lookup
                 exit_data = {}

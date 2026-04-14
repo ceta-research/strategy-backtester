@@ -340,7 +340,7 @@ class TrendingValueSignalGenerator:
 
             for exit_config in get_exit_config_iterator(context):
                 min_hold_days = exit_config["min_hold_days"]
-                trailing_stop_pct = exit_config["trailing_stop_pct"]
+                trailing_stop_pct = exit_config["trailing_stop_pct"] / 100.0
 
                 # Position tracking across rebalance periods
                 held = {}  # {instrument: {entry_epoch, entry_price, highest_close}}
@@ -553,7 +553,7 @@ class TrendingValueSignalGenerator:
     def build_exit_config(exit_cfg: dict) -> dict:
         return {
             "min_hold_days": exit_cfg.get("min_hold_days", [365]),
-            "trailing_stop_pct": exit_cfg.get("trailing_stop_pct", [0.20]),
+            "trailing_stop_pct": exit_cfg.get("trailing_stop_pct", [20]),
         }
 
 
