@@ -1,0 +1,49 @@
+# Round 1: breakout_window sweep part B (4 values: long windows)
+static:
+  strategy_type: enhanced_breakout
+  start_margin: 1000000
+  start_epoch: 1262304000
+  end_epoch: 1735689600
+  prefetch_days: 600
+  data_granularity: day
+  data_provider: nse_charting
+
+scanner:
+  instruments:
+    - [{exchange: NSE, symbols: []}]
+  price_threshold: [50]
+  avg_day_transaction_threshold:
+    - {period: 125, threshold: 70000000}
+  n_day_gain_threshold:
+    - {n: 360, threshold: 0}
+
+entry:
+  breakout_window: [10, 15, 20, 30]
+  consecutive_positive_years: [2]
+  min_yearly_return_pct: [0]
+  momentum_lookback_days: [63]
+  momentum_percentile: [0.30]
+  rerank_interval_days: [63]
+  rescreen_interval_days: [63]
+  volume_multiplier: [0]
+  volume_avg_period: [20]
+  roe_threshold: [0]
+  pe_threshold: [0]
+  de_threshold: [0]
+  fundamental_missing_mode: [skip]
+  regime_instrument: ['NSE:NIFTYBEES']
+  regime_sma_period: [0]
+
+exit:
+  trailing_stop_pct: [12]
+  max_hold_days: [252]
+
+simulation:
+  default_sorting_type: [top_gainer]
+  order_sorting_type: [top_gainer]
+  order_ranking_window_days: [180]
+  max_positions: [10]
+  max_positions_per_instrument: [1]
+  order_value_multiplier: [1]
+  max_order_value:
+    - {type: percentage_of_instrument_avg_txn, value: 4.5}

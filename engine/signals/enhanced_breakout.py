@@ -39,6 +39,7 @@ from engine.signals.base import (
     fetch_fundamentals,
     passes_fundamental_filter,
     build_regime_filter,
+    compute_direction_score,
 )
 
 TRADING_DAYS_PER_YEAR = 252
@@ -100,6 +101,15 @@ class EnhancedBreakoutSignalGenerator:
         for ri, rp in regime_configs:
             regime_cache[(ri, rp)] = build_regime_filter(df_tick_data, ri, rp)
 
+        # Pre-build direction score cache (market breadth)
+        direction_score_cache = {}
+        for entry_config in get_entry_config_iterator(context):
+            ds_ma = entry_config.get("direction_score_n_day_ma", 0)
+            if ds_ma > 0 and ds_ma not in direction_score_cache:
+                direction_score_cache[ds_ma] = compute_direction_score(
+                    df_tick_data, n_day_ma=ds_ma
+                )
+
         # -- Phase 1: Scanner (per-day liquidity filter) --
         shortlist_tracker, df_trimmed = run_scanner(context, df_tick_data)
 
@@ -130,11 +140,16 @@ class EnhancedBreakoutSignalGenerator:
             )
             regime_instrument = entry_config.get("regime_instrument", "")
             regime_sma_period = entry_config.get("regime_sma_period", 0)
+            ds_n_day_ma = entry_config.get("direction_score_n_day_ma", 0)
+            ds_threshold = entry_config.get("direction_score_threshold", 0)
 
             bull_epochs = regime_cache.get(
                 (regime_instrument, regime_sma_period), set()
             )
             use_regime = bool(bull_epochs)
+
+            direction_scores = direction_score_cache.get(ds_n_day_ma, {})
+            use_direction = bool(direction_scores) and ds_threshold > 0
 
             df_signals = df_ind.clone()
 
@@ -324,6 +339,10 @@ class EnhancedBreakoutSignalGenerator:
                 extras.append(
                     f"regime={regime_instrument}>SMA{regime_sma_period}"
                 )
+            if use_direction:
+                extras.append(
+                    f"ds>={ds_threshold}(MA{ds_n_day_ma})"
+                )
             print(
                 f"  Universe: avg {avg_pool:.0f} stocks "
                 f"({', '.join(extras)})"
@@ -387,6 +406,12 @@ class EnhancedBreakoutSignalGenerator:
                     universe = combined_universe.get(epoch, set())
                     if inst not in universe:
                         continue
+
+                    # Direction score filter (market breadth)
+                    if use_direction:
+                        ds = direction_scores.get(epoch, 0)
+                        if ds <= ds_threshold:
+                            continue
 
                     # Fundamental filter
                     if fundamentals and (
@@ -483,6 +508,8 @@ class EnhancedBreakoutSignalGenerator:
             "fundamental_missing_mode": entry_cfg.get("fundamental_missing_mode", ["skip"]),
             "regime_instrument": entry_cfg.get("regime_instrument", [""]),
             "regime_sma_period": entry_cfg.get("regime_sma_period", [0]),
+            "direction_score_n_day_ma": entry_cfg.get("direction_score_n_day_ma", [0]),
+            "direction_score_threshold": entry_cfg.get("direction_score_threshold", [0]),
         }
 
     @staticmethod
