@@ -31,21 +31,21 @@
   notes: "Champion: quality=3,pctile=0.25,TSL=18,hold=126,pos=10. Cal+140% (0.208→0.499). OOS Cal 0.853, WF 4/6+, deflated Sharpe 0.425. NSE-specific."
 
 - strategy: momentum_cascade
-  status: IN_PROGRESS
+  status: COMPLETE
   priority: 3
+  current_round: 4
+  best_calmar: 0.366
+  best_cagr: 0.097
+  session: 2026-04-15
+  notes: "Champion: a=15,s=42,b=252,r=200,tsl=15,h=378,gainer,p=15. 9.7%/Cal0.366 (2010-2026). OOS Cal 0.541, WF 5/6+, deflated Sharpe 0.307. NSE-dominant."
+
+- strategy: momentum_top_gainers
+  status: IN_PROGRESS
+  priority: 4
   current_round: 0
   best_calmar: null
   best_cagr: null
   session: 2026-04-15
-  notes: "Never swept. Momentum acceleration + breakout."
-
-- strategy: momentum_top_gainers
-  status: PENDING
-  priority: 4
-  current_round: null
-  best_calmar: null
-  best_cagr: null
-  session: null
   notes: "Rounds 1-2 done informally. Needs formal R0-R4 with runbook methodology."
 
 - strategy: momentum_dip_quality

@@ -1,0 +1,64 @@
+static:
+  strategy_type: momentum_cascade
+  start_margin: 10000000
+  start_epoch: 1262304000
+  end_epoch: 1773878400
+  prefetch_days: 600
+  data_granularity: day
+  data_provider: nse_charting
+scanner:
+  instruments:
+  - - exchange: NSE
+      symbols: []
+  price_threshold:
+  - 50
+  avg_day_transaction_threshold:
+  - period: 125
+    threshold: 70000000
+  n_day_gain_threshold:
+  - n: 360
+    threshold: -999
+entry:
+  fast_lookback_days:
+  - 42
+  slow_lookback_days:
+  - 126
+  accel_threshold_pct:
+  - 2
+  min_momentum_pct:
+  - 20
+  breakout_window:
+  - 63
+  regime_instrument:
+  - ''
+  regime_sma_period:
+  - 0
+exit:
+  trailing_stop_pct:
+  - 3
+  - 5
+  - 8
+  - 10
+  - 12
+  - 15
+  - 20
+  - 30
+  - 50
+  max_hold_days:
+  - 504
+simulation:
+  default_sorting_type:
+  - top_gainer
+  order_sorting_type:
+  - top_gainer
+  order_ranking_window_days:
+  - 180
+  max_positions:
+  - 10
+  max_positions_per_instrument:
+  - 1
+  order_value_multiplier:
+  - 0.95
+  max_order_value:
+  - type: percentage_of_instrument_avg_txn
+    value: 4.5
