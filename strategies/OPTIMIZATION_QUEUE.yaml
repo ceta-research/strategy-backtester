@@ -13,30 +13,30 @@
 # ── High priority (biggest potential) ──
 
 - strategy: eod_breakout
-  status: PENDING
+  status: COMPLETE
   priority: 1
-  current_round: null
-  best_calmar: null
-  best_cagr: null
-  session: null
-  notes: "ATO_Simulator hit 32.5% CAGR, pipeline only 12.3%. Biggest gap. Template ready."
+  current_round: 4
+  best_calmar: 0.516
+  best_cagr: 0.133
+  session: 2026-04-15
+  notes: "Champion: ndh=7,ndm=5,ds={3,0.54},tsl=8,pos=15. 13.3%/Cal0.516 (2010-2026). 18.1%/22.8% OOS. WF 6/6+, avg Cal 0.736. Deflated Sharpe 0.649."
 
 - strategy: enhanced_breakout
-  status: PENDING
+  status: COMPLETE
   priority: 2
-  current_round: null
-  best_calmar: null
-  best_cagr: null
-  session: null
-  notes: "Never swept. Multi-layer: quality + momentum + volume + fundamentals."
+  current_round: 4
+  best_calmar: 0.499
+  best_cagr: 0.119
+  session: 2026-04-15
+  notes: "Champion: quality=3,pctile=0.25,TSL=18,hold=126,pos=10. Cal+140% (0.208→0.499). OOS Cal 0.853, WF 4/6+, deflated Sharpe 0.425. NSE-specific."
 
 - strategy: momentum_cascade
-  status: PENDING
+  status: IN_PROGRESS
   priority: 3
-  current_round: null
+  current_round: 0
   best_calmar: null
   best_cagr: null
-  session: null
+  session: 2026-04-15
   notes: "Never swept. Momentum acceleration + breakout."
 
 - strategy: momentum_top_gainers
