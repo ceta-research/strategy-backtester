@@ -1,0 +1,45 @@
+# Champion config from R2+R3 optimization
+# R3 best: lb=210, tn=0.40, rebal=2, mm=5, ds=0.45, tsl=40, hold=126, pos=30
+# Cal=1.016, CAGR=27.3%, MDD=-26.8%, Sharpe=1.281
+
+static:
+  strategy_type: momentum_top_gainers
+  start_margin: 10000000
+  start_epoch: 1262304000       # 2010-01-01
+  end_epoch: 1773878400         # 2026-03-17
+  prefetch_days: 800
+  data_granularity: day
+  data_provider: nse_charting
+
+scanner:
+  instruments:
+    - [{exchange: NSE, symbols: []}]
+  price_threshold: [50]
+  avg_day_transaction_threshold:
+    - {period: 125, threshold: 70000000}
+  n_day_gain_threshold:
+    - {n: 360, threshold: -999}
+
+entry:
+  momentum_lookback_days: [210]
+  top_n_pct: [0.40]
+  rebalance_interval_days: [2]
+  min_momentum_pct: [5]
+  direction_score_n_day_ma: [3]
+  direction_score_threshold: [0.45]
+  regime_instrument: ['NSE:NIFTYBEES']
+  regime_sma_period: [0]
+
+exit:
+  trailing_stop_pct: [40]
+  max_hold_days: [126]
+
+simulation:
+  default_sorting_type: [top_gainer]
+  order_sorting_type: [top_gainer]
+  order_ranking_window_days: [30]
+  max_positions: [30]
+  max_positions_per_instrument: [1]
+  order_value_multiplier: [1.0]
+  max_order_value:
+    - {type: percentage_of_instrument_avg_txn, value: 4.5}

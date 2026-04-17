@@ -1,0 +1,66 @@
+entry:
+  direction_score_n_day_ma:
+  - 3
+  direction_score_threshold:
+  - 0
+  - 0.45
+  min_momentum_pct:
+  - 0
+  - 5
+  momentum_lookback_days:
+  - 63
+  rebalance_interval_days:
+  - 2
+  - 5
+  regime_instrument:
+  - NSE:NIFTYBEES
+  regime_sma_period:
+  - 0
+  top_n_pct:
+  - 0.6
+exit:
+  max_hold_days:
+  - 126
+  - 252
+  trailing_stop_pct:
+  - 25
+  - 40
+  - 60
+scanner:
+  avg_day_transaction_threshold:
+  - period: 125
+    threshold: 70000000
+  instruments:
+  - - exchange: NSE
+      symbols: []
+  n_day_gain_threshold:
+  - n: 360
+    threshold: -999
+  price_threshold:
+  - 50
+simulation:
+  default_sorting_type:
+  - top_gainer
+  max_order_value:
+  - type: percentage_of_instrument_avg_txn
+    value: 4.5
+  max_positions:
+  - 15
+  - 20
+  - 30
+  max_positions_per_instrument:
+  - 1
+  order_ranking_window_days:
+  - 30
+  order_sorting_type:
+  - top_gainer
+  order_value_multiplier:
+  - 1.0
+static:
+  data_granularity: day
+  data_provider: nse_charting
+  end_epoch: 1773878400
+  prefetch_days: 800
+  start_epoch: 1262304000
+  start_margin: 10000000
+  strategy_type: momentum_top_gainers

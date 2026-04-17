@@ -16,6 +16,7 @@ entries only happen on days with sufficient turnover for position sizes.
 Standalone results are upper bounds; engine results are honest.
 """
 
+import bisect
 import time
 
 import polars as pl
@@ -101,8 +102,8 @@ class MomentumDipQualitySignalGenerator:
         shortlist_tracker, df_trimmed = run_scanner(context, df_tick_data)
 
         # ── Phase 2: Compute indicators ──
-        df_ind = df_tick_data.clone()
-        df_ind = add_next_day_values(df_ind)
+        # Don't clone - modify in place to save ~500MB memory on large datasets
+        df_ind = add_next_day_values(df_tick_data)
         df_ind = df_ind.sort(["instrument", "date_epoch"])
 
         # ── Phase 3: Generate orders per entry/exit config ──
@@ -138,7 +139,9 @@ class MomentumDipQualitySignalGenerator:
             direction_scores = direction_score_cache.get(direction_n_day_ma, {})
             use_direction = bool(direction_scores) and direction_threshold > 0
 
-            df_signals = df_ind.clone()
+            # Use df_ind directly (don't clone - saves ~500MB)
+            # Safe because we're adding new columns, not modifying existing ones
+            df_signals = df_ind
 
             # Rolling peak (highest close in last peak_lookback days)
             df_signals = df_signals.with_columns(
@@ -317,24 +320,14 @@ class MomentumDipQualitySignalGenerator:
                 f"  Universe: avg {avg_pool:.0f} stocks ({', '.join(extras)})"
             )
 
-            # Build per-instrument exit data for walk-forward
-            exit_data = {}
-            for inst_tuple, group in df_signals.group_by("instrument"):
-                inst_name = inst_tuple[0]
-                g = group.sort("date_epoch")
-                exit_data[inst_name] = {
-                    "epochs": g["date_epoch"].to_list(),
-                    "closes": g["close"].to_list(),
-                    "opens": g["open"].to_list(),
-                }
-
             # Entry filter: dip + period universe + optional regime
-            # NOTE: quality is enforced via combined_universe membership
-            # (rescreened every N days), NOT per-row. This matches standalone
-            # behavior: screen periodically, trust the snapshot between screens.
+            all_universe_instruments = set()
+            for u in combined_universe.values():
+                all_universe_instruments |= u
+
             entry_filter = (
                 (pl.col("dip_pct") >= dip_threshold)
-                & (pl.col("instrument").is_in(list(period_universe_set)))
+                & (pl.col("instrument").is_in(list(all_universe_instruments)))
                 & (pl.col("next_epoch").is_not_null())
                 & (pl.col("next_open").is_not_null())
                 & (pl.col("rolling_peak").is_not_null())
@@ -344,7 +337,7 @@ class MomentumDipQualitySignalGenerator:
                     pl.col("date_epoch").is_in(list(bull_epochs))
                 )
 
-            entry_rows = (
+            df_entry_candidates = (
                 df_signals.filter(entry_filter)
                 .select([
                     "instrument",
@@ -356,68 +349,92 @@ class MomentumDipQualitySignalGenerator:
                     "rolling_peak",
                     "dip_pct",
                 ])
-                .to_dicts()
             )
+            n_candidates = df_entry_candidates.height
 
-            print(f"  Entry candidates (pre-filter): {len(entry_rows)}")
+            print(f"  Entry candidates (pre-filter): {n_candidates}")
 
-            # Walk forward for each exit config
-            for exit_config in get_exit_config_iterator(context):
-                trailing_stop_pct = exit_config["trailing_stop_pct"] / 100.0
-                max_hold_days = exit_config["max_hold_days"]
-                require_peak_recovery = exit_config.get("require_peak_recovery", True)
-                orders_this_config = 0
+            # Walk forward: iterate entries ONCE, run all exit configs per entry.
+            # Build exit_data LAZILY per instrument (only when first needed).
+            entry_cols = df_entry_candidates.columns
+            exit_configs = list(get_exit_config_iterator(context))
+            orders_per_exit = {i: 0 for i in range(len(exit_configs))}
+            qualifying_entries = 0
+            exit_data = {}  # Built lazily per instrument
 
-                for entry in entry_rows:
-                    inst = entry["instrument"]
-                    epoch = entry["date_epoch"]
+            # Keep minimal columns for exit_data; free df_signals to reclaim ~2GB
+            _df_exit_source = df_signals.select(
+                ["instrument", "date_epoch", "close", "open"]
+            )
+            del df_signals
+            import gc; gc.collect()
 
-                    # Must be in combined (quality AND momentum) universe
-                    universe = combined_universe.get(epoch, set())
-                    if inst not in universe:
+            for row in df_entry_candidates.iter_rows():
+                entry = dict(zip(entry_cols, row))
+                inst = entry["instrument"]
+                epoch = entry["date_epoch"]
+
+                # Must be in combined (quality AND momentum) universe
+                universe = combined_universe.get(epoch, set())
+                if inst not in universe:
+                    continue
+
+                # Direction score (market breadth) gate
+                if use_direction:
+                    ds = direction_scores.get(epoch, 0)
+                    if ds <= direction_threshold:
                         continue
 
-                    # Direction score (market breadth) gate
-                    if use_direction:
-                        ds = direction_scores.get(epoch, 0)
-                        if ds <= direction_threshold:
-                            continue
-
-                    # Fundamental filter
-                    if fundamentals and (
-                        roe_threshold > 0
-                        or pe_threshold > 0
-                        or de_threshold > 0
+                # Fundamental filter
+                if fundamentals and (
+                    roe_threshold > 0
+                    or pe_threshold > 0
+                    or de_threshold > 0
+                ):
+                    symbol = inst.split(":")[1]
+                    if not passes_fundamental_filter(
+                        fundamentals,
+                        symbol,
+                        epoch,
+                        roe_threshold,
+                        pe_threshold,
+                        de_threshold,
+                        fundamental_missing,
                     ):
-                        symbol = inst.split(":")[1]
-                        if not passes_fundamental_filter(
-                            fundamentals,
-                            symbol,
-                            epoch,
-                            roe_threshold,
-                            pe_threshold,
-                            de_threshold,
-                            fundamental_missing,
-                        ):
-                            continue
-
-                    if inst not in exit_data:
                         continue
 
-                    ed = exit_data[inst]
-                    entry_epoch = entry["next_epoch"]
-                    entry_price = entry["next_open"]
-                    peak_price = entry["rolling_peak"]
+                # Lazy exit_data build per instrument (filter on demand)
+                if inst not in exit_data:
+                    g = _df_exit_source.filter(pl.col("instrument") == inst)
+                    if g.is_empty():
+                        continue
+                    exit_data[inst] = {
+                        "epochs": g["date_epoch"].to_list(),
+                        "closes": g["close"].to_list(),
+                        "opens": g["open"].to_list(),
+                    }
 
-                    if entry_price is None or entry_price <= 0:
-                        continue
-                    if peak_price is None:
-                        continue
+                ed = exit_data[inst]
+                entry_epoch = entry["next_epoch"]
+                entry_price = entry["next_open"]
+                peak_price = entry["rolling_peak"]
 
-                    try:
-                        start_idx = ed["epochs"].index(entry_epoch)
-                    except ValueError:
-                        continue
+                if entry_price is None or entry_price <= 0:
+                    continue
+                if peak_price is None:
+                    continue
+
+                start_idx = bisect.bisect_left(ed["epochs"], entry_epoch)
+                if start_idx >= len(ed["epochs"]) or ed["epochs"][start_idx] != entry_epoch:
+                    continue
+
+                qualifying_entries += 1
+
+                # Walk forward for EACH exit config
+                for ei, exit_config in enumerate(exit_configs):
+                    trailing_stop_pct = exit_config["trailing_stop_pct"] / 100.0
+                    max_hold_days = exit_config["max_hold_days"]
+                    require_peak_recovery = exit_config.get("require_peak_recovery", True)
 
                     exit_epoch, exit_price = walk_forward_exit(
                         ed["epochs"], ed["closes"], start_idx,
@@ -443,12 +460,20 @@ class MomentumDipQualitySignalGenerator:
                         "exit_config_ids": str(exit_config["id"]),
                         "dip_pct": entry.get("dip_pct", 0),
                     })
-                    orders_this_config += 1
+                    orders_per_exit[ei] += 1
 
-                peak_tag = "" if require_peak_recovery else " (pure TSL)"
+            # Free lazy data
+            del exit_data, _df_exit_source
+
+            print(f"  Qualifying entries: {qualifying_entries}")
+            for ei, exit_config in enumerate(exit_configs):
+                tsl = exit_config["trailing_stop_pct"]
+                hold = exit_config["max_hold_days"]
+                rpr = exit_config.get("require_peak_recovery", True)
+                peak_tag = "" if rpr else " (pure TSL)"
                 print(
-                    f"    Exit TSL={trailing_stop_pct * 100:.0f}% "
-                    f"hold={max_hold_days}d{peak_tag}: {orders_this_config} orders"
+                    f"    Exit TSL={tsl}% "
+                    f"hold={hold}d{peak_tag}: {orders_per_exit[ei]} orders"
                 )
 
         entry_elapsed = round(time.time() - t1, 2)

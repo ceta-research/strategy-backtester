@@ -1,0 +1,60 @@
+# Round 1: Fundamental filters sweep
+# roe_threshold (4) x pe_threshold (4) x de_threshold (4)
+# But to keep it manageable, sweep each independently + a "no fundamentals" config
+# roe: [0, 10, 15, 20] x pe: [25] x de: [1.0] = 4
+# pe: [0, 15, 25, 35] x roe: [15] x de: [1.0] = 4 (roe=15,pe=25 = baseline, counted once)
+# de: [0, 0.5, 1.0, 2.0] x roe: [15] x pe: [25] = 4 (de=1.0 = baseline, counted once)
+# Total unique: 4 + 3 + 3 = 10 configs
+
+static:
+  strategy_type: momentum_dip_quality
+  start_margin: 10000000
+  start_epoch: 1262304000
+  end_epoch: 1773878400
+  prefetch_days: 600
+  data_granularity: day
+  data_provider: nse_charting
+
+scanner:
+  instruments:
+    - [{exchange: NSE, symbols: []}]
+  price_threshold: [50]
+  avg_day_transaction_threshold:
+    - {period: 125, threshold: 70000000}
+  n_day_gain_threshold:
+    - {n: 360, threshold: -999}
+
+entry:
+  consecutive_positive_years: [2]
+  min_yearly_return_pct: [0]
+  momentum_lookback_days: [63]
+  momentum_percentile: [0.30]
+  rerank_interval_days: [63]
+  dip_threshold_pct: [5]
+  peak_lookback_days: [63]
+  rescreen_interval_days: [63]
+  roe_threshold: [0, 10, 15, 20]
+  pe_threshold: [0, 15, 25, 35]
+  de_threshold: [0, 0.5, 1.0, 2.0]
+  fundamental_missing_mode: ['skip']
+  regime_instrument: ['NSE:NIFTYBEES']
+  regime_sma_period: [200]
+  direction_score_n_day_ma: [3]
+  direction_score_threshold: [0.54]
+
+exit:
+  trailing_stop_pct: [10]
+  max_hold_days: [504]
+  require_peak_recovery: [true]
+
+simulation:
+  default_sorting_type: [top_gainer]
+  order_sorting_type: [top_gainer]
+  order_ranking_window_days: [30]
+  max_positions: [10]
+  max_positions_per_instrument: [1]
+  order_value_multiplier: [1.0]
+  max_order_value:
+    - {type: fixed, value: 1000000000}
+
+# Total: 4 x 4 x 4 = 64 configs (cross product, includes baseline)

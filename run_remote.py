@@ -47,12 +47,11 @@ def detect_intraday(config_path):
         import yaml
         with open(config_path) as f:
             config = yaml.safe_load(f)
-        # Intraday configs have strategy_type or use intraday-specific keys
         stype = config.get("static", {}).get("strategy_type", "")
         if "intraday" in stype.lower() or "orb" in stype.lower():
             return True
-        # Check for intraday-specific sections
-        if "scanner" in config and "entry" in config:
+        granularity = config.get("static", {}).get("data_granularity", "day")
+        if granularity in ("minute", "1min", "5min", "15min"):
             return True
     except Exception:
         pass
@@ -180,14 +179,23 @@ def _handle_result(orch, result, run_id, target, args):
         return 1
 
     print(f"\nDownloading results...")
+    results = None
     try:
         results = orch.download_results(run_id)
     except Exception as e:
-        print(f"Download failed: {e}")
+        print(f"Download failed: {e}, trying stdout fallback...")
+
+    # Fallback: parse results from stdout (RESULTS_START/RESULTS_END markers)
+    if not results:
         stdout = result.get("stdout", "")
-        if stdout:
-            print(f"Stdout (last 2000 chars):\n{stdout[-2000:]}")
-        return 1
+        if "RESULTS_START" in stdout and "RESULTS_END" in stdout:
+            json_str = stdout.split("RESULTS_START\n", 1)[1].split("\nRESULTS_END", 1)[0]
+            results = json.loads(json_str)
+            print(f"  Parsed {len(results)} configs from stdout")
+        else:
+            if stdout:
+                print(f"Stdout (last 2000 chars):\n{stdout[-2000:]}")
+            return 1
 
     # Determine output path
     if args.output:

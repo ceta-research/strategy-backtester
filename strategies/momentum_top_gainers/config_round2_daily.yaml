@@ -1,0 +1,48 @@
+# Round 2 supplement: daily rebalance with narrower grid
+# rebal=1 generates 68k orders per entry — very expensive
+# Entry: 2*3*1*1*2 = 12 combos
+# Exit: 3*2 = 6 combos
+# Sim: 3 combos
+# Total: 12 * 6 * 3 = 216 configs
+
+static:
+  strategy_type: momentum_top_gainers
+  start_margin: 10000000
+  start_epoch: 1262304000
+  end_epoch: 1773878400
+  prefetch_days: 800
+  data_granularity: day
+  data_provider: nse_charting
+
+scanner:
+  instruments:
+    - [{exchange: NSE, symbols: []}]
+  price_threshold: [50]
+  avg_day_transaction_threshold:
+    - {period: 125, threshold: 70000000}
+  n_day_gain_threshold:
+    - {n: 360, threshold: -999}
+
+entry:
+  momentum_lookback_days: [63, 189]
+  top_n_pct: [0.40, 0.50, 0.60]
+  rebalance_interval_days: [1]
+  min_momentum_pct: [0]                       # Fixed at R1 best
+  direction_score_n_day_ma: [3]
+  direction_score_threshold: [0, 0.45]
+  regime_instrument: ['NSE:NIFTYBEES']
+  regime_sma_period: [0]
+
+exit:
+  trailing_stop_pct: [25, 40, 60]
+  max_hold_days: [126, 252]
+
+simulation:
+  default_sorting_type: [top_gainer]
+  order_sorting_type: [top_gainer]
+  order_ranking_window_days: [30]
+  max_positions: [15, 20, 30]
+  max_positions_per_instrument: [1]
+  order_value_multiplier: [1.0]
+  max_order_value:
+    - {type: percentage_of_instrument_avg_txn, value: 4.5}

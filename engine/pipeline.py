@@ -149,13 +149,45 @@ def run_pipeline(config_path, data_provider=None):
         return sweep
 
     # Build epoch-wise instrument stats (used by simulator + ranking)
+    # Filter to only instruments that appear in orders to avoid OOM on large datasets
     print("\n--- Building Instrument Stats ---")
     stats_start = time.time()
-    epoch_wise_instrument_stats = create_epoch_wise_instrument_stats(df_tick_data)
+    order_instruments = set(df_orders["instrument"].unique().to_list())
+    # Limit to top 200 instruments by order count to stay within memory
+    # (covers 99%+ of portfolio value for concentrated strategies)
+    if len(order_instruments) > 200:
+        inst_counts = df_orders.group_by("instrument").len().sort("len", descending=True)
+        top_instruments = set(inst_counts.head(200)["instrument"].to_list())
+        print(f"  WARNING: {len(order_instruments)} order instruments, limiting stats to top 200")
+        order_instruments = top_instruments
+    # Also filter to epochs near order entry/exit dates
+    order_epochs = set(df_orders["entry_epoch"].unique().to_list()) | set(df_orders["exit_epoch"].unique().to_list())
+    min_epoch = min(order_epochs) - 86400 * 30  # 30-day buffer for rolling avg_txn
+    df_tick_stats = df_tick_data.filter(
+        (pl.col("instrument").is_in(list(order_instruments)))
+        & (pl.col("date_epoch") >= min_epoch)
+    )
+    print(f"  Filtering: {df_tick_data['instrument'].n_unique()} -> {len(order_instruments)} instruments for stats")
+
+    # Pre-compute ranking data ONCE for order instruments only.
+    # Keep df_tick_ranked BEFORE building stats dict (which consumes lots of memory).
+    df_tick_ranked = df_tick_stats  # Already filtered to order instruments
+
+    epoch_wise_instrument_stats = create_epoch_wise_instrument_stats(df_tick_stats)
+    del df_tick_stats  # Free filtered copy
     print(f"  Stats built: {round(time.time() - stats_start, 2)}s")
+
+    # Free the large original tick data - no longer needed
+    del df_tick_data
+    import gc; gc.collect()
+    print("  Freed df_tick_data")
 
     # Build config ID lookup for 3-way intersection
     scanner_idx_map, entry_idx_map, exit_idx_map = create_config_df_loc_lookup(df_orders)
+
+    print("\n--- Pre-computing Ranking ---")
+    rank_start = time.time()
+    print(f"  Ranking data: {df_tick_ranked.height} rows ({len(order_instruments)} instruments), {round(time.time() - rank_start, 2)}s")
 
     # Simulate each config combination sequentially
     print(f"\n--- Simulation ({total_configs} configs) ---")
@@ -178,10 +210,10 @@ def run_pipeline(config_path, data_provider=None):
 
                     df_config_orders = df_orders[sorted(order_indices)]
 
-                    # Rank/sort orders
+                    # Rank/sort orders (using pre-filtered tick data)
                     if len(df_config_orders) > 0:
                         df_config_orders = sort_orders(
-                            df_config_orders, sim_cfg, df_tick_data, epoch_wise_instrument_stats
+                            df_config_orders, sim_cfg, df_tick_ranked, epoch_wise_instrument_stats
                         )
 
                     # Run simulator

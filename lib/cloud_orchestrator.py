@@ -100,11 +100,11 @@ class CloudOrchestrator:
         if cached and cached.get("name") == self.project_name:
             project_id = cached["id"]
             try:
-                project = self.cr.get_project(project_id)
+                self.cr.get_project(project_id)  # validate project exists
                 self.cr.update_project(project_id, dependencies=self.dependencies)
                 if self.verbose:
                     print(f"  Project: {project_id} (cached)")
-                return project
+                return {"id": project_id, "name": self.project_name}
             except Exception:
                 pass  # cache stale, fall through to search
 
