@@ -60,8 +60,7 @@ def run_one(orch, config_name, output_name, timeout, ram):
     orch.upsert_with_retry(project_id, "cloud_main_eod.py", open(entry_source).read())
     orch.upsert_with_retry(project_id, "config.yaml", open(config_path).read())
 
-    wrapper = orch.make_wrapper("cloud_main_eod.py", config_file="config.yaml",
-                                polars_workaround=True)
+    wrapper = orch.make_wrapper("cloud_main_eod.py", config_file="config.yaml")
     orch.upsert_with_retry(project_id, "_run_1.py", wrapper)
 
     # Submit and poll

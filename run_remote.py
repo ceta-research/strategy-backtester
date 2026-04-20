@@ -148,7 +148,6 @@ def run_config(orch, target, args, env_vars):
         entry_point,
         config_file="config.yaml",
         env_vars=env_vars,
-        polars_workaround=(mode == "eod"),
     )
     orch.upsert_with_retry(project_id, "_run_1.py", wrapper)
 

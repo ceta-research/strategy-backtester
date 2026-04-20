@@ -261,15 +261,13 @@ class CloudOrchestrator:
     # Wrapper generation
     # ------------------------------------------------------------------ #
 
-    def make_wrapper(self, script, config_file=None, env_vars=None,
-                     polars_workaround=False):
+    def make_wrapper(self, script, config_file=None, env_vars=None):
         """Generate a wrapper script for cloud execution.
 
         Args:
             script: Entry script to execute (e.g. "cloud_main_eod.py" or "scripts/buy_2day_high.py").
             config_file: If set, injects CONFIG_FILE env var.
             env_vars: Dict of additional env vars to set.
-            polars_workaround: Include polars pyo3 to_list() monkey-patch.
 
         Returns:
             Wrapper Python source code as string.
@@ -287,16 +285,6 @@ class CloudOrchestrator:
                 lines.append(f'os.environ[{k!r}] = {v!r}')
 
         lines.append('sys.path.insert(0, os.getcwd())')
-
-        if polars_workaround:
-            lines.extend([
-                "",
-                "# Monkey-patch polars to_list() to work around pyo3 panic in cloud env",
-                "import polars as pl",
-                "def _safe_to_list(self):",
-                "    return self.to_arrow().to_pylist()",
-                "pl.Series.to_list = _safe_to_list",
-            ])
 
         lines.append("")
         lines.append(f'exec(open({script!r}).read())')
@@ -322,6 +310,7 @@ class CloudOrchestrator:
             cpu_count=cpu,
             ram_mb=ram_mb,
             timeout_seconds=timeout,
+            install_timeout_seconds=300,
             poll=False,
         )
         run_id = result.get("id") or result.get("taskId")

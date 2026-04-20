@@ -70,7 +70,6 @@ def run_strategy(orch, project_id, strategy_name, cpu, ram, timeout):
     wrapper = orch.make_wrapper(
         "cloud_main_eod.py",
         config_file=f"config_{strategy_name}.yaml",
-        polars_workaround=True,
     )
     orch.upsert_with_retry(project_id, "_run_1.py", wrapper)
 

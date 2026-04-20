@@ -40,7 +40,7 @@ ENTRY_GRID = {
     "momentum_percentile": [0.25, 0.30],           # MODERATE: R1 best=0.25
     "dip_threshold_pct": [5, 7],                   # MODERATE: R1 best=7, include 5 (baseline)
     "consecutive_positive_years": [1, 2],           # INVESTIGATE: R1 Cal 1.401 at 1yr
-    "regime_sma_period": [0, 200],                  # INVESTIGATE: R1 showed big impact
+    "regime_sma_period": [200],                       # Locked: regime=0 OOMs on cloud (too many entries without filter)
 }
 
 EXIT_GRID = {
@@ -114,8 +114,7 @@ def run_batch(orch, pid, cfg, name, timeout=3600, ram_mb=32768, max_retries=3):
     """Upload config and run with retry."""
     yaml_str = yaml.dump(cfg, default_flow_style=False)
     orch.upsert_with_retry(pid, "config.yaml", yaml_str)
-    wrapper = orch.make_wrapper("cloud_main_eod.py", config_file="config.yaml",
-                                polars_workaround=True)
+    wrapper = orch.make_wrapper("cloud_main_eod.py", config_file="config.yaml")
     orch.upsert_with_retry(pid, "_run_1.py", wrapper)
 
     for attempt in range(max_retries):
@@ -123,9 +122,14 @@ def run_batch(orch, pid, cfg, name, timeout=3600, ram_mb=32768, max_retries=3):
             print(f"  Retry {attempt}/{max_retries}...")
             time.sleep(10)
 
-        print(f"  Submitting {name}...")
-        run_id = orch.submit_run(pid, "_run_1.py", cpu=12, ram_mb=ram_mb, timeout=timeout)
-        result = orch.poll_run(pid, run_id, timeout=timeout)
+        try:
+            print(f"  Submitting {name}...")
+            run_id = orch.submit_run(pid, "_run_1.py", cpu=12, ram_mb=ram_mb, timeout=timeout)
+            result = orch.poll_run(pid, run_id, timeout=timeout)
+        except (ConnectionError, RuntimeError, OSError) as e:
+            print(f"  Connection error: {e}")
+            time.sleep(30)
+            continue
 
         status = result.get("status", "?")
         em = result.get("executionTimeMs", "?")
@@ -158,11 +162,17 @@ def run_batch(orch, pid, cfg, name, timeout=3600, ram_mb=32768, max_retries=3):
 
 
 def main():
+    # Resume from existing results
+    existing_entries = set()
+    all_configs = []
     if os.path.exists(OUTPUT_FILE):
         with open(OUTPUT_FILE) as f:
-            existing = json.load(f)
-        print(f"round2_full.json already exists ({len(existing)} configs). Delete to re-run.")
-        return
+            all_configs = json.load(f)
+        for c in all_configs:
+            ep = c.get("entry_params", {})
+            key = tuple(sorted(ep.items()))
+            existing_entries.add(key)
+        print(f"Resuming: {len(all_configs)} configs from {len(existing_entries)} entry combos already done")
 
     cr = CetaResearch()
     orch = CloudOrchestrator(cr, project_name="sb-remote")
@@ -185,10 +195,10 @@ def main():
     tsl_values = EXIT_GRID["trailing_stop_pct"]
     hold_values = EXIT_GRID["max_hold_days"]
     pos_values = SIM_GRID["max_positions"]
-    MAX_EXIT_PER_BATCH = 3  # 3 TSL × 3 hold = 9 exit, ×2 sim = 18 configs, ~96K orders
+    MAX_TSL_PER_BATCH = 1  # 1 TSL × 3 hold = 3 exit × 2 sim = 6 configs, ~32K orders
 
-    # Split TSL into batches of MAX_EXIT_PER_BATCH
-    tsl_batches = [tsl_values[i:i+MAX_EXIT_PER_BATCH] for i in range(0, len(tsl_values), MAX_EXIT_PER_BATCH)]
+    # Split TSL into batches of 1 (each generates ~32K orders)
+    tsl_batches = [[t] for t in tsl_values]
 
     n_exit = len(tsl_values) * len(hold_values)
     n_sim = len(pos_values)
@@ -197,13 +207,18 @@ def main():
     print(f"\nR2: {len(entry_combos)} entry × {n_exit} exit × {n_sim} sim = {total_configs} configs")
     print(f"Batches: {total_batches} ({len(entry_combos)} entries × {len(tsl_batches)} exit batches)\n")
 
-    all_configs = []
     failed = 0
     batch_num = 0
 
     for i, combo in enumerate(entry_combos):
         entry_vals = dict(zip(entry_params, combo))
+        entry_key = tuple(sorted(entry_vals.items()))
         label = ", ".join(f"{k.split('_')[-1]}={v}" for k, v in entry_vals.items())
+
+        # Skip already-completed entry combos
+        if entry_key in existing_entries:
+            batch_num += len(tsl_batches)
+            continue
 
         for tb_idx, tsl_batch in enumerate(tsl_batches):
             batch_num += 1
@@ -225,8 +240,8 @@ def main():
                 all_configs.extend(configs)
                 print(f"  +{len(configs)} (total: {len(all_configs)})")
 
-        # Save partial results every 10 entry combos
-        if (i + 1) % 5 == 0 and all_configs:
+        # Save partial results after EVERY entry combo (frequent checkpoint)
+        if all_configs:
             os.makedirs(RESULTS_DIR, exist_ok=True)
             with open(OUTPUT_FILE, "w") as f:
                 json.dump(all_configs, f, indent=2, default=str)

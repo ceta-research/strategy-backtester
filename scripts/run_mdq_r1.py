@@ -174,8 +174,7 @@ def run_batch(orch, pid, cfg, name, timeout=3600, ram_mb=32768, max_retries=3):
     """Upload config and run on cloud with retry. Returns list of config dicts or None."""
     yaml_str = yaml.dump(cfg, default_flow_style=False)
     orch.upsert_with_retry(pid, "config.yaml", yaml_str)
-    wrapper = orch.make_wrapper("cloud_main_eod.py", config_file="config.yaml",
-                                polars_workaround=True)
+    wrapper = orch.make_wrapper("cloud_main_eod.py", config_file="config.yaml")
     orch.upsert_with_retry(pid, "_run_1.py", wrapper)
 
     n_configs = count_configs(cfg)
