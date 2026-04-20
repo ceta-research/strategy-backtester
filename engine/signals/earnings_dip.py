@@ -52,14 +52,49 @@ def _fetch_earnings_surprises(exchanges, start_epoch, end_epoch):
 
     cr = CetaResearch()
 
+    # Map exchange codes to FMP profile exchange names and symbol suffixes.
+    # Suffix is stripped from FMP symbol to get bare symbol for matching
+    # with tick data instruments (e.g., "RELIANCE.NS" → "RELIANCE").
+    EXCHANGE_MAP = {
+        "NSE": ("NSE", ".NS"),
+        "BSE": ("BSE", ".BO"),
+        "NASDAQ": ("NASDAQ", ""),
+        "NYSE": ("NYSE", ""),
+        "AMEX": ("AMEX", ""),
+        "US": (None, ""),  # Macro — expands below
+        "LSE": ("LSE", ".L"),
+        "JPX": ("JPX", ".T"),
+        "HKSE": ("HKSE", ".HK"),
+        "XETRA": ("XETRA", ".DE"),
+        "KSC": ("KSC", ".KS"),
+        "ASX": ("ASX", ".AX"),
+        "TSX": ("TSX", ".TO"),
+        "SHH": ("SHH", ".SS"),
+        "SHZ": ("SHZ", ".SZ"),
+        "TAI": ("TAI", ".TW"),
+        "TWO": ("TWO", ".TWO"),
+        "PAR": ("PAR", ".PA"),
+        "STO": ("STO", ".ST"),
+        "SIX": ("SIX", ".SW"),
+        "JKT": ("JKT", ".JK"),
+        "SAO": ("SAO", ".SA"),
+        "SET": ("SET", ".BK"),
+        "JNB": ("JNB", ".JO"),
+        "SES": ("SES", ".SI"),
+    }
+
     exchange_filters = []
     suffixes = []
     for exchange in exchanges:
-        if exchange == "NSE":
-            exchange_filters.append("p.exchange = 'NSE'")
-            suffixes.append(".NS")
-        elif exchange in ("US", "NASDAQ", "NYSE"):
-            exchange_filters.append("p.exchange IN ('NASDAQ', 'NYSE')")
+        if exchange == "US":
+            exchange_filters.append("p.exchange IN ('NASDAQ', 'NYSE', 'AMEX')")
+        elif exchange in EXCHANGE_MAP:
+            fmp_name, suffix = EXCHANGE_MAP[exchange]
+            exchange_filters.append(f"p.exchange = '{fmp_name}'")
+            if suffix:
+                suffixes.append(suffix)
+        else:
+            print(f"  WARNING: Unknown exchange '{exchange}' for earnings lookup")
 
     if not exchange_filters:
         return {}
@@ -213,9 +248,19 @@ class EarningsDipSignalGenerator:
         shortlist_tracker, df_trimmed = run_scanner(context, df_tick_data)
 
         # ── Phase 2: Compute indicators ──
+        # Free df_tick_data reference early to reduce memory pressure.
+        # Pipeline keeps its own reference; we only need our indicator copy.
         df_ind = df_tick_data.clone()
+        del df_tick_data
+        import gc; gc.collect()
         df_ind = add_next_day_values(df_ind)
         df_ind = df_ind.sort(["instrument", "date_epoch"])
+
+        # Build scanner lookup: set of (instrument, epoch) that pass scanner
+        scanner_lookup = {}
+        if not df_trimmed.is_empty() and "uid" in df_trimmed.columns:
+            for row in df_trimmed.select(["uid", "scanner_config_ids"]).unique(subset=["uid"]).iter_rows():
+                scanner_lookup[row[0]] = row[1]
 
         # ── Phase 3: Generate orders per entry/exit config ──
         t1 = time.time()
@@ -337,48 +382,52 @@ class EarningsDipSignalGenerator:
                 f"  Universe: avg {avg_pool:.0f} stocks ({', '.join(extras)})"
             )
 
-            # Build per-instrument price data for post-earnings dip scan
-            inst_price_data = {}
-            for inst_tuple, group in df_signals.group_by("instrument"):
-                inst_name = inst_tuple[0]
-                g = group.sort("date_epoch")
-                inst_price_data[inst_name] = {
-                    "epochs": g["date_epoch"].to_list(),
-                    "closes": g["close"].to_list(),
-                    "opens": g["next_open"].to_list(),
-                    "volumes": g["volume"].to_list(),
-                    "next_epochs": g["next_epoch"].to_list(),
-                    "next_volumes": g["next_volume"].to_list(),
-                    "scanner_ids": g["scanner_config_ids"].to_list(),
-                }
-
-            # Also build exit data from full indicator df (not trimmed)
-            exit_data = {}
-            for inst_tuple, group in df_ind.group_by("instrument"):
-                inst_name = inst_tuple[0]
-                g = group.sort("date_epoch")
-                exit_data[inst_name] = {
-                    "epochs": g["date_epoch"].to_list(),
-                    "closes": g["close"].to_list(),
-                }
-
             # ── Post-earnings dip entry detection ──
-            entry_candidates = []
+            # Process one instrument at a time to avoid OOM from
+            # building large dict-of-lists for all instruments.
+            earnings_symbols = set(earnings.keys())
+            earnings_instruments = set()
+            for inst in df_signals["instrument"].unique().to_list():
+                bare = inst.split(":")[1] if ":" in inst else inst
+                if bare in earnings_symbols:
+                    earnings_instruments.add(inst)
 
-            for inst_name, pd_data in inst_price_data.items():
-                # Extract bare symbol from instrument (e.g. "NSE:RELIANCE")
-                bare_symbol = inst_name.split(":")[1]
+            del df_signals  # Free memory
+            import gc; gc.collect()
+
+            print(f"  Processing {len(earnings_instruments)} instruments with earnings data")
+
+            entry_candidates = []
+            inst_count = 0
+
+            for inst_name in sorted(earnings_instruments):
+                bare_symbol = inst_name.split(":")[1] if ":" in inst_name else inst_name
                 sym_earnings = earnings.get(bare_symbol)
                 if not sym_earnings:
                     continue
 
-                pd_epochs = pd_data["epochs"]
-                pd_closes = pd_data["closes"]
-                pd_opens = pd_data["opens"]
-                pd_volumes = pd_data["volumes"]
-                pd_next_epochs = pd_data["next_epochs"]
-                pd_next_volumes = pd_data["next_volumes"]
-                pd_scanner_ids = pd_data["scanner_ids"]
+                # Extract this instrument's data from df_ind (one at a time)
+                g = df_ind.filter(
+                    (pl.col("instrument") == inst_name)
+                    & (pl.col("date_epoch") >= start_epoch)
+                ).sort("date_epoch")
+
+                if g.height < 30:
+                    continue
+
+                pd_epochs = g["date_epoch"].to_list()
+                pd_closes = g["close"].to_list()
+                pd_opens = g["next_open"].to_list()
+                pd_volumes = g["volume"].to_list()
+                pd_next_epochs = g["next_epoch"].to_list()
+                pd_next_volumes = g["next_volume"].to_list()
+                # Resolve scanner IDs via lookup (avoids DataFrame join)
+                pd_scanner_ids = [
+                    scanner_lookup.get(f"{inst_name}:{ep}")
+                    for ep in pd_epochs
+                ]
+
+                inst_count += 1
 
                 if len(pd_epochs) < 30:
                     continue
@@ -494,6 +543,21 @@ class EarningsDipSignalGenerator:
 
             print(f"  Entry candidates (post-filter): {len(entry_candidates)}")
 
+            # Build exit data lazily per-instrument (cache to avoid
+            # re-fetching across exit configs)
+            _exit_cache = {}
+            def _get_exit_data(inst):
+                if inst not in _exit_cache:
+                    g = df_ind.filter(pl.col("instrument") == inst).sort("date_epoch")
+                    if g.height == 0:
+                        _exit_cache[inst] = None
+                    else:
+                        _exit_cache[inst] = {
+                            "epochs": g["date_epoch"].to_list(),
+                            "closes": g["close"].to_list(),
+                        }
+                return _exit_cache[inst]
+
             # Walk forward for each exit config
             for exit_config in get_exit_config_iterator(context):
                 trailing_stop_pct = exit_config["trailing_stop_pct"] / 100.0
@@ -527,10 +591,9 @@ class EarningsDipSignalGenerator:
                     if peak_price is None or peak_price <= entry_price:
                         continue
 
-                    if inst not in exit_data:
+                    ed = _get_exit_data(inst)
+                    if ed is None:
                         continue
-
-                    ed = exit_data[inst]
 
                     try:
                         start_idx = ed["epochs"].index(entry_epoch)
@@ -564,6 +627,10 @@ class EarningsDipSignalGenerator:
                     f"    Exit TSL={trailing_stop_pct * 100:.0f}% "
                     f"hold={max_hold_days}d: {orders_this_config} orders"
                 )
+
+            # Free exit cache before next entry config iteration
+            del _exit_cache
+            gc.collect()
 
         entry_elapsed = round(time.time() - t1, 2)
         return finalize_orders(all_order_rows, entry_elapsed)

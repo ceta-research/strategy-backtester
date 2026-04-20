@@ -49,24 +49,24 @@
   notes: "Champion: lb=210,tn=0.40,reb=2,mm=5,ds=0.45,tsl=40,hld=126,pos=30. 27.3%/Cal1.016 (2010-2026). OOS 48.6%/Cal1.412. WF 4/5+, deflated Sharpe 1.334. Works globally (US Cal0.615, UK 0.610, Taiwan 0.606)."
 
 - strategy: momentum_dip_quality
-  status: IN_PROGRESS
+  status: COMPLETE
   priority: 5
-  current_round: 1
-  best_calmar: 0.814
-  best_cagr: 0.233
-  session: 2026-04-16
-  notes: "R1 TSL COMPLETE: TSL=8% champion (Cal 0.814, +28% vs baseline). R1 momentum/percentile in progress (scripts/run_mdq_r1.py). Fixed 8 OOM bugs. Use sb-remote project, --timeout 3600, --ram 16384. Cloud dep-install flaky (~30% fail rate)."
+  current_round: 4
+  best_calmar: 0.645
+  best_cagr: 0.172
+  session: 2026-04-20
+  notes: "Champion: m=63,p=0.20,d=3,TSL=3,hold=189,pos=15. 17.2%/Cal0.645 (2010-2026). OOS 16.7%/Cal0.696. WF 5/5+. Engine reverted after regression (pipeline.py+utils.py). Cross-exchange: US 0.271, UK 0.328."
 
 # ── Medium priority (known strategies, never optimized) ──
 
 - strategy: earnings_dip
-  status: PENDING
+  status: COMPLETE
   priority: 6
-  current_round: null
-  best_calmar: null
-  best_cagr: null
-  session: null
-  notes: "Now includes volume confirmation (volume_ratio_max). Test with and without."
+  current_round: 4
+  best_calmar: 0.638
+  best_cagr: 0.106
+  session: 2026-04-19
+  notes: "Champion: s=1,d=3,q=2,r=200,TSL=15,hold=1000,pos=8. Cal 0.638, CAGR 10.6% (2010-2026). R3 PASS (80%). R4 FAIL: only 46 trades (FMP earnings data sparse for NSE pre-2018). Low-frequency, high-conviction strategy."
 
 - strategy: quality_dip_buy
   status: PENDING
