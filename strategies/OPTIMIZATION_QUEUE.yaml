@@ -40,13 +40,13 @@
   notes: "Champion: a=15,s=42,b=252,r=200,tsl=15,h=378,gainer,p=15. 9.7%/Cal0.366 (2010-2026). OOS Cal 0.541, WF 5/6+, deflated Sharpe 0.307. NSE-dominant."
 
 - strategy: momentum_top_gainers
-  status: COMPLETE
+  status: IN_PROGRESS
   priority: 4
   current_round: 4
-  best_calmar: 1.016
-  best_cagr: 0.273
-  session: 2026-04-16
-  notes: "Champion: lb=210,tn=0.40,reb=2,mm=5,ds=0.45,tsl=40,hld=126,pos=30. 27.3%/Cal1.016 (2010-2026). OOS 48.6%/Cal1.412. WF 4/5+, deflated Sharpe 1.334. Works globally (US Cal0.615, UK 0.610, Taiwan 0.606)."
+  best_calmar: 0.820
+  best_cagr: 0.202
+  session: 2026-04-20
+  notes: "REGRESSION: optimized on broken engine (Cal 1.016 invalid). Correct champion Cal 0.820, CAGR 20.2%. Needs R2-R4 re-run with corrected engine."
 
 - strategy: momentum_dip_quality
   status: COMPLETE
@@ -60,13 +60,13 @@
 # ── Medium priority (known strategies, never optimized) ──
 
 - strategy: earnings_dip
-  status: COMPLETE
+  status: IN_PROGRESS
   priority: 6
   current_round: 4
-  best_calmar: 0.638
-  best_cagr: 0.106
-  session: 2026-04-19
-  notes: "Champion: s=1,d=3,q=2,r=200,TSL=15,hold=1000,pos=8. Cal 0.638, CAGR 10.6% (2010-2026). R3 PASS (80%). R4 FAIL: only 46 trades (FMP earnings data sparse for NSE pre-2018). Low-frequency, high-conviction strategy."
+  best_calmar: 0.292
+  best_cagr: 0.046
+  session: 2026-04-20
+  notes: "REGRESSION: optimized on broken engine (Cal 0.638 invalid). Correct champion Cal 0.292, CAGR 4.6%. Needs R2-R4 re-run with corrected engine."
 
 - strategy: quality_dip_buy
   status: PENDING

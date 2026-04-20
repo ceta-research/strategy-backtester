@@ -47,11 +47,9 @@ def create_config_df_loc_lookup(
 
 
 def create_epoch_wise_instrument_stats(df_tick_data: pl.DataFrame) -> dict:
-    """Build {epoch: {instrument: {close, avg_txn}}} lookup.
+    """Build {epoch: {instrument: {close, avg_txn}}} lookup with forward-fill.
 
     Used by simulator for MTM and by ranking for instrument scores.
-    Memory-efficient: processes one instrument at a time instead of
-    materializing all rows at once.
     """
     df_tick_data = df_tick_data.select(["instrument", "date_epoch", "close", "volume", "average_price"])
 
@@ -65,20 +63,31 @@ def create_epoch_wise_instrument_stats(df_tick_data: pl.DataFrame) -> dict:
         .alias("avg_txn")
     )
 
-    # Build epoch-wise lookup one instrument at a time (memory efficient)
     epoch_wise_data = {}
-    for inst_tuple, group in df_tick_data.select(
-        ["instrument", "date_epoch", "close", "avg_txn"]
-    ).group_by("instrument"):
-        inst = inst_tuple[0]
+    one_day = 60 * 60 * 24
+
+    for instrument, group in df_tick_data.group_by("instrument"):
+        instrument_name = instrument[0]
         epochs = group["date_epoch"].to_list()
         closes = group["close"].to_list()
         avg_txns = group["avg_txn"].to_list()
-        for e, c, a in zip(epochs, closes, avg_txns):
-            if e not in epoch_wise_data:
-                epoch_wise_data[e] = {}
-            epoch_wise_data[e][inst] = {"close": c, "avg_txn": a}
-        # Free per-instrument lists immediately
-        del epochs, closes, avg_txns
+
+        data_dict = {e: {"close": c, "avg_txn": a} for e, c, a in zip(epochs, closes, avg_txns)}
+
+        start_epoch = min(epochs)
+        end_epoch = max(epochs)
+
+        # Forward-fill missing dates
+        last_known_data = {}
+        for epoch in range(start_epoch, end_epoch + one_day, one_day):
+            if epoch in data_dict:
+                last_known_data[instrument_name] = data_dict[epoch]
+            elif last_known_data:
+                data_dict[epoch] = last_known_data.get(instrument_name, {"close": None, "avg_txn": None})
+
+        for epoch, values in data_dict.items():
+            if epoch not in epoch_wise_data:
+                epoch_wise_data[epoch] = {}
+            epoch_wise_data[epoch][instrument_name] = values
 
     return epoch_wise_data

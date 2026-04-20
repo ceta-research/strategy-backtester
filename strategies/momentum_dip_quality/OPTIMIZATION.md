@@ -4,11 +4,20 @@
 **Signal file:** `engine/signals/momentum_dip_quality.py`
 **Prior informal result:** 26.6% CAGR, Cal 0.95 (standalone, pre-engine pipeline)
 
-## Champion
+## Champion (CORRECTED — engine reverted 2026-04-20)
 
-| Period | Config | CAGR | MDD | Calmar | Sharpe | Trades |
-|--------|--------|------|-----|--------|--------|--------|
-| TBD | TBD | — | — | — | — | — |
+| Period | Config | CAGR | MDD | Calmar | Trades |
+|--------|--------|------|-----|--------|--------|
+| 2010-2026 | m=63,p=0.20,d=3,TSL=3,hold=189,pos=15 | **17.2%** | -26.6% | **0.645** | 1039 |
+| IS 2010-2020 | same | 9.1% | -25.3% | 0.359 | — |
+| **OOS 2020-2026** | same | **16.7%** | **-24.0%** | **0.696** | — |
+
+**Walk-forward:** 5/5 folds positive (fold 1 parse error). Avg Calmar 0.741.
+**Cross-data:** FMP .NS Cal 0.543. **Cross-exchange:** US 0.271, UK 0.328, Taiwan 0.170.
+
+**vs baseline:** CAGR 17.1%→17.2% (+0.1pp), MDD 41.1%→26.6% (-15pp), Calmar 0.417→0.645 (+55%)
+
+**NOTE:** Previous results (Cal 1.378) were INVALID due to engine regression in pipeline.py/utils.py. See docs/SESSION_PENDING_WORK.md.
 
 ## Parameters
 

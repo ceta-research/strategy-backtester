@@ -127,6 +127,42 @@ With the PyArrow monkey-patch, `to_list()` calls can temporarily spike to 3× th
 | `engine/utils.py` | Per-instrument group_by stats, removed forward-fill |
 | `scripts/run_mdq_r1.py` | Batch runner with partial-save, retry logic, 32GB/12vCPU |
 
+### 8. Zombie Runs (Status Never Updates)
+
+**Symptom:** Cloud API shows `executing` for runs submitted 6-17 hours ago. No stdout, no error.
+**Example:** Run 427, submitted 2026-04-17T22:15:50Z, still "executing" 17 hours later.
+**Root cause:** The cloud execution timed out (SIGKILL at 3600s) but the API status was never updated to `execution_timed_out`. Possibly a webhook/callback failure on the cloud platform.
+**Impact:** New runs submitted to the same project may queue behind the zombie.
+**Workaround:** Submit new runs anyway - they eventually get workers. The zombie just pollutes the run list.
+**Fix needed:** Cloud platform should have a cleanup job that marks runs as timed_out if they exceed 2× their timeout.
+
+### 9. DNS Resolution Failures (Local Network)
+
+**Symptom:** `Failed to resolve 'api.cetaresearch.com'` during polling. Runs for hours, exhausts retry budget.
+**Root cause:** Local machine loses internet connectivity (WiFi drop, sleep, etc). The polling loop retries DNS resolution every 30s for 3600s.
+**Impact:** Wastes entire poll timeout, may lose results from a run that completed on cloud during the outage.
+**Fix applied:** Added `ConnectionError` catch in `run_batch()` with 30s backoff retry.
+**Fix needed:** Poll should recover gracefully when network returns - detect the gap and immediately check run status.
+
+### 10. regime=0 Configs Consistently OOM
+
+**Symptom:** Any config with `regime_sma_period=0` (no NIFTYBEES regime filter) OOMs even at 32GB RAM.
+**Root cause:** Without the regime filter, entries occur in bear markets too → 2-3× more qualifying entries → 2-3× more orders → exit_data and all_order_rows exceed memory.
+**Quantified:** With regime=200: ~32K qualifying entries. Without regime: ~80-100K qualifying entries.
+**Resolution:** Dropped regime=0 from R2 search space entirely. The regime filter is load-bearing for cloud execution, not just a trading signal.
+**Implication:** If we want to test regime=0, must run locally (no memory limit) or implement streaming exit_data that doesn't hold all instrument data in memory.
+
+### 11. R2 Batch Sizing Discoveries
+
+Through trial and error, discovered the maximum batch sizes that work at 32GB:
+- **1 entry config × 1 TSL × 3 hold × 2 pos = 6 configs:** WORKS (~32K orders, ~50s)
+- **1 entry config × 3 TSL × 3 hold × 2 pos = 18 configs:** OOMs (~96K orders)
+- **4 entry configs × 1 exit × 1 sim = 4 configs:** OOMs (4 × ~32K = 128K orders, but signal gen accumulates across entries)
+
+Rule: **1 entry config per cloud batch, max 6-8 exit×sim configs.** Each entry config generates independent signal gen state that accumulates in memory.
+
+Locally: R3 ran 486 configs (27 entry × 18 exit×sim) in 14 minutes with zero issues. **Local execution has no memory limits and is ~10× faster per config** (no data re-fetch, no dep install, no queue).
+
 ## Recommendations for Next Session
 
 1. **Fix the `_safe_to_list` monkey-patch** - try `self.to_numpy().tolist()` or `self.cast(pl.Float64).to_list()` to avoid the Arrow intermediate copy. This would halve peak memory for all `to_list()` calls.
@@ -138,3 +174,19 @@ With the PyArrow monkey-patch, `to_list()` calls can temporarily spike to 3× th
 4. **Investigate the pyo3 panic** - why does native `pl.Series.to_list()` crash in the cloud? This might be a Polars version issue (cloud uses 1.37.1). If fixable, removes the need for the monkey-patch entirely.
 
 5. **Consider splitting data fetch** - fetch only universe instruments instead of all 2454. Would require a two-pass approach: first fetch profiles to identify universe, then fetch OHLCV for just those. Would reduce data from 6M to ~2M rows.
+
+6. **Prefer local execution for heavy strategies** - R3 (486 configs) ran in 14 min locally vs days of cloud failures. R4 (8 runs) took 5 min locally. Cloud is only needed when local machine shouldn't burn CPU (background sweeps). For anything interactive, run locally.
+
+7. **Add zombie run detection** - before submitting a new run, check if there are runs older than 2× timeout still showing "executing". Log a warning.
+
+8. **Fix dep-install reliability** - consider pre-building a Docker image with deps cached, or using a requirements hash to skip install when unchanged. The 120s pip timeout is the #1 source of transient failures (~30% rate).
+
+## Cost Summary
+
+Total cloud runs for momentum_dip_quality optimization: ~450 runs
+- Successful: ~200 (~$0.02 each = ~$4.00)
+- Failed (OOM/timeout, charged): ~150 (~$0.02 each = ~$3.00)  
+- Failed (dep install, not charged): ~100 ($0)
+- **Total cloud cost: ~$7.00**
+- **Total wall clock: ~3 days** (mostly waiting for cloud)
+- **Local equivalent: ~1 hour** (R3+R4 took 19 min for 494 configs)
