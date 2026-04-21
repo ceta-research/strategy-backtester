@@ -461,6 +461,9 @@ class EnhancedBreakoutSignalGenerator:
                         peak_price,
                         trailing_stop_pct,
                         max_hold_days,
+                        # Breakout: entry IS at peak (peak_price == entry_price),
+                        # so TSL must activate immediately. Audit P0 #10 fix.
+                        require_peak_recovery=False,
                     )
 
                     if exit_epoch is None or exit_price is None:

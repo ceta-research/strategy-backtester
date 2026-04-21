@@ -35,7 +35,13 @@ def create_config_df_loc_lookup(
 
         for entry_config_id in str(entry_ids).split(","):
             if entry_config_id:
-                # Strip tier suffixes (e.g., "1_t1" -> "1") for tiered strategies
+                # Strip tier suffixes (e.g., "1_t1" -> "1") for tiered strategies.
+                # This is intentional at the PIPELINE layer: all tiers of a
+                # tiered strategy belong to the same base entry_config and
+                # should be simulated together. Per-tier uniqueness is handled
+                # at the SIMULATOR layer via engine.order_key.OrderKey, which
+                # carries the full tier-suffixed string through. See
+                # docs/AUDIT_FINDINGS.md (Layer 2) for the historical bug.
                 base_id = entry_config_id.split("_t")[0] if "_t" in entry_config_id else entry_config_id
                 entry_config_id_df_idx_map[int(base_id)].add(idx)
 

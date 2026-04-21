@@ -1,7 +1,7 @@
 # Strategy-Backtester Audit Findings
 
 **Started:** 2026-04-21
-**Status:** In progress. Layers 0, 1, 3, 5, 6 landed (6 of 11 P0s fixed, all historical results migrated). Self-review + fixes applied. Deferred hygiene items cleaned up (P1 NSE intraday stamp duty, S5 precision, S7 tuple coercion, P2 asymmetry doc). Layers 2 and 4 pending.
+**Status:** All 11 P0s fixed. Layers 0-5 landed. Layer 6 (full batch migration of `results/*.json`) is a batch job using the existing `scripts/recompute_metrics.py` tool.
 
 **Self-review log:** After initial implementation, a critical code review found
 and fixed four additional bugs introduced during the work:
@@ -272,19 +272,265 @@ Full test suite at 246 passing.
 
 ---
 
-## Remaining P0s (pending layers)
+---
 
-| # | Layer | Item | Priority |
-|---|-------|------|----------|
-| 7 | 2 | `simulator.py:108` order_id collision for tiered strategies | P0 |
-| 8 | 4 | `order_generator.py:213` + `eod_breakout.py:246` — `abs()` anomalous-drop fires on positive gaps | P0 |
-| 9 | 4 | `order_generator.py:211-224` — anomalous-drop branch missing `order_exit_tracker.add()` | P0 |
-| 10 | 4 | `enhanced_breakout.py:455` — missing `require_peak_recovery=False`; TSL never fires on red-close breakouts | P0 |
+## Layer 2 — OrderKey structured identity — 2026-04-21
 
-Layer 2 is scoped to simulator.py + utils.py + any caller that constructs
-order IDs. Low blast radius.
+### What shipped
 
-Layer 4 is an engine/exits/ extraction + per-signal migration across ~30
-signal files. Larger change but opens the door to the audit's Tier 2
-performance wins (vectorize `run_scanner`, `bisect_left` for epoch lookups,
-group_by materialization in signals).
+- `engine/order_key.py` — frozen dataclass `OrderKey(instrument, entry_epoch,
+  exit_epoch, entry_config_ids)`. Hashable, usable directly as a dict key,
+  immutable. `__str__` emits a grep-friendly format with an `@{config_ids}`
+  suffix when the tier component is non-empty.
+- `engine/simulator.py` now keys `current_positions[instrument]` by
+  `OrderKey`. Pre-fix `order_id = f"{inst}_{entry}_{exit}"` collided across
+  tiers of the same `(instrument, entry_epoch, exit_epoch)` tuple with
+  different `entry_config_ids` like `"5_t0"` vs `"5_t1"`.
+- Entries now carry `entry_config_ids` into `this_order` so the exit-side
+  `OrderKey.from_order(exit_order)` reconstructs the same key. Missing this
+  was a pre-existing latent bug masked by the string-key collapse; the new
+  test `test_simulator_trade_log_fields` caught it immediately.
+- Duplicate-key detection: simulator now raises `ValueError` if a second
+  entry produces the exact same `OrderKey`. Pre-fix this was a silent
+  overwrite. Invariant: signal generators must emit distinct keys.
+- `engine/utils.py:39` `_t` suffix stripping preserved — it is CORRECT
+  pipeline-layer behavior (groups all tiers under the same entry config).
+  Added a comment making the rationale explicit so a future reader does
+  not try to "fix" it.
+- `tests/test_order_key.py` — 8 tests: hashability, frozen/immutable,
+  from_order dict adapter, end-to-end tier-collision fix, hard-error on
+  true duplicates.
+
+### P0 fixed
+
+| # | Item | Status |
+|---|------|:---:|
+| 7 | `simulator.py:108` order_id string collision for tiered strategies → silent overwrite of earlier tiers | ✅ |
+
+### Impact on historical results
+
+Tiered DCA strategies (`quality_dip_tiered`) were non-functional: only
+the last tier of each `(instrument, entry_epoch, exit_epoch)` group
+actually simulated. Any prior sweep or champion result produced with
+`quality_dip_tiered` misrepresents the strategy's behavior.
+Re-run tiered strategies after this layer.
+
+---
+
+## Layer 4 — Consolidated exit policy module — 2026-04-21
+
+### What shipped
+
+- `engine/exits.py` — canonical primitives with one correct implementation
+  each:
+  - `anomalous_drop(close, last_close, threshold, this_epoch)` — signed
+    downward check.
+  - `end_of_data(this_epoch, last_epoch, close)` — final-bar force-close.
+  - `trailing_stop(close, max_since_entry, pct, next_epoch, next_open, this_epoch)` —
+    MOC execution with next-open fallback.
+  - `below_min_hold`, `max_hold_reached` — hold-window gates.
+  - `ExitTracker` — `record()` is the ONLY way to mark a config fired.
+
+  Note: a `PeakRecoveryGate` class was drafted during this layer as an OO
+  replacement for the `reached_peak` boolean in `walk_forward_exit`, but
+  had zero callers and was flagged as unused scaffolding by code review;
+  deleted before commit. The P0 #10 fix is delivered entirely via the
+  mandatory keyword-only `require_peak_recovery` parameter (below).
+- `engine/order_generator.py::generate_exit_attributes_for_instrument`
+  refactored to call these primitives. The three-way exit logic
+  (anomalous/end-of-data/TSL) now delegates to the canonical module.
+  `_record_exit()` helper consolidates the "merge decision into
+  instrument_order_config" ceremony.
+- `engine/signals/base.py::walk_forward_exit` — `require_peak_recovery`
+  is now **keyword-only and mandatory** (no default). Calling without it
+  raises `TypeError`. Seven call sites audited and updated:
+  - `enhanced_breakout.py:455` → `require_peak_recovery=False` (breakout,
+    P0 #10 fix)
+  - `momentum_top_gainers.py:270` → already `False` (was correct)
+  - `forced_selling_dip.py:419` → `True` (dip-buy, made explicit)
+  - `quality_dip_tiered.py:225` → `True` (dip-buy, made explicit)
+  - `earnings_dip.py:603` → `True` (dip-buy, made explicit)
+  - `ml_supertrend.py:550` → `True` (dip-buy component, made explicit)
+  - `momentum_dip_quality.py:439` → already config-driven (was correct)
+- `engine/signals/eod_breakout.py::_walk_forward_tsl` — inline `abs(diff)`
+  anomalous check replaced with a call to `engine.exits.anomalous_drop`
+  (P0 #8 fix at the duplicate site).
+- `tests/test_exits.py` — 19 tests locking in every primitive's contract
+  and the three-way P0 fixes.
+
+### P0s fixed
+
+| # | Item | Status |
+|---|------|:---:|
+| 8 | `order_generator.py:213` + `eod_breakout.py:246` — `abs(diff) > threshold` fired on positive gaps, booking losses on rallies. Fixed: signed check in single module, consumed from both sites. | ✅ |
+| 9 | `order_generator.py:211-224` — anomalous-drop branch did not add to `order_exit_tracker`, allowing a second exit row on the next day. Fixed: `ExitTracker.record()` is invoked by every exit decision path. | ✅ |
+| 10 | `enhanced_breakout.py:455` — missing `require_peak_recovery=False`; TSL silently inherited dip-buy semantics and never fired on red-close breakouts. Fixed: kwarg is mandatory and explicit in every call site. | ✅ |
+
+### Impact on historical results
+
+- **enhanced_breakout** (P0 #10): every pre-fix sweep's `enhanced_breakout`
+  results used dip-buy TSL semantics. For breakouts where the entry day
+  closed below its open, TSL never activated — the position held to
+  max_hold or end-of-data. Post-fix, TSL fires from entry. Expect
+  materially different MDD / final return / trade count on re-run.
+- **Anomalous-drop on positive gaps** (P0 #8): any stock with a one-day
+  gap-up greater than `drop_threshold` (default 20%) was force-exited at
+  `last_close * 0.8`, booking a ~20% loss on a day the stock rallied.
+  Re-run flags this as improved win rate / higher total return on
+  strategies that hold stocks through earnings or M&A.
+- **Duplicate exit rows** (P0 #9): removed a source of non-determinism
+  in the simulator (dict-iteration order decided which of the two exit
+  rows "won"). Post-fix, exit bookings are deterministic.
+
+---
+
+## All 11 P0s fixed — summary table
+
+| # | File | Layer | Status |
+|---|------|-------|:---:|
+| 2 | metrics.py:124 CAGR `years = n/ppy` | 1 | ✅ |
+| 3 | metrics.py:135 vol `sqrt(ppy)` mismatch | 1 | ✅ |
+| 4 | metrics.py:138 Sharpe compound ppy | 1 | ✅ |
+| 5 | backtest_result.py:140 hardcoded 252 | 1 | ✅ |
+| 6 | simulator.py:180,200 end_epoch + off-by-one | 3 | ✅ |
+| 7 | simulator.py:108 order_id tier collision | 2 | ✅ |
+| 8 | order_generator.py:213 + eod_breakout.py:246 `abs()` sign | 4 | ✅ |
+| 9 | order_generator.py:211-224 missing tracker.add | 4 | ✅ |
+| 10 | enhanced_breakout.py:455 missing `require_peak_recovery=False` | 4 | ✅ |
+| 11 | charges.py:36 non-IN/US double-charge | 5 | ✅ |
+
+Test coverage: 273 tests passing (was 231 at session start; +42 new
+P0-regression tests across `test_equity_curve.py`, `test_charges.py`,
+`test_simulator_end_epoch.py`, `test_order_key.py`, `test_exits.py`).
+
+## What remains
+
+- **Re-run affected strategies**: every strategy listed above produces
+  different numbers post-fix. Run each through the engine again, or
+  use `scripts/recompute_metrics.py` where only the metrics changed
+  (Layer 1 / Layer 5 only — not Layer 3 / 4 which change trade-level
+  behavior).
+- **Publish-facing numbers** (**checked 2026-04-21**): grep of
+  `ts-content-creator/` and `docs/10-marketing/` found **zero references**
+  to engine strategies (`enhanced_breakout`, `quality_dip_tiered`,
+  `eod_breakout`, `momentum_*`, `earnings_dip`). All blog / LinkedIn /
+  Reddit content references the separate `backtests/` repo's factor
+  strategies (magic formula, dogs of dow, high-yield quality, pairs), not
+  the engine. **No content remediation required.**
+- **Architectural follow-ons** (not P0): the audit's Tier 2 performance
+  hotspots are now unblocked — the consolidated `engine/exits.py` gives
+  a natural seam to vectorize `run_scanner`, replace `list.index(epoch)`
+  with `bisect_left`, and materialize `group_by("instrument")` once
+  instead of per-signal filter loops.
+
+---
+
+## Deferred decisions (recorded 2026-04-21)
+
+During the code review self-audit, three behavioral decisions were flagged
+that the P0 fixes implied but didn't explicitly document. Recording them
+here so future changes are deliberate, not accidental.
+
+### Decision 3 — `_record_exit` merge semantics
+
+**Context:** `engine/order_generator.py::_record_exit` handles the case
+where multiple exit_configs emit a decision at the same `exit_epoch` for
+the same entry. The first config's decision stores the row; subsequent
+configs' IDs are appended to `exit_config_ids` but the **price, volume,
+and reason of the first decision are kept**. Later decisions only append
+their id.
+
+**Alternatives considered:**
+- (a) First-decision wins — current behavior.
+- (b) Anomalous-drop always overrides — reasoning: anomalous gap implies
+  a corporate action and its `last_close * 0.8` haircut is more
+  authoritative than a TSL's next-day-open.
+- (c) Priority-ordered dispatch (`anomalous_drop` > `trailing_stop` >
+  `end_of_data` > `max_hold`) — most "correct" but changes behavior.
+
+**Decision: (a), first-decision wins.** Rationale:
+- Matches pre-fix behavior, so it doesn't add another numerical
+  discontinuity on top of the P0 fixes.
+- In practice the anomalous_drop check runs FIRST in the per-bar loop
+  (order_generator.py:225-231 post-refactor), so it already gets first
+  dibs on any epoch where it fires.
+- (b) or (c) would require re-running every affected backtest to isolate
+  their delta from the other P0 fixes. Can revisit as a standalone
+  change with its own regression run.
+
+**Code location:** `engine/order_generator.py::_record_exit` (line
+267-280). Documented with a comment referencing this decision.
+
+### Decision 7 — `end_of_sim` exit when `end_epoch` is not an MTM day
+
+**Context:** Layer 3's end-of-sim block force-closes any remaining open
+positions at their `last_close_price`. If `context["end_epoch"]` falls on
+a non-trading day (weekend, holiday), `last_close_price` is from whatever
+the most recent MTM day was — potentially several days stale. The trade
+row records `exit_epoch = end_epoch` even though the price is older.
+
+**Alternatives considered:**
+- (a) Use `last_close_price` silently — current behavior.
+- (b) Raise if `end_epoch` not in `mtm_epochs`, forcing callers to align.
+- (c) Walk back to the nearest prior MTM epoch, set that as the effective
+  `exit_epoch`, emit a warning in the sim log.
+
+**Decision: (c), walk-back with warning. Landed 2026-04-21.**
+Rationale:
+- (a) silently hides the staleness — bad for diagnostics.
+- (b) too strict — configs often use calendar dates like "2025-01-01"
+  which is a holiday in many markets. Hard-failing a run for a
+  calendar-alignment issue is disproportionate.
+- (c) preserves the intent of `end_epoch` (semantic "end of simulation
+  window") while giving the trade row an honest `exit_epoch` and price
+  from the same bar.
+
+**Implementation:** `engine/simulator.py` end-of-sim block computes
+`effective_end_epoch` via `bisect_right` on sorted `mtm_epochs`. If
+`end_epoch in mtm_epochs`, no walk-back (happy path, zero overhead
+for the common case). Otherwise, the most recent prior MTM day is
+selected; `trade_log[i]["exit_epoch"]` records the effective day; a
+warning is appended to `current_snapshot["warnings"]` so callers can
+diagnose alignment issues. Degenerate edge case (`end_epoch` precedes
+ALL MTM data — shouldn't happen in practice but guarded) falls back
+to `end_epoch` verbatim with a distinct "precedes all MTM data"
+warning.
+
+**Tests:** 3 new tests in
+`tests/test_simulator_end_epoch.py::TestDecision7EndEpochWalkBack`:
+- `test_end_epoch_on_non_trading_day_walks_back` — MTM data through
+  day 28, `end_epoch` at day 30 → exit_epoch recorded at day 28 with
+  warning.
+- `test_end_epoch_in_mtm_epochs_no_walkback_no_warning` — happy path
+  regression guard; no walkback, no warnings key in snapshot.
+- `test_end_epoch_before_any_mtm_data` — degenerate fallback; open
+  position from prior snapshot force-closed at end_epoch literally
+  with distinct warning.
+
+**Regression check:** champion `momentum_dip_quality` re-run post-fix
+produced byte-identical metrics (CAGR 25.38%, Calmar 0.954). No
+regressions in the 285-test suite. None of the existing runs in this
+session hit the walk-back branch (all had `end_epoch` naturally falling
+on a trading day), so the change is truly no-op for the happy path.
+
+### Trade-count discontinuity warning
+
+**Context:** Layer 3's `end_of_sim` policy emits synthetic trade rows
+with `exit_reason = "end_of_sim"`. These add to `total_trades`, which is
+the denominator for `win_rate`, `profit_factor`, `payoff_ratio`, and
+`expectancy`. Consumers reading pre-fix vs. post-fix summaries will
+silently compare across different denominators unless they filter.
+
+**Guidance:**
+- Pre-fix comparisons: `total_trades`, `win_rate`, `profit_factor`, and
+  `expectancy` denominator is CLOSED natural exits only.
+- Post-fix comparisons: same denominator plus any `end_of_sim` rows.
+- To compare like-for-like, filter post-fix trades:
+  `[t for t in trades if t.get("exit_reason") != "end_of_sim"]`.
+- Scripts/dashboards that aggregate trade stats across both eras should
+  use the filter or note the discontinuity.
+
+**Observed impact:** In this session's regression runs, zero trades had
+`exit_reason == "end_of_sim"` (all positions exited naturally before
+`end_epoch`). The discontinuity is a real API-level concern but has not
+yet bitten a real result.

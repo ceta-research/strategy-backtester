@@ -25,6 +25,7 @@ import polars as pl
 
 from engine.simulator import process
 from engine.constants import SECONDS_IN_ONE_DAY
+from engine.order_key import OrderKey
 
 
 def _make_trivial_context(start_epoch, end_epoch, start_margin=1_000_000):
@@ -136,6 +137,27 @@ class TestEndEpochAuthoritative(unittest.TestCase):
         self.assertEqual(last_entry["log_date_epoch"], end,
                          f"Last MTM log should be at end_epoch={end}, got {last_entry['log_date_epoch']}")
 
+    def test_unknown_end_of_sim_policy_raises(self):
+        """Code-review finding SIM-2: unknown end_of_sim_policy strings must
+        raise, not silently skip the force-close block."""
+        start = 1577836800
+        end = start + 30 * SECONDS_IN_ONE_DAY
+        df_orders = pl.DataFrame([{
+            "instrument": "NSE:TEST",
+            "entry_epoch": start + 5 * SECONDS_IN_ONE_DAY,
+            "exit_epoch": start + 100 * SECONDS_IN_ONE_DAY,
+            "entry_price": 100.0, "exit_price": 110.0,
+        }])
+        mtm_epochs = [start + d * SECONDS_IN_ONE_DAY for d in range(0, 31)]
+        stats = _make_stats(mtm_epochs, "NSE:TEST", close_price=105.0)
+
+        context = _make_trivial_context(start, end)
+        context["end_of_sim_policy"] = "abandon"  # unsupported
+
+        with self.assertRaises(ValueError) as cm:
+            process(context, df_orders, stats, {}, _make_sim_config(), "test")
+        self.assertIn("end_of_sim_policy", str(cm.exception))
+
     def test_no_orders_still_uses_context_end_epoch(self):
         """Even with empty df_orders, simulation window is authoritative."""
         start = 1577836800
@@ -155,6 +177,144 @@ class TestEndEpochAuthoritative(unittest.TestCase):
 
         self.assertEqual(snapshot["simulation_date"], end)
         self.assertEqual(len(trade_log), 0)
+
+
+class TestDecision7EndEpochWalkBack(unittest.TestCase):
+    """Decision 7 (code review 2026-04-21): when end_epoch falls on a
+    non-trading day (weekend, holiday), the end-of-sim force-close must
+    walk back to the nearest prior MTM day so that exit_epoch and
+    exit_price correspond to the same bar. Emit a warning so callers
+    can see the alignment happened.
+    """
+
+    def test_end_epoch_on_non_trading_day_walks_back(self):
+        """end_epoch at day 30, but MTM data only goes up to day 28.
+        Force-close must record exit at day 28 (the nearest prior MTM day),
+        not day 30 (the non-trading nominal end)."""
+        start = 1577836800  # 2020-01-01
+        end = start + 30 * SECONDS_IN_ONE_DAY  # "end_epoch" config value
+        entry_epoch = start + 5 * SECONDS_IN_ONE_DAY
+        natural_exit_epoch = start + 100 * SECONDS_IN_ONE_DAY
+
+        df_orders = pl.DataFrame([{
+            "instrument": "NSE:TEST",
+            "entry_epoch": entry_epoch,
+            "exit_epoch": natural_exit_epoch,
+            "entry_price": 100.0, "exit_price": 110.0,
+        }])
+
+        # MTM data only through day 28 — days 29 and 30 are "holidays".
+        # end_epoch (day 30) is NOT in mtm_epochs.
+        mtm_epochs_list = [start + d * SECONDS_IN_ONE_DAY for d in range(0, 29)]
+        stats = _make_stats(mtm_epochs_list, "NSE:TEST", close_price=105.0)
+
+        context = _make_trivial_context(start, end)
+
+        _, _, snapshot, _, trade_log = process(
+            context, df_orders, stats, {}, _make_sim_config(), "walkback_test")
+
+        # Exactly one forced-close trade.
+        self.assertEqual(len(trade_log), 1)
+        trade = trade_log[0]
+        self.assertEqual(trade["exit_reason"], "end_of_sim")
+        # exit_epoch should be the LAST MTM day (day 28), not end_epoch (day 30).
+        expected_effective_end = start + 28 * SECONDS_IN_ONE_DAY
+        self.assertEqual(trade["exit_epoch"], expected_effective_end,
+                         f"Expected walk-back to {expected_effective_end}, got {trade['exit_epoch']}")
+        # Warning must be emitted.
+        warnings = snapshot.get("warnings", [])
+        self.assertTrue(
+            any("not a trading day" in w for w in warnings),
+            f"Expected walk-back warning, got: {warnings}"
+        )
+
+    def test_end_epoch_in_mtm_epochs_no_walkback_no_warning(self):
+        """Happy path: end_epoch IS a trading day. No walk-back; no warning.
+        Regression-guards the existing end-of-sim contract."""
+        start = 1577836800
+        end = start + 30 * SECONDS_IN_ONE_DAY
+        entry_epoch = start + 5 * SECONDS_IN_ONE_DAY
+
+        df_orders = pl.DataFrame([{
+            "instrument": "NSE:TEST",
+            "entry_epoch": entry_epoch,
+            "exit_epoch": start + 100 * SECONDS_IN_ONE_DAY,
+            "entry_price": 100.0, "exit_price": 110.0,
+        }])
+        # end_epoch IS in mtm_epochs (day 30 is a data day).
+        mtm_epochs_list = [start + d * SECONDS_IN_ONE_DAY for d in range(0, 31)]
+        stats = _make_stats(mtm_epochs_list, "NSE:TEST", close_price=105.0)
+
+        _, _, snapshot, _, trade_log = process(
+            _make_trivial_context(start, end), df_orders, stats, {},
+            _make_sim_config(), "no_walkback_test")
+
+        self.assertEqual(len(trade_log), 1)
+        self.assertEqual(trade_log[0]["exit_epoch"], end)
+        # No warnings key added for the happy path.
+        self.assertNotIn("warnings", snapshot)
+
+    def test_end_epoch_before_any_mtm_data(self):
+        """Degenerate case: end_epoch precedes all MTM epochs. Should
+        fall back to end_epoch verbatim and emit a distinct warning
+        rather than crash on an empty bisect."""
+        start = 1577836800
+        # Instrument has data from day 10 onwards. But end_epoch is day 5.
+        end = start + 5 * SECONDS_IN_ONE_DAY
+        # Pre-load a snapshot with an open position so end-of-sim has work to do.
+        prior_snapshot = {
+            "margin_available": 900_000,
+            "current_position_value": 100_000,
+            "simulation_date": start,
+            "current_positions_count": 1,
+            "max_account_value": 1_000_000,
+            "current_positions": {
+                "NSE:ORPHAN": {
+                    OrderKey(
+                        instrument="NSE:ORPHAN",
+                        entry_epoch=start - SECONDS_IN_ONE_DAY,
+                        exit_epoch=start + 100 * SECONDS_IN_ONE_DAY,
+                        entry_config_ids="e0",
+                    ): {
+                        "instrument": "NSE:ORPHAN",
+                        "entry_epoch": start - SECONDS_IN_ONE_DAY,
+                        "exit_epoch": start + 100 * SECONDS_IN_ONE_DAY,
+                        "entry_price": 100.0,
+                        "exit_price": 110.0,
+                        "quantity": 100,
+                        "last_close_price": 100.0,
+                        "entry_charges": 10.0,
+                        "entry_slippage": 5.0,
+                        "entry_config_ids": "e0",
+                        "exit_reason": "natural",
+                    }
+                }
+            },
+        }
+        # MTM data starts AFTER end_epoch.
+        mtm_epochs_list = [start + d * SECONDS_IN_ONE_DAY for d in range(10, 15)]
+        stats = _make_stats(mtm_epochs_list, "NSE:ORPHAN", close_price=105.0)
+
+        df_orders = pl.DataFrame(schema={
+            "instrument": pl.Utf8, "entry_epoch": pl.Int64,
+            "exit_epoch": pl.Int64, "entry_price": pl.Float64,
+            "exit_price": pl.Float64,
+        })
+
+        _, _, snapshot, _, trade_log = process(
+            _make_trivial_context(start, end), df_orders, stats,
+            prior_snapshot, _make_sim_config(), "orphan_test")
+
+        # The open snapshot position is force-closed.
+        self.assertEqual(len(trade_log), 1)
+        # exit_epoch falls back to end_epoch literally (no prior MTM day).
+        self.assertEqual(trade_log[0]["exit_epoch"], end)
+        # Warning must flag the degenerate case.
+        warnings = snapshot.get("warnings", [])
+        self.assertTrue(
+            any("precedes all MTM data" in w for w in warnings),
+            f"Expected degenerate-case warning, got: {warnings}"
+        )
 
 
 if __name__ == "__main__":

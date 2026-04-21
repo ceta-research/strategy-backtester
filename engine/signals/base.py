@@ -221,9 +221,10 @@ def run_scanner(context: dict, df_tick_data: pl.DataFrame) -> tuple[dict[str, se
 def walk_forward_exit(
     epochs: list, closes: list, start_idx: int,
     entry_epoch: int, entry_price: float, peak_price: float,
-    trailing_stop_pct: float, max_hold_days: int,
+    trailing_stop_fraction: float, max_hold_days: int,
+    *,
+    require_peak_recovery: bool,
     opens: list = None,
-    require_peak_recovery: bool = True,
 ) -> tuple:
     """Walk forward from entry to find exit via TSL (with optional peak recovery gate).
 
@@ -237,16 +238,37 @@ def walk_forward_exit(
         entry_epoch: entry date epoch
         entry_price: entry price
         peak_price: rolling peak price at entry (target for recovery)
-        trailing_stop_pct: trailing stop-loss percentage (0 = no TSL, just peak recovery)
+        trailing_stop_fraction: trailing stop-loss as a FRACTION (0.05 = 5%,
+            0 = no TSL / peak-recovery-only mode). Explicitly NOT a percent —
+            passing 5.0 would silently disable TSL (WFE-1 footgun noted in
+            code review 2026-04-21). `engine.exits.trailing_stop` uses
+            percent units; keep the two conventions distinguishable at the
+            parameter name level.
         max_hold_days: max holding period in calendar days (0 = no limit)
+        require_peak_recovery: keyword-only, REQUIRED.
+            True  — TSL only activates after price recovers to peak_price.
+                    Correct for dip-buy strategies (entry is below peak).
+            False — TSL is active from entry.
+                    Correct for breakout/momentum strategies (entry IS at peak).
+            Audit P0 #10: pre-fix, this had a default of True, and breakout
+            signals silently inherited dip-buy semantics. Making it mandatory
+            forces each signal to make the choice explicit.
         opens: optional list of open prices; if provided, exit at next-day open
-        require_peak_recovery: if True (default), TSL only activates after price
-            recovers to peak_price. If False, TSL is active from entry (matches
-            ATO_Simulator behavior — pure trailing stop).
 
     Returns:
         (exit_epoch, exit_price) or (None, None) if no exit found and no data remains
     """
+    # Runtime guard: trailing_stop_fraction MUST be a fraction (0 <= f <= 1).
+    # Historical WFE-1 footgun: passing 5.0 ("5 percent") computes
+    # `trail_high * (1 - 5.0) = -4 * trail_high`, which the `c <= ...` test
+    # never satisfies for positive c — silently disabling TSL. Raise instead.
+    if trailing_stop_fraction < 0 or trailing_stop_fraction > 1:
+        raise ValueError(
+            f"trailing_stop_fraction must be in [0, 1] (e.g. 0.05 for 5%); "
+            f"got {trailing_stop_fraction}. If you have a percent value, "
+            f"divide by 100 at the call site."
+        )
+
     def _exit_at(j):
         """Return exit epoch/price: next-day open if available, else close[j]."""
         if opens is not None and j + 1 < len(epochs):
@@ -257,7 +279,7 @@ def walk_forward_exit(
 
     trail_high = entry_price
 
-    if trailing_stop_pct == 0:
+    if trailing_stop_fraction == 0:
         for j in range(start_idx, len(epochs)):
             c = closes[j]
             if c is None:
@@ -280,7 +302,7 @@ def walk_forward_exit(
                 return _exit_at(j)
             if c >= peak_price:
                 reached_peak = True
-            if reached_peak and c <= trail_high * (1 - trailing_stop_pct):
+            if reached_peak and c <= trail_high * (1 - trailing_stop_fraction):
                 return _exit_at(j)
 
     # No exit trigger found - exit at last available bar

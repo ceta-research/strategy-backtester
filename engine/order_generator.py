@@ -13,6 +13,9 @@ import polars as pl
 
 from engine.config_loader import get_entry_config_iterator, get_exit_config_iterator
 from engine.constants import SECONDS_IN_ONE_DAY
+from engine.exits import (
+    ExitTracker, anomalous_drop, end_of_data, trailing_stop, below_min_hold,
+)
 
 
 class OrderGenerationUtil:
@@ -122,14 +125,30 @@ class OrderGenerationUtil:
                         **config,
                     })
 
+        # Ship-blocker fix (code review 2026-04-21): `exit_reason` is set by
+        # `_record_exit` onto the attrs dict, but was being projected away here
+        # before df_orders reached the simulator. Now preserved.
         column_order = [
             "instrument", "entry_epoch", "exit_epoch",
             "entry_price", "exit_price", "entry_volume", "exit_volume",
             "scanner_config_ids", "entry_config_ids", "exit_config_ids",
+            "exit_reason",
         ]
+        utf8_cols = {"instrument", "scanner_config_ids", "entry_config_ids",
+                     "exit_config_ids", "exit_reason"}
         if not rows:
-            return pl.DataFrame(schema={c: pl.Utf8 if c in ("instrument", "scanner_config_ids", "entry_config_ids", "exit_config_ids") else pl.Float64 for c in column_order})
+            return pl.DataFrame(schema={
+                c: pl.Utf8 if c in utf8_cols else pl.Float64
+                for c in column_order
+            })
         df = pl.DataFrame(rows)
+        # Some signal generators (walk_forward_exit path) don't emit
+        # exit_reason. Fill with "natural" so the column is never null and
+        # downstream code can rely on non-null strings.
+        if "exit_reason" not in df.columns:
+            df = df.with_columns(pl.lit("natural").alias("exit_reason"))
+        else:
+            df = df.with_columns(pl.col("exit_reason").fill_null("natural"))
         df = df.select(column_order)
         df = df.sort(["instrument", "entry_epoch", "exit_epoch"])
         return df
@@ -187,81 +206,117 @@ def generate_exit_attributes_for_instrument(instrument, instrument_order_config,
         if entry_epoch not in instrument_order_config:
             continue
 
+        # Guard against missing entry-day close. Signal generators typically
+        # filter these out upstream, but if an entry-day lands on a
+        # forward-filled weekend bar the close can be None. Downstream
+        # comparisons (e.g. trailing_stop's `max_price - close_price`) would
+        # TypeError. Skip the entry rather than silently miscomputing.
+        if current_close is None:
+            continue
+
         last_close = current_close
         max_price = last_close
         order_attributes = instrument_order_config[entry_epoch]
         instrument_order_config[entry_epoch] = {}
-        order_exit_tracker = set()
+        tracker = ExitTracker()
 
         for j in range(idx, len(date_epochs)):
             close_price = closes[j]
-            open_price = opens[j]
+            # Skip bars with missing close entirely. Forward-filled weekend
+            # or holiday bars can land here; propagating None through
+            # anomalous_drop / trailing_stop downstream causes TypeError on
+            # numeric comparisons. `last_close` carries forward from the
+            # most recent valid bar, which is the correct behavior for
+            # anomalous_drop's reference-price check.
+            if close_price is None:
+                continue
             next_open_price = next_opens[j]
             next_volume = next_volumes[j]
             this_epoch = date_epochs[j]
             next_epoch = next_epochs[j]
 
-            max_price = max(max_price, close_price)
-            hold_time_in_days = (this_epoch - entry_epoch) / SECONDS_IN_ONE_DAY
+            if close_price > max_price:
+                max_price = close_price
 
             for exit_config in get_exit_config_iterator(context):
-                if exit_config["id"] in order_exit_tracker:
+                exit_config_id = exit_config["id"]
+                if tracker.has_fired(exit_config_id):
                     continue
 
-                # Handle anomalous price drops (merger/de-merger/etc.)
-                diff_since_reference_price = (close_price - last_close) * 100 / last_close
-                if abs(diff_since_reference_price) > drop_threshold:
-                    if this_epoch in instrument_order_config[entry_epoch]:
-                        _order_attributes = instrument_order_config[entry_epoch][this_epoch]
-                        _order_attributes["exit_config_ids"] = (
-                            f"{_order_attributes['exit_config_ids']},{exit_config['id']}"
-                        )
-                    else:
-                        _order_attributes = copy.deepcopy(order_attributes)
-                        _order_attributes["exit_price"] = last_close * 0.8
-                        _order_attributes["exit_config_ids"] = f"{exit_config['id']}"
-                        instrument_order_config[entry_epoch][this_epoch] = _order_attributes
+                # 1. Anomalous DOWNWARD price gap (signed check — P0 #8 fix).
+                decision = anomalous_drop(
+                    close_price, last_close, drop_threshold, this_epoch)
+                if decision is not None:
+                    _record_exit(instrument_order_config, entry_epoch,
+                                 order_attributes, decision, exit_config_id,
+                                 next_volume=None)
+                    # P0 #9 fix: tracker.record() is called for EVERY exit
+                    # decision, so the TSL branch can no longer fire again
+                    # for the same exit_config the next day.
+                    tracker.record(exit_config_id)
                     continue
 
-                # End of data: exit at last close
-                if this_epoch == instrument_last_epoch:
-                    if this_epoch in instrument_order_config[entry_epoch]:
-                        _order_attributes = instrument_order_config[entry_epoch][this_epoch]
-                        _order_attributes["exit_config_ids"] = (
-                            f"{_order_attributes['exit_config_ids']},{exit_config['id']}"
-                        )
-                    else:
-                        _order_attributes = copy.deepcopy(order_attributes)
-                        _order_attributes["exit_price"] = close_price
-                        _order_attributes["exit_config_ids"] = f"{exit_config['id']}"
-                        instrument_order_config[entry_epoch][this_epoch] = _order_attributes
+                # 2. Last bar of data: force-close at close.
+                decision = end_of_data(this_epoch, instrument_last_epoch, close_price)
+                if decision is not None:
+                    _record_exit(instrument_order_config, entry_epoch,
+                                 order_attributes, decision, exit_config_id,
+                                 next_volume=None)
+                    tracker.record(exit_config_id)
                     continue
 
-                min_hold_time_days = exit_config["min_hold_time_days"]
-                if hold_time_in_days < min_hold_time_days:
+                # 3. Min-hold gate.
+                if below_min_hold(this_epoch, entry_epoch, exit_config["min_hold_time_days"]):
                     continue
 
-                draw_down_percent = (max_price - close_price) * 100 / max_price
-                trailing_stop_pct = exit_config["trailing_stop_pct"]
-                if draw_down_percent > trailing_stop_pct:
-                    order_exit_tracker.add(exit_config["id"])
-                    if next_epoch in instrument_order_config[entry_epoch]:
-                        _order_attributes = instrument_order_config[entry_epoch][next_epoch]
-                        _order_attributes["exit_config_ids"] = (
-                            f"{_order_attributes['exit_config_ids']},{exit_config['id']}"
-                        )
-                    else:
-                        _order_attributes = copy.deepcopy(order_attributes)
-                        _order_attributes["exit_volume"] = next_volume
-                        _order_attributes["exit_price"] = next_open_price
-                        _order_attributes["exit_config_ids"] = f"{exit_config['id']}"
-                        instrument_order_config[entry_epoch][next_epoch] = _order_attributes
+                # 4. Trailing stop loss (MOC: exit at next_open if available).
+                decision = trailing_stop(
+                    close_price, max_price, exit_config["trailing_stop_pct"],
+                    next_epoch, next_open_price, this_epoch)
+                if decision is not None:
+                    _record_exit(instrument_order_config, entry_epoch,
+                                 order_attributes, decision, exit_config_id,
+                                 next_volume=next_volume)
+                    tracker.record(exit_config_id)
+                    continue
 
             last_close = close_price
-            if len(order_exit_tracker) == context["total_exit_configs"]:
+            if tracker.all_fired(context["total_exit_configs"]):
                 break
 
     return instrument, instrument_order_config
+
+
+def _record_exit(instrument_order_config, entry_epoch, order_attributes,
+                 decision, exit_config_id, next_volume=None):
+    """Merge an exit decision into instrument_order_config[entry_epoch].
+
+    If an exit row already exists at this decision's epoch, append the
+    exit_config_id to its comma-separated list. Otherwise clone
+    order_attributes and populate with the decision's exit price/volume.
+    """
+    existing = instrument_order_config[entry_epoch].get(decision.exit_epoch)
+    if existing is not None:
+        existing["exit_config_ids"] = (
+            f"{existing['exit_config_ids']},{exit_config_id}"
+        )
+        # First-decision-wins on exit_price / exit_reason; later-arriving
+        # exit_configs at the same epoch only append their id.
+        # NOTE (Decision 3 nuance, code review 2026-04-21): within a single
+        # exit_config's per-bar iteration, anomalous_drop is checked before
+        # end_of_data before trailing_stop, so the more authoritative
+        # decision wins. ACROSS exit_configs at the same epoch, however, the
+        # winner is whichever config's iteration happened first in
+        # `get_exit_config_iterator(context)` order — not a priority order.
+        # A future change may want to sort decisions by reason priority.
+        return
+    attrs = copy.deepcopy(order_attributes)
+    attrs["exit_price"] = decision.exit_price
+    if next_volume is not None:
+        attrs["exit_volume"] = next_volume
+    attrs["exit_config_ids"] = f"{exit_config_id}"
+    attrs["exit_reason"] = decision.reason
+    instrument_order_config[entry_epoch][decision.exit_epoch] = attrs
 
 
 def process(context: dict, df_tick_data_original: pl.DataFrame) -> pl.DataFrame:
@@ -274,7 +329,18 @@ def process(context: dict, df_tick_data_original: pl.DataFrame) -> pl.DataFrame:
     Returns:
         pl.DataFrame of orders with columns:
             instrument, entry_epoch, exit_epoch, entry_price, exit_price,
-            entry_volume, exit_volume, scanner_config_ids, entry_config_ids, exit_config_ids
+            entry_volume, exit_volume, scanner_config_ids, entry_config_ids,
+            exit_config_ids, exit_reason
+
+    Non-determinism note (code review 2026-04-21):
+        `generate_exit_attributes` uses `multiprocessing.Pool.starmap` to
+        parallelize the per-instrument walk-forward exit computation.
+        Pool task completion order is not guaranteed across runs, so the
+        row order of the returned DataFrame can vary. A `.sort(...)` is
+        applied before return, but any per-instrument row-level comparison
+        across runs should be metric-level (summary stats), not
+        trade-level (exact trade ordering). Summary metrics are stable;
+        trade_log indices are not.
     """
     df_tick_data_original = df_tick_data_original.sort(["instrument", "date_epoch"])
 

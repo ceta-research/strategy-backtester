@@ -31,6 +31,7 @@ from engine.signals.base import (
     run_scanner,
     finalize_orders,
 )
+from engine.exits import anomalous_drop
 
 SECONDS_IN_ONE_DAY = 86400
 PRICE_DROP_THRESHOLD = 20.0  # % — forced exit on gap
@@ -241,11 +242,11 @@ def _walk_forward_tsl(epochs, closes, opens, next_opens, next_epochs,
         if c is None:
             continue
 
-        # Price gap detection (>20% move from last close)
-        if last_close > 0:
-            diff_pct = abs(c - last_close) / last_close * 100
-            if diff_pct > PRICE_DROP_THRESHOLD:
-                return epochs[j], last_close * 0.8
+        # Signed downward-gap detection (P0 #8 fix: pre-fix, `abs(diff)`
+        # triggered on positive gaps, booking losses on days the stock rallied).
+        decision = anomalous_drop(c, last_close, PRICE_DROP_THRESHOLD, epochs[j])
+        if decision is not None:
+            return decision.exit_epoch, decision.exit_price
 
         max_price = max(max_price, c)
         hold_days = (epochs[j] - entry_epoch) / SECONDS_IN_ONE_DAY

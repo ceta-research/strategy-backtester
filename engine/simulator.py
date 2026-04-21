@@ -4,6 +4,7 @@ Ported from ATO_Simulator/simulator/steps/simulate_step/process_step.py.
 Daily loop: entries, exits, MTM, position tracking with real broker charges.
 """
 
+import bisect
 import copy
 from collections import defaultdict
 
@@ -11,13 +12,14 @@ import polars as pl
 
 from engine.constants import SECONDS_IN_ONE_DAY
 from engine.charges import calculate_charges
+from engine.order_key import OrderKey
 
 
 def _process_exits(orders, current_positions, current_positions_count, margin_available, trade_log,
                     slippage_rate=0.0005):
     """Process all exit orders for a given epoch. Returns updated state."""
     for exit_order in orders["exits"]:
-        order_id = f"{exit_order['instrument']}_{exit_order['entry_epoch']}_{exit_order['exit_epoch']}"
+        order_id = OrderKey.from_order(exit_order)
         if (
             exit_order["instrument"] in current_positions
             and order_id in current_positions[exit_order["instrument"]]
@@ -35,6 +37,15 @@ def _process_exits(orders, current_positions, current_positions_count, margin_av
             sell_slippage = position["quantity"] * position["exit_price"] * slippage_rate
             margin_available += position["quantity"] * position["exit_price"] - sell_charges - sell_slippage
 
+            # NOTE: `exit_order` and `position` are the same Python dict
+            # object. The `this_order` built in `_process_entries` is
+            # appended to both `date_orders[exit_epoch]["exits"]` (yielding
+            # `exit_order` here, via orders["exits"]) and
+            # `current_positions[instrument][order_id]` (yielding `position`).
+            # Python's list.append stores a reference, not a copy. We read
+            # `exit_reason` from `exit_order` because the reason semantically
+            # belongs to the exit event; reading from `position` would be
+            # equivalent. See docs/SESSION_CODE_REVIEW.md for the trace.
             trade_log.append({
                 "instrument": position["instrument"],
                 "entry_epoch": position["entry_epoch"],
@@ -45,6 +56,7 @@ def _process_exits(orders, current_positions, current_positions_count, margin_av
                 "entry_charges": position.get("entry_charges", 0),
                 "sell_charges": sell_charges,
                 "slippage": position.get("entry_slippage", 0) + sell_slippage,
+                "exit_reason": exit_order.get("exit_reason", "natural"),
             })
 
             del current_positions[exit_order["instrument"]][order_id]
@@ -105,7 +117,19 @@ def _process_entries(orders, current_positions, current_positions_count, margin_
         if margin_available >= required_margin_for_entry and order_quantity > 0:
             current_positions_count += 1
             margin_available -= required_margin_for_entry
-            order_id = f"{entry_order['instrument']}_{entry_order['entry_epoch']}_{entry_order['exit_epoch']}"
+            # Layer 2 (audit P0 #7): structured identity. Tiered strategies
+            # produce distinct entry_config_ids for each tier (e.g. "5_t0"
+            # vs "5_t1"), so including it in the key prevents collisions.
+            order_id = OrderKey.from_order(entry_order)
+            if order_id in current_positions.get(entry_order["instrument"], {}):
+                # Two orders cannot share the exact same OrderKey. This is a
+                # hard invariant: if it trips, the signal generator produced
+                # duplicate rows that used to be silently overwritten.
+                raise ValueError(
+                    f"Duplicate OrderKey {order_id}; signal generator emitted "
+                    f"multiple orders with identical (instrument, entry_epoch, "
+                    f"exit_epoch, entry_config_ids). This is a bug."
+                )
             this_order = {
                 "instrument": entry_order["instrument"],
                 "entry_epoch": entry_order["entry_epoch"],
@@ -116,6 +140,12 @@ def _process_entries(orders, current_positions, current_positions_count, margin_
                 "last_close_price": entry_order["entry_price"],
                 "entry_charges": charges,
                 "entry_slippage": slippage,
+                # Preserve entry_config_ids so the exit-side OrderKey matches
+                # the entry-side OrderKey (tiered strategies depend on this).
+                "entry_config_ids": entry_order.get("entry_config_ids", ""),
+                # Propagate exit_reason from order_generator's exit decision
+                # so _process_exits can tag the trade_log row.
+                "exit_reason": entry_order.get("exit_reason", "natural"),
             }
 
             current_positions.setdefault(entry_order["instrument"], {})[order_id] = this_order
@@ -184,7 +214,14 @@ def process(context, df_orders, epoch_wise_instrument_stats, current_snapshot, s
     end_epoch = context["end_epoch"]
 
     if len(df_orders) > 0:
-        order_epochs = set(df_orders["entry_epoch"].unique().to_list()) | set(df_orders["exit_epoch"].unique().to_list())
+        # SIM-1 fix (code review 2026-04-21): union-assign (`|=`) instead of
+        # replace (`=`). Pre-fix, open-position exit_epochs added at lines
+        # 203-206 were discarded when df_orders was non-empty. In practice
+        # the `mtm_epochs` union on line 218 covered those days, but a
+        # chunked/resumed sim with an open-position exit_epoch landing on a
+        # data-gap day (holiday, delisting) would have silently skipped the
+        # exit. Now preserved.
+        order_epochs |= set(df_orders["entry_epoch"].unique().to_list()) | set(df_orders["exit_epoch"].unique().to_list())
 
     mtm_epochs = set(epoch_wise_instrument_stats.keys())
     processing_dates = sorted(mtm_epochs | order_epochs)
@@ -311,7 +348,44 @@ def process(context, df_orders, epoch_wise_instrument_stats, current_snapshot, s
     # open positions separately can read `current_snapshot.current_positions`
     # before this function returns; we do not support that mode yet.
     end_of_sim_policy = context.get("end_of_sim_policy", "close_at_mtm")
-    if end_of_sim_policy == "close_at_mtm" and current_positions:
+    if end_of_sim_policy != "close_at_mtm":
+        raise ValueError(
+            f"Unknown end_of_sim_policy: {end_of_sim_policy!r}. "
+            f"Only 'close_at_mtm' is implemented (see Decision 6 in "
+            f"docs/AUDIT_FINDINGS.md for planned alternatives)."
+        )
+    if current_positions:
+        # Decision 7 (code review 2026-04-21): `end_epoch` comes from config
+        # and often falls on a non-trading day (year-end holidays, weekends).
+        # Using it verbatim would record an exit_epoch for which no price
+        # actually traded, while `last_close_price` is a stale value from
+        # whatever the most recent MTM day was. Walk back to the nearest
+        # prior MTM day so the trade_log's exit_epoch and exit_price
+        # correspond to the same bar. Emit a warning so the caller can see
+        # the alignment happened.
+        effective_end_epoch = end_epoch
+        if end_epoch not in mtm_epochs:
+            # mtm_epochs is a set; we need a sorted view to bisect.
+            sorted_mtm = sorted(mtm_epochs)
+            idx = bisect.bisect_right(sorted_mtm, end_epoch) - 1
+            if idx >= 0:
+                effective_end_epoch = sorted_mtm[idx]
+                current_snapshot.setdefault("warnings", []).append(
+                    f"end_epoch {end_epoch} is not a trading day; "
+                    f"force-close recorded at {effective_end_epoch} "
+                    f"(last prior MTM day)."
+                )
+            # If there's no prior MTM day at all (end_epoch before all
+            # data), fall back to end_epoch literally — last_close_price
+            # is whatever the snapshot brought in. This is a degenerate
+            # case that shouldn't occur in practice; log it too.
+            else:
+                current_snapshot.setdefault("warnings", []).append(
+                    f"end_epoch {end_epoch} precedes all MTM data; "
+                    f"force-close uses end_epoch verbatim with stale "
+                    f"last_close_price from snapshot."
+                )
+
         for instrument in list(current_positions.keys()):
             positions = current_positions[instrument]
             exchange = instrument.split(":")[0]
@@ -331,7 +405,7 @@ def process(context, df_orders, epoch_wise_instrument_stats, current_snapshot, s
                 trade_log.append({
                     "instrument": pos["instrument"],
                     "entry_epoch": pos["entry_epoch"],
-                    "exit_epoch": end_epoch,
+                    "exit_epoch": effective_end_epoch,
                     "entry_price": pos["entry_price"],
                     "exit_price": exit_price,
                     "quantity": pos["quantity"],

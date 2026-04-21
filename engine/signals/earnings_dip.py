@@ -604,6 +604,8 @@ class EarningsDipSignalGenerator:
                         ed["epochs"], ed["closes"], start_idx,
                         entry_epoch, entry_price, peak_price,
                         trailing_stop_pct, max_hold_days,
+                        # Dip-buy on earnings miss: entry is below recent peak.
+                        require_peak_recovery=True,
                     )
 
                     if exit_epoch is None or exit_price is None:

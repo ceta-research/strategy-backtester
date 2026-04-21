@@ -226,6 +226,8 @@ class QualityDipTieredSignalGenerator:
                             ed["epochs"], ed["closes"], start_idx,
                             entry_epoch, entry_price, peak_price,
                             trailing_stop_pct, max_hold_days,
+                            # Dip-buy: entry is below peak. Wait for recovery.
+                            require_peak_recovery=True,
                         )
 
                         if exit_epoch is None or exit_price is None:
