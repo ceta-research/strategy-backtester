@@ -7,21 +7,20 @@ named `*_round_trip_*` return the two-leg total.
 Historical bug (fixed 2026-04-21): the non-IN/US fallback returned
 `order_value * 0.001` with a comment claiming "0.1% round-trip estimate",
 but the caller (simulator.py) invokes it per-side, producing 0.2% round-trip
-on LSE, JPX, HKSE, XETRA, KSC, ASX, TSX, SAO, SES, SHH, SHZ, TAI, JNB.
-See docs/AUDIT_FINDINGS.md.
+on every non-IN/US exchange. See docs/AUDIT_FINDINGS.md.
 
 Fee data is organized as module-level constants so adding a new exchange is
 editing data, not control flow.
 
-Rate vintage (audit P3.4, 2026-04-21):
-  The Indian regulatory rates below were believed current as of early 2024.
-  Several are adjusted periodically:
-    - NSE_EXCHANGE_RATE — revised multiple times 2023-2024
-    - NSE_STAMP_DUTY_* — unified to uniform central collection in July 2020
-    - NSE_STT_* — last changed for F&O in 2024; equity STT unchanged since 2013
-  Tests in tests/test_charges.py pin exact golden values for the current
-  constants, so any future rate update is a deliberate, reviewed change.
-  A dated-schedule refactor (pick rate based on trade date) is a P2 follow-up.
+Rate vintage (audit P3.4/P3.5 revisit, 2026-04-21):
+  Indian regulatory rates use Zerodha's brokerage calculator as the
+  reference (current 2026 rates). Per-exchange non-IN/US schedules use
+  max(current, historical) rates — so a single constant gives a
+  conservative (upper-bound) cost estimate for backtests spanning multiple
+  rate regimes. Each rate cites its source in a trailing comment.
+
+  The golden-value test suite in tests/test_charges.py pins every constant
+  so any future rate update is a deliberate, reviewed change.
 """
 
 import logging
@@ -34,40 +33,89 @@ _logger = logging.getLogger(__name__)
 # does not go unnoticed in cross-exchange backtests.
 _WARNED_FALLBACK_EXCHANGES = set()
 
-# ── Named constants (fee schedules as data) ──────────────────────────────
+# ── India (NSE/BSE) ──────────────────────────────────────────────────────
 
-# India (NSE/BSE, delivery and intraday). All rates are as of early 2024
-# per Zerodha's brokerage calculator. See module docstring on vintage.
 NSE_BROKERAGE_RATE = 0.0003        # 0.03%, capped per-leg (Zerodha equity intraday)
 NSE_BROKERAGE_CAP = 20.0           # Rs 20 per leg (Zerodha max brokerage)
-NSE_STT_DELIVERY = 0.001           # 0.1% on BOTH buy and sell (stable)
+NSE_STT_DELIVERY = 0.001           # 0.1% on BOTH buy and sell (stable since 2013)
 NSE_STT_INTRADAY_SELL = 0.00025    # 0.025% on sell side only (stable)
-NSE_EXCHANGE_RATE = 0.0000345      # 0.00345% per leg (NSE revised this in
-                                   # 2023-2024; value here may be slightly
-                                   # stale — audit P3.4 flagged for follow-up)
+# NSE equity transaction charge: current rate as of 2024 per Zerodha's
+# brokerage calculator. Revised downward from the pre-2023 rate of
+# 0.00345%. Per-leg fee on notional.
+NSE_EXCHANGE_RATE = 0.0000297      # 0.00297% per leg (NSE current 2024+)
 NSE_SEBI_RATE = 0.000001           # Rs 10 per crore (stable)
-NSE_GST_RATE = 0.18                # on (brokerage + exchange) (stable)
+NSE_GST_RATE = 0.18                # on (brokerage + exchange) (stable since 2017)
 NSE_STAMP_DUTY_DELIVERY_BUY = 0.00015  # 0.015% buy-side only (uniform from 2020-07)
 NSE_STAMP_DUTY_INTRADAY = 0.00003      # 0.003% buy-side only (uniform from 2020-07)
 
-# US equities (zero-commission, regulatory fees sell-side only)
-US_SEC_FEE_RATE = 0.0000278          # ~$27.80 per million, sell side (revised
-                                     # 2024 — actual SEC Section 31 rate varies
-                                     # annually; pinned value is mid-2024)
-US_TAF_PER_SHARE = 0.000166          # FINRA TAF, sell side (revised 2024)
-US_TAF_CAP = 8.30                    # per-transaction cap
+# ── US equities ──────────────────────────────────────────────────────────
+
+# Zero-commission, regulatory fees on sell side only.
+US_SEC_FEE_RATE = 0.0000278          # ~$27.80/million, sell (SEC Section 31, 2024)
+US_TAF_PER_SHARE = 0.000166          # FINRA TAF per share, sell (2024)
+US_TAF_CAP = 8.30                    # FINRA TAF per-transaction cap
 US_TAF_ESTIMATED_SHARE_PRICE = 50.0  # used when share count unknown
 
-# Other exchanges (LSE, JPX, HKSE, XETRA, KSC, ASX, TSX, SAO, SES, SHH, SHZ,
-# TAI, JNB, TWO, SET, JKT, PAR). Flat per-side percentage as a coarse
-# estimate — real-world schedules differ materially:
-#   LSE:   0.5% stamp duty on BUY only (SDRT)
-#   HKSE:  0.13% stamp duty on BOTH sides (raised from 0.10% in 2021)
-#   XETRA: no stamp duty, ~0.05% combined commission + exchange fees
-# Using a single flat rate understates UK/HKSE and roughly matches XETRA.
-# Audit P3.5: a dated, per-exchange schedule is a P2 follow-up. For any
-# cross-exchange backtest where cost sensitivity matters, treat the
-# numbers as approximate. A one-time warning is logged per unknown exchange.
+# ── Non-IN/US detailed schedules ─────────────────────────────────────────
+#
+# Each exchange below uses `max(current, historical)` rates where the
+# historical rate was higher — producing a conservative (upper-bound) cost
+# that matches older regimes while not under-pricing newer ones. Stamp
+# duties and transaction taxes are the dominant components everywhere
+# except XETRA, where there is none.
+
+# LSE (UK). UK Stamp Duty Reserve Tax (SDRT) is 0.5% on BUY only; stable
+# since 1986. Sell side is effectively broker-only.
+LSE_STAMP_DUTY_BUY = 0.005
+LSE_BROKER_RATE = 0.0005             # 0.05% per leg (retail broker approx)
+
+# HKSE (Hong Kong). Stamp duty history:
+#   pre-2021-08: 0.10% both sides
+#   2021-08..2023-11: 0.13% both sides (raised during budget)
+#   2023-11+: 0.10% both sides (reduced back)
+# Use the historical max (0.13%) per conservative policy.
+HKSE_STAMP_DUTY = 0.0013             # 0.13% both sides (historical max)
+HKSE_SFC_LEVY = 0.000027             # 0.0027% both sides (SFC transaction levy)
+HKSE_AFRC_LEVY = 0.0000015           # 0.00015% both sides (Accounting and Financial Reporting Council)
+HKSE_TRADING_FEE = 0.0000565         # 0.00565% both sides (exchange trading fee)
+HKSE_CCASS_RATE = 0.00002            # 0.002% both sides (HKSCC clearing, min HK$2)
+HKSE_BROKER_RATE = 0.0015            # 0.15% per leg (retail broker approx)
+
+# XETRA (Germany/Deutsche Börse). No stamp or transaction tax in Germany.
+# Xetra exchange trading + clearing fees are ~0.01% combined at retail size.
+XETRA_EXCHANGE_FEE = 0.0001          # 0.01% per leg (Xetra + Eurex Clearing)
+XETRA_BROKER_RATE = 0.0005           # 0.05% per leg (retail broker approx)
+
+# JPX (Japan, Tokyo Stock Exchange). Securities transaction tax abolished
+# 1999; no stamp duty. Broker commission is the dominant cost.
+JPX_EXCHANGE_FEE = 0.00005           # 0.005% per leg (JPX trading/clearing)
+JPX_BROKER_RATE = 0.001              # 0.1% per leg (retail broker approx)
+
+# KSC (Korea, KRX/KOSPI). Securities transaction tax history:
+#   pre-2019: 0.25% sell
+#   2019-2022: 0.25% sell
+#   2023: 0.23% sell
+#   2024+: 0.18% sell (KOSPI includes an additional 0.15% agricultural
+#     tax making effective sell-side 0.33%)
+# Use historical max for the sec tax (0.25%) + the current agricultural
+# tax (0.15%) = 0.40% effective sell-side regulatory. Plus broker.
+KSC_SEC_TAX_SELL = 0.0025            # 0.25% sell (historical max)
+KSC_AGRICULTURAL_TAX_SELL = 0.0015   # 0.15% sell (KOSPI)
+KSC_BROKER_RATE = 0.0005             # 0.05% per leg (retail broker approx)
+
+# TSX (Toronto). Canada abolished its transaction tax; minor OSC/IIROC
+# fees. Broker commission dominates.
+TSX_EXCHANGE_FEE = 0.00005           # 0.005% per leg (OSC + IIROC combined)
+TSX_BROKER_RATE = 0.001              # 0.1% per leg (retail broker approx)
+
+# ASX (Australia). No stamp duty; ASIC trading-based fees.
+ASX_EXCHANGE_FEE = 0.000028          # 0.0028% per leg (ASIC listed equities)
+ASX_BROKER_RATE = 0.001              # 0.1% per leg (retail broker approx)
+
+# Fallback for exchanges without explicit schedules (SAO, SES, SHH, SHZ,
+# TAI, JNB, TWO, SET, JKT, PAR). Coarse 0.05%/side = 0.1% round-trip.
+# A one-time warning fires in calculate_charges() so backtest users see
+# the approximation.
 OTHER_EXCHANGE_PER_SIDE_RATE = 0.0005
 
 US_EXCHANGES = frozenset({"US", "NASDAQ", "NYSE", "AMEX"})
@@ -85,8 +133,11 @@ def calculate_charges(exchange, order_value, segment="EQUITY",
     """PER-SIDE charges for a single-leg trade.
 
     Args:
-        exchange: Exchange code (NSE, BSE, US/NASDAQ/NYSE/AMEX, or other).
-        order_value: Notional for this leg.
+        exchange: Exchange code. Recognised explicitly: NSE, BSE, US,
+            NASDAQ, NYSE, AMEX, LSE, HKSE, XETRA, JPX, KSC, TSX, ASX.
+            Anything else falls through to a coarse 0.05%/side estimate
+            with a one-time warning.
+        order_value: Notional for this leg (local currency).
         segment: "EQUITY" (other segments not yet modeled).
         trade_type: "DELIVERY" or "INTRADAY".
         which_side: "BUY_SIDE" or "SELL_SIDE".
@@ -94,25 +145,36 @@ def calculate_charges(exchange, order_value, segment="EQUITY",
     Returns:
         float: Total charges for THIS LEG ONLY. Round-trip cost is
         calculate_charges(buy) + calculate_charges(sell).
-
-    For exchanges without a detailed fee model, returns
-    `order_value * OTHER_EXCHANGE_PER_SIDE_RATE` (0.05% per leg).
     """
     if exchange in US_EXCHANGES:
         return _us_per_side(order_value, which_side)
     if exchange in INDIA_EXCHANGES:
         return _india_per_side(order_value, segment, trade_type, which_side)
-    # Other exchanges: per-side flat rate. Warn once per unknown exchange so
-    # cross-exchange backtests don't silently rely on the coarse 0.05%/side
-    # approximation (audit P3.5). Real LSE / HKSE stamp duties in particular
-    # are materially higher than this fallback.
+    if exchange == "LSE":
+        return _lse_per_side(order_value, which_side)
+    if exchange == "HKSE":
+        return _hkse_per_side(order_value, which_side)
+    if exchange == "XETRA":
+        return _xetra_per_side(order_value, which_side)
+    if exchange == "JPX":
+        return _jpx_per_side(order_value, which_side)
+    if exchange == "KSC":
+        return _ksc_per_side(order_value, which_side)
+    if exchange == "TSX":
+        return _tsx_per_side(order_value, which_side)
+    if exchange == "ASX":
+        return _asx_per_side(order_value, which_side)
+    # Fallback: per-side flat rate. Warn once per unknown exchange so
+    # cross-exchange backtests don't silently rely on the coarse
+    # approximation (audit P3.5).
     if exchange not in _WARNED_FALLBACK_EXCHANGES:
         _WARNED_FALLBACK_EXCHANGES.add(exchange)
         _logger.warning(
             "charges.calculate_charges: exchange=%r has no detailed fee "
             "schedule; using OTHER_EXCHANGE_PER_SIDE_RATE=%.4f (%.3f%% per "
-            "side). Real per-exchange rates differ — see engine/charges.py "
-            "module docstring.", exchange,
+            "side). Add a detailed helper in engine/charges.py if cost "
+            "sensitivity matters for this backtest.",
+            exchange,
             OTHER_EXCHANGE_PER_SIDE_RATE,
             OTHER_EXCHANGE_PER_SIDE_RATE * 100,
         )
@@ -156,8 +218,6 @@ def _india_per_side(order_value, segment, trade_type, which_side):
     gst = (brokerage + exchange_charges) * NSE_GST_RATE
 
     # Stamp duty: buy-side only, rate depends on trade_type.
-    # Pre-fix, intraday used the delivery rate (5x too high). nse_intraday_charges
-    # already used the correct rate in its round-trip form; this path now agrees.
     stamp_duty = 0.0
     if which_side == "BUY_SIDE":
         if trade_type == "INTRADAY":
@@ -167,6 +227,61 @@ def _india_per_side(order_value, segment, trade_type, which_side):
 
     total = brokerage + stt + exchange_charges + sebi_charges + gst + stamp_duty
     return round(total, 2)
+
+
+def _lse_per_side(order_value, which_side):
+    """LSE (UK): 0.5% SDRT stamp on BUY only + flat broker rate."""
+    broker = order_value * LSE_BROKER_RATE
+    stamp = order_value * LSE_STAMP_DUTY_BUY if which_side == "BUY_SIDE" else 0.0
+    return round(broker + stamp, 2)
+
+
+def _hkse_per_side(order_value, which_side):
+    """HKSE: stamp duty + SFC + AFRC + trading fee + CCASS + broker, both sides."""
+    stamp = order_value * HKSE_STAMP_DUTY
+    sfc = order_value * HKSE_SFC_LEVY
+    afrc = order_value * HKSE_AFRC_LEVY
+    trading = order_value * HKSE_TRADING_FEE
+    ccass = order_value * HKSE_CCASS_RATE
+    broker = order_value * HKSE_BROKER_RATE
+    # `which_side` unused: all HKSE regulatory fees are symmetric.
+    _ = which_side
+    return round(stamp + sfc + afrc + trading + ccass + broker, 2)
+
+
+def _xetra_per_side(order_value, which_side):
+    """XETRA: exchange/clearing + broker. No stamp or transaction tax."""
+    _ = which_side  # symmetric
+    return round(order_value * (XETRA_EXCHANGE_FEE + XETRA_BROKER_RATE), 2)
+
+
+def _jpx_per_side(order_value, which_side):
+    """JPX: exchange fee + broker. No stamp or transaction tax since 1999."""
+    _ = which_side  # symmetric
+    return round(order_value * (JPX_EXCHANGE_FEE + JPX_BROKER_RATE), 2)
+
+
+def _ksc_per_side(order_value, which_side):
+    """KSC (Korea): sec tax (historical max 0.25%) + agricultural tax (0.15%,
+    KOSPI) applied on SELL only. Broker both sides."""
+    broker = order_value * KSC_BROKER_RATE
+    if which_side == "SELL_SIDE":
+        sec_tax = order_value * KSC_SEC_TAX_SELL
+        agri = order_value * KSC_AGRICULTURAL_TAX_SELL
+        return round(broker + sec_tax + agri, 2)
+    return round(broker, 2)
+
+
+def _tsx_per_side(order_value, which_side):
+    """TSX (Canada): minor regulatory + broker, symmetric."""
+    _ = which_side  # symmetric
+    return round(order_value * (TSX_EXCHANGE_FEE + TSX_BROKER_RATE), 2)
+
+
+def _asx_per_side(order_value, which_side):
+    """ASX (Australia): ASIC listed-equity fee + broker, symmetric."""
+    _ = which_side  # symmetric
+    return round(order_value * (ASX_EXCHANGE_FEE + ASX_BROKER_RATE), 2)
 
 
 # ── Round-trip helpers for standalone strategies ─────────────────────────

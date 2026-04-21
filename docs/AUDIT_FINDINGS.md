@@ -818,15 +818,133 @@ byte-identical to pre-Phase-3 run.
 
 ### Open follow-ups surfaced by Phase 3 (all P2)
 
-1. Dated regulatory rate schedules (`engine/charges.py`) — pick rate
-   by trade date rather than a single constant. Biggest impact on
-   multi-year Indian backtests that span 2020-07 (stamp duty
-   unification) and 2023-2024 (NSE transaction rate revisions).
-2. Detailed per-exchange fee models (`engine/charges.py`) — LSE,
-   HKSE, XETRA, JPX, KSC, TSX, ASX are all used in active configs
-   and currently share a single 0.05%/side fallback.
+1. ~~Dated regulatory rate schedules (`engine/charges.py`)~~ — closed
+   by P3.4 revisit (see below): moved NSE exchange rate to current
+   2024 value (0.00297%). Per-exchange non-IN/US rates now use
+   max(current, historical) for conservative costs.
+2. ~~Detailed per-exchange fee models~~ — closed by P3.5 revisit
+   (see below): LSE, HKSE, XETRA, JPX, KSC, TSX, ASX now have
+   explicit helpers.
 3. Broader `group_by` determinism sweep (`engine/signals/*`) —
    P3.3 fixed the one load-bearing site in ranking; 30+ other
    `group_by("instrument")` sites in signal generators may or may
    not depend on iteration order. Systematic audit or a polars
    version pin is the right follow-up.
+
+---
+
+## Phase 3 revisit — NSE rate + per-exchange schedules — 2026-04-21
+
+Landed shortly after the initial Phase 3 commit in response to
+reviewer feedback: "just use current rates". Changed the default
+position from "document the approximation" to "use the best available
+rate".
+
+### P3.4 revisit — NSE_EXCHANGE_RATE to current 2024
+
+- Was: `0.0000345` (0.00345%, pre-2023 NSE rate)
+- Now: `0.0000297` (0.00297%, current per Zerodha's brokerage
+  calculator as of 2024+)
+- Impact on historical `results/`: per-trade cost drops by ~0.00048%
+  of notional — a ~14% reduction in that single component. Champion
+  verification (`config_ato_match.yaml`): CAGR stable at 25.76%,
+  Calmar 1.279110 -> 1.279252 (+0.0001). All 16 configs' order
+  counts and days remain byte-identical; only the cost component
+  of equity moved.
+- Note the direction: current rate is LOWER than historical, so
+  using current slightly under-prices costs for backtests spanning
+  pre-2024 periods. This is the user's deliberate choice over using
+  max(current, historic). A dated-schedule refactor remains a
+  possible future improvement if precision matters for a specific
+  backtest.
+- Test: `test_nse_rate_constants_vintage_pinned` now pins 0.0000297;
+  `test_nse_intraday_exact_breakdown` uses the new rate in its
+  component math.
+
+### P3.5 revisit — detailed per-exchange schedules
+
+Added explicit per-side helpers for LSE, HKSE, XETRA, JPX, KSC, TSX,
+ASX. Each uses `max(current, historical)` where a historical rate
+was higher, producing a conservative (upper-bound) cost estimate.
+
+**LSE (UK):**
+- 0.5% SDRT stamp duty on BUY only (stable since 1986)
+- 0.05% broker per leg
+- Buy: 0.55% of notional. Sell: 0.05%.
+
+**HKSE:**
+- 0.13% stamp duty both sides (historical max, Aug 2021 - Nov 2023;
+  current is 0.10%)
+- 0.0027% SFC transaction levy
+- 0.00015% AFRC levy
+- 0.00565% exchange trading fee
+- 0.002% CCASS clearing
+- 0.15% broker
+- Symmetric. Per side: ~0.29% of notional.
+
+**XETRA (Germany):**
+- No stamp or transaction tax
+- 0.01% exchange/clearing + 0.05% broker
+- Symmetric. Per side: 0.06%.
+
+**JPX (Japan):**
+- No transaction tax since 1999
+- 0.005% exchange + 0.1% broker
+- Symmetric. Per side: 0.105%.
+
+**KSC (Korea KOSPI):**
+- Buy: 0.05% broker only
+- Sell: 0.25% securities transaction tax (historical max, pre-2023;
+  current is 0.18%) + 0.15% agricultural tax (KOSPI only) +
+  0.05% broker = 0.45% sell-side
+- Asymmetric: Korean sec tax is sell-only.
+
+**TSX (Canada):** 0.005% regulatory + 0.1% broker = 0.105%/side
+symmetric (Canada abolished transaction tax).
+
+**ASX (Australia):** 0.0028% ASIC + 0.1% broker = 0.1028%/side
+symmetric (no stamp).
+
+### Impact on existing cross-exchange results
+
+Every cross-exchange backtest result in `results/` (memory notes
+reference "US Cal 0.615, UK Cal 0.610, Taiwan 0.606, S.Korea 0.276,
+SHZ 0.352" from earlier runs) is now invalidated for the exchanges
+with detailed helpers:
+
+- **LSE:** costs ~10× higher (was 0.05%/side flat, now 0.55%
+  buy / 0.05% sell). UK alpha estimates will drop materially.
+- **HKSE:** ~6× higher (was 0.05%/side, now ~0.29%/side).
+- **KSC:** ~9× higher on sell side (was 0.05%, now 0.45%).
+- **XETRA, JPX, TSX, ASX:** modest 1.2-2× increase.
+
+Re-running affected backtests is a P1 task — tracked in the
+"4 strategies requiring full re-runs" flag at the top of
+AUDIT_CHECKLIST (now broadened to cover every strategy with a
+non-NSE/US cross-exchange result).
+
+### Regression tests
+
+- `test_per_exchange_rate_constants_pinned` — golden-value pin for
+  every non-IN/US rate constant (13 constants).
+- `test_lse_buy_charges_include_uk_stamp` / `test_lse_sell_no_stamp` —
+  asymmetric UK stamp math.
+- `test_hkse_symmetric_stamp_plus_regulatory` — HKSE 6-component
+  symmetric math to 0.5 rupee precision.
+- `test_xetra_no_stamp`, `test_jpx_no_stamp`, `test_tsx_symmetric`,
+  `test_asx_symmetric` — pinned per-exchange round-numbers.
+- `test_ksc_sell_includes_sec_and_agricultural_tax` — asymmetric KSC
+  sec tax + agricultural tax on sell side only.
+- `test_every_detailed_exchange_is_per_side` — invariant that
+  round_trip = buy + sell for each new detailed exchange.
+- `test_known_exchanges_do_not_warn` — updated to include the 7 new
+  detailed exchanges.
+- `test_unknown_exchange_warns_once` — updated to use SAO / JNB
+  (still on fallback) since LSE/HKSE are now detailed.
+
+### Phase 3 revisit regression suite
+
+After revisit: **312 passing** (302 + 10 new per-exchange tests).
+Champion verification byte-matches on order counts and days;
+Calmar shifts by +0.0001 due to the NSE rate reduction (expected
+direction — lower cost → slightly higher return).

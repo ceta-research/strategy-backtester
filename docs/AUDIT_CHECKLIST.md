@@ -2,7 +2,7 @@
 
 **Created:** 2026-04-20
 **Last updated:** 2026-04-21
-**Status:** 17/17 P0 closed + 26/53 P1 closed (Phase 1 + Phase 2 + Phase 3 of the P1 plan landed 2026-04-21). Authoritative log in `docs/AUDIT_FINDINGS.md`. Remaining work: 27 P1 + 51 P2 + 32 P3 open, plus 4 strategies requiring full re-runs.
+**Status:** 17/17 P0 closed + 26/53 P1 closed (Phase 1 + Phase 2 + Phase 3 landed 2026-04-21; Phase 3 revisit same day updated NSE rate + added 7 detailed exchange schedules). Authoritative log in `docs/AUDIT_FINDINGS.md`. Remaining work: 27 P1 + 49 P2 + 32 P3 open. Strategies requiring full re-runs: now expanded from 4 to include every strategy with a non-NSE/US cross-exchange result (LSE/HKSE/KSC most affected).
 **Scope:** 24 core files (engine/ non-signals + lib/). Signals spot-checked only.
 
 Priority tags: **P0** = known bug, must fix. **P1** = high-impact, likely bug. **P2** = medium, needs investigation. **P3** = low, hygiene/edge case.
