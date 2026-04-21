@@ -5,9 +5,38 @@ ParquetDataProvider reads local parquet files (ATO_Simulator format).
 FMPParquetDataProvider reads local FMP EOD parquet files.
 DuckDBParquetDataProvider reads local FMP parquet via DuckDB SQL.
 PolarsParquetDataProvider reads local FMP parquet via Polars lazy scan.
+BhavcopyDataProvider reads nse.nse_bhavcopy_historical (UNADJUSTED prices,
+  survivorship-bias-free, 5072 symbols).
+NseChartingDataProvider reads nse.nse_charting_day (split-adjusted, ~2447
+  symbols; matches the standalone champion strategies).
+
+Corporate-action handling (audit P4.3, 2026-04-21):
+  - CRDataProvider / FMPParquetDataProvider / DuckDBParquetDataProvider /
+    PolarsParquetDataProvider all SELECT `close` from `fmp.stock_eod`.
+    FMP's `close` is SPLIT-ADJUSTED but NOT dividend-adjusted. The separate
+    `adjClose` column (split + dividend adjusted) is NOT fetched. The
+    simulator, scanner, and ranking all consume `close` — so long-hold
+    strategies understate total return by roughly the dividend yield over
+    the holding period (typically 1-3%/year on the Indian / US universes).
+  - ParquetDataProvider reads ATO_Simulator-format kite parquet files,
+    which carry split-adjusted prices in the `close` column.
+  - BhavcopyDataProvider is EXPLICITLY UNADJUSTED (see its docstring).
+    Oscillation filter not applied because legitimate split-day jumps are
+    expected. Consumers must apply corporate actions externally.
+  - NseChartingDataProvider reads nse.nse_charting_day which is also
+    split-adjusted.
+
+Missing-data handling (audit P4.4, 2026-04-21):
+  All providers return whatever the source yields: missing trading days
+  appear as ABSENT ROWS, not null rows. The scanner (`engine.scanner.
+  fill_missing_dates`) is the single canonical place that inserts rows
+  for gap days, then backward-fills `close` across null rows. Signal
+  generators downstream should never assume every calendar-day row exists
+  unless they have gone through the scanner.
 """
 
 import io
+import logging
 import os
 import sys
 from datetime import datetime, timezone
@@ -19,6 +48,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from lib.cr_client import CetaResearch
 
 from engine.constants import SECONDS_IN_ONE_DAY
+
+_logger = logging.getLogger(__name__)
 
 
 def _epoch_to_date_str(epoch):
@@ -142,13 +173,33 @@ def remove_price_oscillations(df: pl.DataFrame, price_col: str = "close",
         bad_symbols = all_bad[symbol_col].n_unique()
     else:
         df = df_nb
+        bad_symbols = 0
 
     # Drop helper columns
     df = df.drop(["_p1", "_n1", "_p2", "_n2"], strict=False)
 
-    if total_removed > 0 and verbose:
-        print(f"  Price oscillation filter: removed {total_removed} bad rows "
-              f"from {bad_symbols} symbols ({rows_before} → {df.height} rows)")
+    if total_removed > 0:
+        # Structured logging (audit P4.2): emit summary at INFO and the
+        # actual affected-symbol list at DEBUG so users can investigate
+        # data-quality issues without parsing stdout.
+        _logger.info(
+            "remove_price_oscillations: removed %d bad rows from %d symbols "
+            "(%d -> %d rows)",
+            total_removed, bad_symbols, rows_before, df.height,
+        )
+        try:
+            affected = sorted(set(all_bad[symbol_col].to_list()))
+            _logger.debug(
+                "remove_price_oscillations: affected symbols (%d): %s",
+                len(affected), affected,
+            )
+        except Exception:
+            # Best-effort; never let logging break the pipeline.
+            pass
+
+        if verbose:
+            print(f"  Price oscillation filter: removed {total_removed} bad rows "
+                  f"from {bad_symbols} symbols ({rows_before} → {df.height} rows)")
 
     return df
 

@@ -2,7 +2,7 @@
 
 **Created:** 2026-04-20
 **Last updated:** 2026-04-21
-**Status:** 17/17 P0 closed + 26/53 P1 closed (Phase 1 + Phase 2 + Phase 3 landed 2026-04-21; Phase 3 revisit same day updated NSE rate + added 7 detailed exchange schedules). Authoritative log in `docs/AUDIT_FINDINGS.md`. Remaining work: 27 P1 + 49 P2 + 32 P3 open. Strategies requiring full re-runs: now expanded from 4 to include every strategy with a non-NSE/US cross-exchange result (LSE/HKSE/KSC most affected).
+**Status:** 17/17 P0 closed + 33/53 P1 closed (Phases 1-4 + revisits landed 2026-04-21). Authoritative log in `docs/AUDIT_FINDINGS.md`. Remaining work: 20 P1 + 49 P2 + 32 P3 open. Strategies requiring full re-runs: every strategy with a non-NSE/US cross-exchange result (LSE/HKSE/KSC most affected, post Phase 3 revisit).
 **Scope:** 24 core files (engine/ non-signals + lib/). Signals spot-checked only.
 
 Priority tags: **P0** = known bug, must fix. **P1** = high-impact, likely bug. **P2** = medium, needs investigation. **P3** = low, hygiene/edge case.
@@ -118,10 +118,10 @@ Wait — that's a real concern. Verify by reading the loop carefully.
 
 ### engine/data_provider.py
 
-- [ ] **P1** `NseChartingDataProvider.fetch_ohlcv`: prefetch_days handling. If config start=2010-01-01 and prefetch=600 days, data is fetched from 2008-05. Verify signal gen uses prefetch correctly (not as signal period).
-- [ ] **P1** Price oscillation filter (`spike_threshold`, `mild_threshold`, `min_mild_count`). When does this filter trigger? Any instruments silently dropped? Log when filter fires.
-- [ ] **P1** Are corporate actions (splits, bonuses, dividends) handled? `adjClose` vs `close` — which does the simulator use?
-- [ ] **P1** Missing data handling: if an instrument has no data for a day, does it appear in `df_tick_data` at all? Or is it filled elsewhere?
+- [x] **P1** `NseChartingDataProvider.fetch_ohlcv`: prefetch_days handling. If config start=2010-01-01 and prefetch=600 days, data is fetched from 2008-05. Verify signal gen uses prefetch correctly (not as signal period). *— Phase 4 P4.1: all 32 signal files verified to trim at start_epoch (directly, via scanner, or via rebalance-date derivation). Regression test scans source files.*
+- [x] **P1** Price oscillation filter (`spike_threshold`, `mild_threshold`, `min_mild_count`). When does this filter trigger? Any instruments silently dropped? Log when filter fires. *— Phase 4 P4.2: added `logger.info` summary + `logger.debug` affected-symbol list. Regression tests verify both log levels fire.*
+- [x] **P1** Are corporate actions (splits, bonuses, dividends) handled? `adjClose` vs `close` — which does the simulator use? *— Phase 4 P4.3: documented in module docstring. FMP `close` is split-adjusted but NOT dividend-adjusted (long-hold strategies understate returns by yield). Kite/NSE charting both split-adjusted. Bhavcopy unadjusted (explicit warning).*
+- [x] **P1** Missing data handling: if an instrument has no data for a day, does it appear in `df_tick_data` at all? Or is it filled elsewhere? *— Phase 4 P4.4: documented. Providers return absent rows for missing days; `scanner.fill_missing_dates` is the canonical gap-fill + backward-fill point.*
 - [ ] **P2** `CRDataProvider.fetch_ohlcv`: memory_mb=16384 default. Verify this matches the CR API's actual memory tier.
 - [ ] **P2** `BhavcopyDataProvider`: unadjusted prices. Document the difference clearly. Confirm no one accidentally uses bhavcopy for a strategy that depends on split adjustments.
 - [ ] **P3** Data cache invalidation: if the parquet files are updated (new data), does the pipeline refetch? Or is stale data silently served?
@@ -168,9 +168,9 @@ Spot-check approach: read 3 representative strategies cover-to-cover, then skim 
 
 Separate from code audit: check the data itself.
 
-- [ ] **P1** NSE forward-fill: for each instrument, are weekends/holidays filled with previous close? Or gaps?
-- [ ] **P1** Corporate actions: compare `nse_charting_day` close series against a known reference (TradingView, Yahoo Finance) for 5-10 stocks that had splits/bonuses in 2015-2024. Ensure adjustment is correct.
-- [ ] **P1** FMP NSE quality: the memory note says FMP's SA stocks have oscillating split factors. Check if NSE has similar issues.
+- [x] **P1** NSE forward-fill: for each instrument, are weekends/holidays filled with previous close? Or gaps? *— Phase 4 P4.5: spot-checked 6 major NSE stocks in local kite parquet. 0 null closes, 0 duplicates, 0 unadjusted jumps. Minor finding: 1-3 weekend rows per symbol (NSE muhurat sessions).*
+- [~] **P1** Corporate actions: compare `nse_charting_day` close series against a known reference (TradingView, Yahoo Finance) for 5-10 stocks that had splits/bonuses in 2015-2024. Ensure adjustment is correct. *— Phase 4 P4.6: partial. Local fixture is 2019-2021 only; no unadjusted jumps found within range. Full cross-check requires external data access (P2 follow-up).*
+- [x] **P1** FMP NSE quality: the memory note says FMP's SA stocks have oscillating split factors. Check if NSE has similar issues. *— Phase 4 P4.7: `remove_price_oscillations` filter verified working on synthetic JNB-style pattern (36/50 rows correctly flagged). The filter runs on every FMP fetch as a safety net.*
 - [ ] **P2** Bhavcopy vs nse_charting: same-day close prices should agree. Large discrepancies indicate adjustment differences.
 - [ ] **P2** Volume and `average_price` fields: for liquid stocks (NIFTYBEES), compare against exchange-published daily volume.
 - [ ] **P3** Delisted stocks: do they appear in `df_tick_data` with final-price entries? Or drop entirely after delisting? Affects survivorship bias.

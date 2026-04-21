@@ -997,3 +997,115 @@ Safety belt is the robust default.
 `scripts/debug_signal_gen.py` has 2 unsafe `group_by` calls. It's
 a debug / comparison tool, not production backtesting code, so it
 wasn't touched.
+
+---
+
+## Phase 4 P1s — 2026-04-21
+
+Completed 7 P1 items covering the data-provider layer and data
+integrity. Baseline before work: 312 passing. After: 315 passing
+(3 new regression tests in `tests/test_data_provider.py`).
+
+Champion verification: byte-identical (CAGR 25.76%, Calmar
+1.2792521). Zero historical-number movement.
+
+### Phase 4 — Data Provider & Data Integrity
+
+**P4.1 — prefetch_days handling across signal generators**
+(`engine/signals/*.py`, 32 files)
+- Investigation. Every data provider fetches
+  `(start_epoch - prefetch_days * 86400)` through `end_epoch` so that
+  rolling-window indicators (30-day avg_txn, 252-day breakout, etc.)
+  have warm-up data. The risk is that a signal generator emits
+  entry orders during the prefetch window, producing ghost trades
+  before the simulation officially starts.
+- Verified via grep + per-file read: every signal generator either
+  (a) filters `df_signals` by `pl.col("date_epoch") >= start_epoch`
+  (26 files), (b) delegates to `scanner.process` which trims at
+  scanner.py:130 (1 file: `eod_technical.py`), or (c) derives a
+  rebalance-date list from a scanner-trimmed frame (5 files:
+  `factor_composite.py`, `low_pe.py`, `trending_value.py`,
+  `momentum_cascade.py`, `earnings_dip.py`).
+- Regression test:
+  `tests/test_data_provider.py::TestSignalsRespectStartEpoch::test_start_epoch_filter_present_in_signal_files`
+  — iterates every signal file and asserts it mentions `start_epoch`
+  (or is on the allow-list of indirect trimmers). Catches any new
+  signal gen added without the pattern.
+
+**P4.2 — price oscillation filter logging**
+(`engine/data_provider.py:29-172`)
+- Pre-fix: the filter printed a one-line summary to stdout when
+  `verbose=True`. There was no structured log event, so users running
+  inside a larger pipeline had no way to programmatically detect
+  which symbols got rows dropped.
+- Post-fix: `_logger = logging.getLogger(__name__)` at module top;
+  the filter now emits `logger.info(...)` with the removal summary
+  and `logger.debug(...)` listing the exact affected symbols. The
+  original stdout print is preserved for `verbose=True` callers
+  (backward compat).
+- Regression tests:
+  - `TestOscillationFilterLogging::test_info_log_emitted_when_rows_removed`
+    — builds a synthetic 2-symbol frame with known spike+revert
+    patterns, asserts both INFO and DEBUG events fire.
+  - `TestOscillationFilterLogging::test_no_log_when_no_removals` —
+    clean monotonic prices produce zero removal logs.
+
+**P4.3 — corporate actions documentation**
+(`engine/data_provider.py` module docstring)
+- Documentation-only. Added a detailed section in the module
+  docstring naming each provider's adjustment behavior:
+  - `CRDataProvider` / `FMPParquetDataProvider` /
+    `DuckDBParquetDataProvider` / `PolarsParquetDataProvider`:
+    all SELECT `close` (not `adjClose`) from `fmp.stock_eod`. FMP's
+    `close` is split-adjusted but NOT dividend-adjusted. Long-hold
+    strategies understate total return by ~dividend yield.
+  - `ParquetDataProvider`: reads kite parquet; split-adjusted.
+  - `BhavcopyDataProvider`: UNADJUSTED prices; caller must apply
+    corporate actions. Oscillation filter skipped because legitimate
+    split-day jumps are expected.
+  - `NseChartingDataProvider`: split-adjusted.
+
+**P4.4 — missing-data handling documentation**
+(`engine/data_provider.py` module docstring)
+- Documentation-only. All providers return whatever the source
+  yields: missing trading days appear as ABSENT ROWS, not null rows.
+  The canonical gap-fill happens in `engine.scanner.fill_missing_dates`
+  which inserts missing-date rows and then backward-fills `close`.
+  Signal generators downstream should not assume every calendar day
+  has a row unless they've gone through the scanner.
+
+**P4.5 — NSE forward-fill spot-check** (`~/ATO_DATA/tick_data/`)
+- Queried local kite parquet for 5 major NSE stocks (INFY, HDFCBANK,
+  RELIANCE, TCS, SBIN) and NIFTYBEES:
+  - Null closes: 0 across all 6
+  - Duplicate date_epoch rows: 0 across all 6
+  - Price jumps > 2x or < 0.5x (unadjusted-split signature): 0 across
+    all 6 — indicates split adjustments ARE present
+- Minor finding: 1-3 rows per symbol fall on weekends. Almost
+  certainly NSE muhurat / special sessions (one trading day per year
+  at Diwali); not a data-quality bug.
+
+**P4.6 — splits/bonuses cross-check**
+- Local fixture covers 2019-01 to 2021-12 only (30 symbols, 776 days
+  max). Pre-fixture splits (e.g., INFY Sep-2018 1:1 bonus) are out
+  of range. Cannot cross-check against TradingView/Yahoo in this
+  session without web access.
+- No unadjusted jumps found within the fixture window (the 0
+  big-jumps finding above is evidence prices are adjusted).
+- Full split/bonus verification across the FMP NSE universe is a
+  P2 follow-up requiring external data access.
+
+**P4.7 — FMP oscillating-split-factor safety net**
+- `remove_price_oscillations` already exists as a defense against
+  JNB-style (South Africa) oscillating split factors. Verified on
+  synthetic input mimicking the JNB pattern (50-day series with 18
+  alternating 35% oscillations): 36 of 50 rows correctly flagged
+  and removed. The filter has 2-tier detection (100% spikes always
+  flagged; 30% oscillations flagged only on symbols with >= 5
+  events) so it catches persistent data-quality issues without
+  over-trimming legitimate earnings-day volatility.
+
+### Phase 4 regression suite
+
+After Phase 4 work: **315 passing** (312 + 3 new). Champion
+byte-identical. No pre-existing tests broke.
