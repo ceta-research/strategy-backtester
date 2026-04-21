@@ -69,8 +69,23 @@ def _process_exits(orders, current_positions, current_positions_count, margin_av
 def _process_entries(orders, current_positions, current_positions_count, margin_available,
                      order_value, current_account_value, max_positions, max_positions_per_instrument,
                      sim_config, epoch_wise_instrument_stats, simulation_date_epoch,
-                     config_order_ids, date_orders, slippage_rate=0.0005):
-    """Process all entry orders for a given epoch. Returns updated state."""
+                     config_order_ids, date_orders, slippage_rate=0.0005,
+                     missing_avg_txn_policy="no_cap", missing_avg_txn_log=None):
+    """Process all entry orders for a given epoch. Returns updated state.
+
+    Phase 2.2: when `max_order_value.type == "percentage_of_instrument_avg_txn"`
+    and avg_txn is missing for this (epoch, instrument), `missing_avg_txn_policy`
+    controls the fallback:
+      - "no_cap" (default, preserves pre-fix behavior): place the order without
+        applying the cap. Historical results remain byte-identical under this
+        default.
+      - "skip": do not place the order. The user asked for a liquidity cap;
+        if liquidity is unknown, skipping honors the intent strictly. Opt-in
+        via `context["missing_avg_txn_policy"] = "skip"` after confirming you
+        are willing to accept the order-count reduction.
+    Either way, the event is recorded in missing_avg_txn_log so callers can
+    audit silent fallbacks after the fact (breaks the previous silence).
+    """
     for entry_order in orders["entries"]:
         if current_positions_count >= max_positions:
             break
@@ -83,6 +98,7 @@ def _process_entries(orders, current_positions, current_positions_count, margin_
             continue
 
         _order_value = order_value
+        skip_this_order = False
         if "max_order_value" in sim_config:
             max_order_config = sim_config["max_order_value"]
             if max_order_config["type"] == "fixed":
@@ -100,7 +116,28 @@ def _process_entries(orders, current_positions, current_positions_count, margin_
                 )
                 if avg_txn is not None:
                     _order_value = min(_order_value, avg_txn * max_order_config["value"] / 100)
+                else:
+                    if missing_avg_txn_log is not None:
+                        missing_avg_txn_log.append({
+                            "epoch": simulation_date_epoch,
+                            "instrument": entry_order["instrument"],
+                            "policy": missing_avg_txn_policy,
+                        })
+                    if missing_avg_txn_policy == "skip":
+                        skip_this_order = True
+                    # else "no_cap": leave _order_value at the uncapped base.
+        if skip_this_order:
+            continue
 
+        # Phase 2.3 decision: integer-share quantity. This matches real
+        # equity delivery (CNC) trading — Indian NSE/BSE do not support
+        # fractional shares, and most international equity CNC products don't
+        # either. Truncation produces ~1% cash-drag for high-priced stocks
+        # with small order_value; that drag is a real cost a live trader
+        # experiences, so preserving it in the backtest is correct rather
+        # than a bug. If a future strategy needs fractional simulation
+        # (e.g. US ETF/fractional brokerages), introduce a sim_config flag
+        # and branch here.
         order_quantity = int(_order_value / entry_order["entry_price"])
         exchange = entry_order["instrument"].split(":")[0]
         charges = calculate_charges(
@@ -174,6 +211,14 @@ def process(context, df_orders, epoch_wise_instrument_stats, current_snapshot, s
     max_positions_per_instrument = sim_config["max_positions_per_instrument"]
     exit_before_entry = sim_config.get("exit_before_entry", False)
     slippage_rate = context.get("slippage_rate", 0.0005)
+    # Phase 2.2: policy for missing avg_txn when max_order_value uses
+    # percentage_of_instrument_avg_txn. Default "no_cap" preserves pre-fix
+    # behavior exactly (historical results remain byte-identical). Opt into
+    # the conservative "skip" behavior with context["missing_avg_txn_policy"]
+    # = "skip" — refuses the order when liquidity is unknown, honoring the
+    # user's cap intent strictly. Events are logged in either mode.
+    missing_avg_txn_policy = context.get("missing_avg_txn_policy", "no_cap")
+    missing_avg_txn_log = []
 
     if not current_snapshot:
         current_snapshot = {
@@ -244,18 +289,33 @@ def process(context, df_orders, epoch_wise_instrument_stats, current_snapshot, s
 
         current_account_value = current_position_value + margin_available
 
-        # Handle payouts
-        if "next_payout_epoch" in current_snapshot and simulation_date_epoch >= current_snapshot["next_payout_epoch"]:
+        # Handle payouts.
+        # Phase 2.4 fix: when resuming from a snapshot whose next_payout_epoch
+        # lies multiple payout intervals before simulation_date_epoch (e.g.
+        # long gap between chunks), pre-fix ran exactly one payout and
+        # advanced next_payout_epoch by a single interval — silently skipping
+        # the other due payouts. Post-fix: loop forward, running each missed
+        # payout, so the account reflects the full set of withdrawals.
+        # Percentage payouts re-read current_account_value inside the loop
+        # so each successive withdrawal is taken from the post-previous-payout
+        # balance, matching real-world sequential payout semantics.
+        payout_interval = (
+            pay_out_config["payout_interval_days"] * SECONDS_IN_ONE_DAY
+            if pay_out_config else 0
+        )
+        while (
+            "next_payout_epoch" in current_snapshot
+            and simulation_date_epoch >= current_snapshot["next_payout_epoch"]
+            and payout_interval > 0
+        ):
+            current_account_value = current_position_value + margin_available
             pay_out_sum = 0
             if pay_out_config["type"] == "fixed":
                 pay_out_sum = pay_out_config["value"]
             elif pay_out_config["type"] == "percentage":
                 pay_out_sum = pay_out_config["value"] * current_account_value / 100
-
-            current_snapshot["next_payout_epoch"] = simulation_date_epoch + (
-                pay_out_config["payout_interval_days"] * SECONDS_IN_ONE_DAY
-            )
             margin_available -= min(margin_available, pay_out_sum)
+            current_snapshot["next_payout_epoch"] += payout_interval
 
         # Compute order value
         order_value = current_account_value / max_positions
@@ -271,6 +331,24 @@ def process(context, df_orders, epoch_wise_instrument_stats, current_snapshot, s
             order_value *= sim_config["order_value_multiplier"]
 
         if orders := date_orders.get(simulation_date_epoch):
+            # Phase 2.5 — ordering semantics (matches ATO_Simulator):
+            # Default (entries-first): new entries on day T see pre-exit state.
+            #   The account_value / margin_available used to size today's new
+            #   orders does NOT yet include cash that will be freed by today's
+            #   natural exits. This is the ATO legacy behavior: it's slightly
+            #   conservative in bull markets (you commit less new capital than
+            #   you could if exits settled first) and matches the invariant
+            #   that an order was sized "as-of" the sizing day's open state.
+            #
+            # exit_before_entry=True: exits settle first, capital is freed,
+            #   then order_value is recomputed on the larger margin pool and
+            #   entries are placed. Closer to "real broker at market open"
+            #   semantics for delivery products where sale proceeds are
+            #   available same-session. Use this for strategies that rely on
+            #   recycling capital within the same day.
+            #
+            # Choose per-strategy via sim_config["exit_before_entry"]; the
+            # default of False preserves historical result comparability.
             if exit_before_entry:
                 # Exits first: frees capital + position slots before entries
                 current_positions_count, margin_available = _process_exits(
@@ -290,14 +368,21 @@ def process(context, df_orders, epoch_wise_instrument_stats, current_snapshot, s
                     orders, current_positions, current_positions_count, margin_available,
                     order_value, current_account_value, max_positions, max_positions_per_instrument,
                     sim_config, epoch_wise_instrument_stats, simulation_date_epoch,
-                    config_order_ids, date_orders, slippage_rate=slippage_rate)
+                    config_order_ids, date_orders, slippage_rate=slippage_rate,
+                    missing_avg_txn_policy=missing_avg_txn_policy,
+                    missing_avg_txn_log=missing_avg_txn_log)
             else:
-                # Default: entries first, then exits (matches ATO_Simulator)
+                # Default: entries first, then exits (matches ATO_Simulator).
+                # See the module-level comment at the top of _process_entries
+                # for why this matches ATO; callers who want exit_before_entry
+                # semantics pass sim_config["exit_before_entry"] = True.
                 current_positions_count, margin_available = _process_entries(
                     orders, current_positions, current_positions_count, margin_available,
                     order_value, current_account_value, max_positions, max_positions_per_instrument,
                     sim_config, epoch_wise_instrument_stats, simulation_date_epoch,
-                    config_order_ids, date_orders, slippage_rate=slippage_rate)
+                    config_order_ids, date_orders, slippage_rate=slippage_rate,
+                    missing_avg_txn_policy=missing_avg_txn_policy,
+                    missing_avg_txn_log=missing_avg_txn_log)
 
                 current_positions_count, margin_available = _process_exits(
                     orders, current_positions, current_positions_count, margin_available, trade_log,
@@ -313,7 +398,13 @@ def process(context, df_orders, epoch_wise_instrument_stats, current_snapshot, s
                     .get(instrument, {})
                     .get("close")
                 )
-                if close_price:
+                # Phase 2.1 fix: explicit None check. Pre-fix used
+                # `if close_price:` which also treated 0.0 as "missing" and
+                # silently retained the previous MTM price. A genuine zero
+                # close (dividend adjustment, delisting stub, corporate action
+                # artifact) is a valid MTM input — the position is worth zero.
+                # Treating it as "skip update" hides the wipeout.
+                if close_price is not None:
                     for pos in positions.values():
                         pos["last_close_price"] = close_price
 
@@ -426,5 +517,12 @@ def process(context, df_orders, epoch_wise_instrument_stats, current_snapshot, s
     current_snapshot["current_positions_count"] = current_positions_count
     current_snapshot["max_account_value"] = max_account_value
     current_snapshot["current_positions"] = current_positions
+    # Phase 2.2: surface every time avg_txn was missing under a
+    # percentage_of_instrument_avg_txn cap, so callers can detect silent
+    # skips (or silent no-cap fallbacks, depending on policy) after the fact.
+    if missing_avg_txn_log:
+        current_snapshot.setdefault("missing_avg_txn_events", []).extend(
+            missing_avg_txn_log
+        )
 
     return day_wise_log, config_order_ids, current_snapshot, day_wise_positions, trade_log

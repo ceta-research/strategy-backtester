@@ -247,6 +247,15 @@ def _compute_series_metrics_with_cagr(returns, ppy, risk_free_rate, cagr, total_
             "skewness": None, "kurtosis": None,
         }
 
+    # Per-period risk-free rate used as the MAR (minimum acceptable return)
+    # threshold in Sortino downside calculation. Invariant: `ppy` must equal
+    # the return-sampling frequency for this to be dimensionally correct.
+    # Callers on the EquityCurve path get ppy from `curve.frequency.periods_per_year`
+    # (365 for DAILY_CALENDAR, 252 for DAILY_TRADING). Legacy callers pass ppy
+    # directly and are responsible for matching their sampling rate.
+    # Known minor distortion: with DAILY_CALENDAR (forward-filled weekends),
+    # zero-return weekend days register as marginally-below-rf_period downside
+    # contributions. Impact is negligible (<1e-5 of downside_dev) but noted.
     rf_period = risk_free_rate / ppy
 
     # Drawdown + cumulative equity path (used only for MDD + duration)
@@ -295,6 +304,10 @@ def _compute_series_metrics_with_cagr(returns, ppy, risk_free_rate, cagr, total_
     sharpe = (cagr - risk_free_rate) / vol if (vol > 0 and cagr is not None) else None
 
     # Sortino ratio (downside deviation)
+    # Denominator uses (n - 1) to match `variance` above — both are sample
+    # estimators. Pre-fix this used `/ n` (population), making downside_dev
+    # smaller than it should be and inflating Sortino relative to Sharpe.
+    # See docs/AUDIT_FINDINGS.md, Phase 1.1.
     downside_sq = []
     for r in returns:
         diff = r - rf_period
@@ -302,7 +315,7 @@ def _compute_series_metrics_with_cagr(returns, ppy, risk_free_rate, cagr, total_
             downside_sq.append(diff ** 2)
         else:
             downside_sq.append(0.0)
-    downside_var = sum(downside_sq) / n if n > 0 else 0
+    downside_var = sum(downside_sq) / (n - 1) if n > 1 else 0
     downside_dev = math.sqrt(downside_var) * math.sqrt(ppy)
     sortino = (cagr - risk_free_rate) / downside_dev if (downside_dev > 0 and cagr is not None) else None
 

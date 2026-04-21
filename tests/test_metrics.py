@@ -118,6 +118,34 @@ class TestSeriesMetrics(unittest.TestCase):
         self.assertAlmostEqual(metrics["var_95"], -0.06, places=2)
 
 
+class TestSortinoDenominator(unittest.TestCase):
+    """Phase 1.1: downside variance must use (n-1) sample estimator to match variance."""
+
+    def test_sortino_uses_sample_downside_variance(self):
+        # Hand-compute expected downside_dev with (n-1).
+        # Returns: +3%, -4%, +2%, -1%, +5% (monthly, ppy=12)
+        # rf_period = 0.02 / 12 ≈ 0.001667
+        # downsides (r < rf_period): -4% (-0.04 - 0.001667)^2, -1% (-0.01 - 0.001667)^2
+        # wait: only diffs where r - rf_period < 0.
+        # r=0.03 → diff=0.028 → 0
+        # r=-0.04 → diff=-0.0417 → squared=0.001736
+        # r=0.02 → diff=0.0183 → 0
+        # r=-0.01 → diff=-0.0117 → squared=0.000136
+        # r=0.05 → diff=0.0483 → 0
+        # downside_var = (0.001736 + 0 + 0.000136 + 0 + 0) / (n-1=4) = 0.000468
+        # downside_dev_annualized = sqrt(0.000468) * sqrt(12) ≈ 0.0749
+        returns = [0.03, -0.04, 0.02, -0.01, 0.05]
+        metrics = _compute_series_metrics(returns, 12, 0.02)
+        # Sortino must be defined and reasonable (not divided-by-tiny).
+        self.assertIsNotNone(metrics["sortino_ratio"])
+        # Also: manually derive and compare.
+        rf_period = 0.02 / 12
+        sq = [(r - rf_period) ** 2 if r - rf_period < 0 else 0.0 for r in returns]
+        ddev = math.sqrt(sum(sq) / (len(returns) - 1)) * math.sqrt(12)
+        expected_sortino = (metrics["cagr"] - 0.02) / ddev
+        self.assertAlmostEqual(metrics["sortino_ratio"], expected_sortino, places=6)
+
+
 class TestEmptyMetrics(unittest.TestCase):
 
     def test_structure(self):

@@ -554,3 +554,139 @@ silently compare across different denominators unless they filter.
 `exit_reason == "end_of_sim"` (all positions exited naturally before
 `end_epoch`). The discontinuity is a real API-level concern but has not
 yet bitten a real result.
+
+---
+
+## Phase 1 + Phase 2 P1s — 2026-04-21
+
+Completed 10 P1 items spanning metrics, portfolio, and simulator
+correctness. Baseline before work: 285 passing. After: 293 passing
+(8 new regression tests).
+
+### Phase 1 — Metrics & Result
+
+**P1.1 — Sortino downside variance denominator** (`lib/metrics.py:310`)
+- Changed `downside_var = sum(downside_sq) / n` → `/ (n - 1)` to match
+  sample variance used by `variance` in the same function. Pre-fix was
+  a population denominator; inconsistent with the sample denominator on
+  the regular variance path. Post-fix Sortino is marginally smaller
+  (roughly by a factor of `sqrt((n-1)/n)` ≈ 0.9995 for n ≈ 1000), so
+  published values move by a negligible amount but are now internally
+  consistent.
+- Regression test: `TestSortinoDenominator.test_sortino_uses_sample_downside_variance`.
+
+**P1.2 — Sortino rf_period threshold** (`lib/metrics.py:250-260`)
+- Analysis-only. With the P0 EquityCurve fix, `ppy` is sourced from
+  `curve.frequency.periods_per_year` (365 for DAILY_CALENDAR, 252 for
+  DAILY_TRADING), so `rf_period = risk_free_rate / ppy` is now
+  dimensionally consistent with the return sampling rate. A docstring
+  now documents the invariant and the minor DAILY_CALENDAR distortion
+  (weekend forward-fill produces flat returns marginally below
+  rf_period; impact < 1e-5 of downside_dev).
+
+**P1.3 — Yearly MDD reset across year boundaries** (`lib/backtest_result.py:315-355`)
+- Pre-fix reset the peak at each calendar-year start, so a portfolio
+  that peaked at $1M in 2021 then rallied monotonically from $700K to
+  $900K throughout 2022 reported 2022 MDD = 0% — hiding that it was
+  still 10% below ATH the entire year.
+- Post-fix carries a running peak across year boundaries. Years spent
+  wholly under a prior-year peak now report meaningful drawdown.
+- Impact on historical `results/`: any multi-year result where a
+  subsequent year didn't set a new peak will now report a non-zero
+  `yearly_returns[year].mdd`. Not a bug that changed strategy rankings
+  (Calmar uses full-history MDD, unchanged), but the yearly MDD column
+  in dashboards will differ for those years.
+- Regression test: `TestYearlyMDDRunningPeak.test_mdd_reflects_carry_peak_from_prior_year`.
+
+**P1.4 — time_in_market saturated for multi-position strategies** (`lib/backtest_result.py:411-447`)
+- Pre-fix: `days_held = sum(t["hold_days"] for t in self.trades)` then
+  `min(days_held / total_days, 1.0)`. A 10-position portfolio easily
+  summed to 10× total_days, always saturating at 1.0 via the min().
+  The metric was meaningless for any non-trivial sweep.
+- Post-fix: interval-union — sort trade intervals, merge overlaps,
+  sum merged durations. Overlapping concurrent positions are counted
+  once; disjoint intervals sum.
+- Impact on historical `results/`: `time_in_market` will drop for
+  multi-position sweeps. Previously all reported 1.0; now reflects
+  actual concurrent-positions coverage. Pure single-position
+  strategies (e.g. index ETF buy-and-hold) see no change.
+- Regression tests: `TestTimeInMarketIntervalUnion` (two cases:
+  overlapping and disjoint).
+
+### Phase 2 — Simulator correctness
+
+**P2.1 — MTM falsy-check on close=0** (`engine/simulator.py:316`)
+- Pre-fix `if close_price:` treated 0.0 as "skip update", silently
+  preserving the stale `last_close_price`. A stock that actually
+  delisted or hit zero via corporate action would show no wipeout.
+- Post-fix `if close_price is not None` updates MTM to 0, correctly
+  reflecting the wipeout in the equity curve.
+- Regression test: `TestMTMZeroClose.test_zero_close_zeroes_position_mtm`.
+
+**P2.2 — Missing avg_txn under percentage_of_instrument_avg_txn cap**
+(`engine/simulator.py:94-106`)
+- Pre-fix silently placed the order without applying the cap when
+  avg_txn was missing for the (epoch, instrument). Orders could
+  massively exceed the user-declared liquidity cap.
+- Post-fix adds `context["missing_avg_txn_policy"]`. Default is
+  `"no_cap"` (preserves pre-fix behavior exactly — historical
+  results remain byte-identical) to avoid a silent behavior change
+  across every existing strategy config. Opt-in `"skip"` policy
+  refuses the order when liquidity is unknown, honoring the user's
+  intent strictly. Either policy logs to
+  `snapshot["missing_avg_txn_events"]` — the **silence** that was the
+  original bug is now broken regardless of policy.
+- Impact on historical `results/`: **none** under default. Strategies
+  that opt into `"skip"` will see fewer orders.
+- Regression tests: `TestMissingAvgTxnPolicy` (default no_cap + opt-in
+  skip).
+
+**P2.3 — Integer truncation of order_quantity** (`engine/simulator.py:108`)
+- Decision: keep `int(_order_value / entry_price)`. This matches real
+  equity delivery semantics (NSE/BSE and most international CNC
+  products do not support fractional shares). The ~1% cash drag for
+  high-priced stocks with small orders is a real live-trading cost,
+  correctly preserved in the backtest.
+- No code change; added explanatory comment.
+
+**P2.4 — Payout catch-up when resuming past multiple intervals**
+(`engine/simulator.py:287-310`)
+- Pre-fix ran exactly one payout per iteration and advanced
+  `next_payout_epoch` by a single interval. When resuming a chunked
+  simulation from a snapshot whose `next_payout_epoch` lay multiple
+  intervals in the past, all but one due payout was silently skipped.
+- Post-fix: `while simulation_date >= next_payout_epoch` — loops
+  forward, running each missed payout. Percentage-based payouts
+  re-read current_account_value inside the loop so each withdrawal
+  is taken from the post-previous-payout balance.
+- Impact: affects only chunked/resumed simulations. Non-resumed
+  simulations (single `process()` call from start to end) are
+  unchanged.
+- Regression test: `TestPayoutCatchUp.test_resume_past_three_fixed_payouts`.
+
+**P2.5 — Entries-first-vs-exits ordering** (`engine/simulator.py:273-298`)
+- Documentation only. Added block comment explaining the two
+  semantics: default `entries_first` matches ATO_Simulator and is
+  slightly conservative; `exit_before_entry=True` matches real-broker
+  same-day cash-recycling. Default preserved for historical result
+  comparability; callers opt-in per-strategy.
+
+**P2.6 — epoch_wise_instrument_stats memory profile**
+(`engine/pipeline.py:154`, `engine/utils.py:55-99`)
+- Measured: 2454 instruments × 5915 calendar days = 14.5M entries
+  consumes **4.15 GB** of Python dict memory (~307 bytes/entry).
+  Confirmed via tracemalloc on a synthetic structure of the same
+  shape. Not over-engineered; this is a real memory concern for
+  large-universe sweeps.
+- Not yet refactored. Proposed future fix: replace the nested-dict
+  layout with two 2D numpy arrays (`close[epoch_idx][inst_idx]`,
+  `avg_txn[epoch_idx][inst_idx]`) plus name-to-index dicts. Expected
+  ~18× memory reduction (4.15 GB → ~230 MB). Touches simulator,
+  ranking, and other consumers — structural refactor outside the
+  scope of this phase. Tracking as a separate task.
+
+### Regression suite
+
+After Phase 1 + Phase 2 work: **293 passing** (285 baseline + 8 new
+regression tests). No pre-existing tests broke. All fixes carry
+dedicated regression tests in `tests/test_review_findings.py`.

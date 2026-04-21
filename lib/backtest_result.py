@@ -313,21 +313,31 @@ class BacktestResult:
         return result
 
     def _yearly_returns(self):
-        """Year-by-year return, max drawdown, end value, trade count."""
+        """Year-by-year return, max drawdown, end value, trade count.
+
+        Phase 1.3 fix: MDD now carries a *running* peak across calendar-year
+        boundaries. Pre-fix the peak reset at each year-start, so a portfolio
+        that peaked at $1M in 2021 then rallied monotonically from $700K to
+        $900K in 2022 reported 2022 MDD = 0% — masking that it was still 10%
+        below all-time peak throughout the year. Now the 2022 row would show
+        MDD ≈ -30% early in the year and shrink as the portfolio recovers.
+        """
         if len(self.equity_curve) < 2:
             return []
         yearly = {}
         yearly_mdd = {}
+        running_peak = None  # Carried across years; never reset.
         for epoch, value in self.equity_curve:
             yr = datetime.fromtimestamp(epoch, tz=timezone.utc).year
             if yr not in yearly:
                 yearly[yr] = {"first": value, "last": value}
-                yearly_mdd[yr] = {"peak": value, "max_dd": 0.0}
+                yearly_mdd[yr] = {"max_dd": 0.0}
             yearly[yr]["last"] = value
-            # Proper peak-then-trough MDD: track running peak within year
-            if value > yearly_mdd[yr]["peak"]:
-                yearly_mdd[yr]["peak"] = value
-            dd = (yearly_mdd[yr]["peak"] - value) / yearly_mdd[yr]["peak"] if yearly_mdd[yr]["peak"] > 0 else 0
+            # Global running peak — survives year boundaries so that a year
+            # spent under a prior-year high still reports non-zero drawdown.
+            if running_peak is None or value > running_peak:
+                running_peak = value
+            dd = (running_peak - value) / running_peak if running_peak > 0 else 0
             if dd > yearly_mdd[yr]["max_dd"]:
                 yearly_mdd[yr]["max_dd"] = dd
 
@@ -409,15 +419,42 @@ class BacktestResult:
         }
 
     def _portfolio_metrics(self):
-        """Final value, peak value, time in market."""
+        """Final value, peak value, time in market.
+
+        Phase 1.4 fix: time_in_market is now the fraction of simulation-span
+        during which ≥1 position was open (interval-union), not the sum of
+        per-trade hold_days. Pre-fix, a 10-position portfolio easily summed
+        to 10× total_days and saturated at 1.0 via min(); the metric was
+        meaningless for any multi-position strategy. Now an overlap between
+        two concurrent positions is correctly counted once.
+        """
         values = [v for _, v in self.equity_curve]
         epochs = [e for e, _ in self.equity_curve]
         total_days = (epochs[-1] - epochs[0]) / 86400 if len(epochs) > 1 else 1
-        days_held = sum(t["hold_days"] for t in self.trades)
+
+        # Union of trade intervals by merging sorted (entry, exit) pairs.
+        intervals = sorted(
+            (t["entry_epoch"], t["exit_epoch"]) for t in self.trades
+            if t["exit_epoch"] > t["entry_epoch"]
+        )
+        merged_seconds = 0
+        cur_start = None
+        cur_end = None
+        for s, e in intervals:
+            if cur_end is None or s > cur_end:
+                if cur_end is not None:
+                    merged_seconds += cur_end - cur_start
+                cur_start, cur_end = s, e
+            else:
+                cur_end = max(cur_end, e)
+        if cur_end is not None:
+            merged_seconds += cur_end - cur_start
+        days_in_market = merged_seconds / 86400
+
         return {
             "final_value": round(values[-1], 2),
             "peak_value": round(max(values), 2),
-            "time_in_market": round(min(days_held / total_days, 1.0), 4) if total_days > 0 else 0,
+            "time_in_market": round(min(days_in_market / total_days, 1.0), 4) if total_days > 0 else 0,
         }
 
     def _time_extremes(self, daily_returns, monthly, yearly):

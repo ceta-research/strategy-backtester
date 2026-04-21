@@ -2,7 +2,7 @@
 
 **Created:** 2026-04-20
 **Last updated:** 2026-04-21
-**Status:** 17/17 P0 closed + 8/53 P1 incidentally closed across two commits (`e7db675`, `5e61a38`). Authoritative log of what shipped is in `docs/AUDIT_FINDINGS.md`. Remaining work: 45 P1 + 51 P2 + 32 P3 open, plus 4 strategies requiring full re-runs. See "P1 Execution Plan" at the bottom of this doc.
+**Status:** 17/17 P0 closed + 18/53 P1 closed (Phase 1 + Phase 2 of the P1 plan landed 2026-04-21). Authoritative log in `docs/AUDIT_FINDINGS.md`. Remaining work: 35 P1 + 51 P2 + 32 P3 open, plus 4 strategies requiring full re-runs.
 **Scope:** 24 core files (engine/ non-signals + lib/). Signals spot-checked only.
 
 Priority tags: **P0** = known bug, must fix. **P1** = high-impact, likely bug. **P2** = medium, needs investigation. **P3** = low, hygiene/edge case.
@@ -36,8 +36,8 @@ Fixing the metrics formula will invalidate all historical numbers. Everything in
 - [x] **P0** Line 124: `years = n / ppy` — **known CAGR bug**. With forward-fill, n = calendar days, but ppy=252 (trading days). Fix: use `years = (last_epoch - first_epoch) / (86400 * 365.25)` OR change ppy to 365 when forward-fill is on OR stop forward-filling equity curve entries. Decide which.
 - [x] **P0** Line 135: `vol = math.sqrt(variance) * math.sqrt(ppy)` — same ppy issue. Volatility annualization assumes trading-day returns. With calendar-day inputs + ppy=252, vol is understated by `sqrt(252/365)`.
 - [x] **P0** Line 138: `sharpe = (cagr - risk_free_rate) / vol` — compound effect of the ppy bug. Both numerator and denominator are wrong by different factors.
-- [ ] **P1** Line 148: `downside_var = sum(downside_sq) / n` — uses `/n` (population) while `variance` on line 134 uses `/(n-1)` (sample). Inconsistent. Sortino denominator is slightly too small.
-- [ ] **P1** Line 143: downside deviation compares `r - rf_period` where `rf_period = risk_free_rate / ppy`. If ppy is wrong, rf_period threshold is wrong.
+- [x] **P1** Line 148: `downside_var = sum(downside_sq) / n` — uses `/n` (population) while `variance` on line 134 uses `/(n-1)` (sample). Inconsistent. Sortino denominator is slightly too small. *— Phase 1.1: changed to `/(n-1)`. See AUDIT_FINDINGS.md.*
+- [x] **P1** Line 143: downside deviation compares `r - rf_period` where `rf_period = risk_free_rate / ppy`. If ppy is wrong, rf_period threshold is wrong. *— Phase 1.2: analysis-only. With the P0 EquityCurve fix, ppy tracks sampling frequency; rf_period is now consistent. Invariant documented in metrics.py.*
 - [ ] **P2** Line 113: `dd = (cumulative - peak) / peak if peak > 0 else 0` — if peak = 0 (total wipeout) returns 0 not -1. Plausible but check expected behavior.
 - [ ] **P2** Line 156-158: `var_index = max(0, int(math.ceil(n * 0.05)) - 1)` — 5th percentile index. Verify against numpy's `percentile` on a known array.
 - [ ] **P2** Line 203: `max_dd_duration_periods` returns `None` if 0. Strange API — should be 0 if no drawdown. Investigate callers.
@@ -52,7 +52,7 @@ Fixing the metrics formula will invalidate all historical numbers. Everything in
 - [ ] **P1** `_returns_from_values` (need to read): how are per-point returns computed? If equity_curve has duplicate values (weekends with no trading), returns are 0%, which deflates vol correctly ONLY if ppy matches.
 - [ ] **P1** `_trade_metrics` (need to read): win rate, profit factor, avg win/loss. Verify on a hand-computed trade set.
 - [ ] **P1** `_portfolio_metrics` (need to read): turnover, avg holding period, exposure. Check definitions.
-- [ ] **P1** Line 397-407: `_portfolio_metrics.time_in_market` broken for multi-position strategies. `days_held = sum(t["hold_days"] for t in self.trades)` aggregates across all concurrent positions — a 10-position portfolio easily exceeds calendar-days-total, so `min(days_held/total_days, 1.0)` saturates at 1.0. The metric is meaningless for any non-trivial strategy. Correct: count unique calendar days with ≥1 open position, OR average concurrent positions / max_positions.
+- [x] **P1** Line 397-407: `_portfolio_metrics.time_in_market` broken for multi-position strategies. `days_held = sum(t["hold_days"] for t in self.trades)` aggregates across all concurrent positions — a 10-position portfolio easily exceeds calendar-days-total, so `min(days_held/total_days, 1.0)` saturates at 1.0. The metric is meaningless for any non-trivial strategy. Correct: count unique calendar days with ≥1 open position, OR average concurrent positions / max_positions. *— Phase 1.4: implemented interval-union. See AUDIT_FINDINGS.md.*
 - [ ] **P1** `_monthly_returns` / `_yearly_returns`: how are months/years bucketed? Partial months at start/end handled?
 - [ ] **P2** `_time_extremes`: best/worst day/month/year. Straightforward but check for empty-series handling.
 - [ ] **P2** Line 186: `compact()` strips `equity_curve`, `trades`, etc. Confirm downstream consumers don't silently fail after compaction.
@@ -70,7 +70,7 @@ Fixing the metrics formula will invalidate all historical numbers. Everything in
 
 - [x] **P0** Line 136: signal generator is dispatched once, produces all orders up front. Verify no state leaks between config combinations in the outer loop.
 - [x] **P1** Line 186: `create_config_df_loc_lookup` — in `utils.py:32-44`, entry_config_id strips `_t` suffixes for tiered strategies. Confirm this doesn't accidentally collapse real config IDs. *— Addressed as Layer 2 (OrderKey). `_t`-strip preserved at the pipeline layer (intended — groups tiers under base config); per-tier uniqueness now enforced in simulator via `OrderKey`. See `engine/utils.py:35-44` comment.*
-- [ ] **P1** Line 155-170 (after revert): `epoch_wise_instrument_stats` built from ALL instruments and ALL epochs in `df_tick_data`. Memory scales as O(instruments × calendar_days). For 2454 × 5915 = 14.5M entries. Is this actually a memory issue or was it over-engineered?
+- [x] **P1** Line 155-170 (after revert): `epoch_wise_instrument_stats` built from ALL instruments and ALL epochs in `df_tick_data`. Memory scales as O(instruments × calendar_days). For 2454 × 5915 = 14.5M entries. Is this actually a memory issue or was it over-engineered? *— Phase 2.6: profiled and confirmed 4.15 GB at full scale (~307 bytes/entry). Real issue. Refactor to numpy 2D arrays tracked as future work; expected ~18× reduction.*
 - [ ] **P2** Line 145: `sanitize_orders(df_orders, max_return_mult=999.0)` — 999x return threshold effectively disables this filter. Original ATO may have had different behavior.
 - [ ] **P2** Line 64-69: extracts `exchange` from first scanner_cfg only. For multi-exchange sweeps, `SweepResult` tags with one exchange. Misleading but not a result bug.
 
@@ -79,17 +79,17 @@ Fixing the metrics formula will invalidate all historical numbers. Everything in
 - [x] **P0** Line 197-201: `end_epoch = df_orders["entry_epoch"].max()` when orders exist. So simulation stops at last entry date, not at `context["end_epoch"]`. This means positions opened late are not MTM'd to the full simulation end. Verify: if last entry is 2024-12-15, do 2024-12-16 onwards get simulated? Check against ATO.
 - [x] **P0** Line 197-201: conversely, `end_epoch = context["end_epoch"]` when NO orders. Inconsistent behavior.
 - [x] **P0** Line 197: `if simulation_date_epoch >= end_epoch: break` — strict `>=` means `end_epoch` itself is NOT simulated. Off-by-one?
-- [ ] **P1** Line 83-90: `max_order_value.percentage_of_instrument_avg_txn` uses `epoch_wise_instrument_stats[simulation_date_epoch]`. If instrument was dropped (e.g. top-200 cap on broken engine) OR if epoch missing from stats, silently uses no cap. Now engine is reverted, risk is smaller, but still: what if instrument has no tick data that day?
-- [ ] **P1** Line 92: `order_quantity = int(_order_value / entry_order["entry_price"])` — integer truncation. For a 100-rupee stock and 10k rupee order, that's 100 shares exactly. For a 999-rupee stock, int(10000/999) = 10 shares = 9990 rupees. ~1% cash-drag per trade. Acceptable or should use fractional-share simulation?
+- [x] **P1** Line 83-90: `max_order_value.percentage_of_instrument_avg_txn` uses `epoch_wise_instrument_stats[simulation_date_epoch]`. If instrument was dropped (e.g. top-200 cap on broken engine) OR if epoch missing from stats, silently uses no cap. Now engine is reverted, risk is smaller, but still: what if instrument has no tick data that day? *— Phase 2.2: added `missing_avg_txn_policy` (default "no_cap" preserves pre-fix behavior; opt-in "skip" refuses the order). Event recorded in `snapshot["missing_avg_txn_events"]` under either policy.*
+- [x] **P1** Line 92: `order_quantity = int(_order_value / entry_order["entry_price"])` — integer truncation. For a 100-rupee stock and 10k rupee order, that's 100 shares exactly. For a 999-rupee stock, int(10000/999) = 10 shares = 9990 rupees. ~1% cash-drag per trade. Acceptable or should use fractional-share simulation? *— Phase 2.3: decided to keep integer. Matches real CNC/delivery semantics. Added explanatory comment.*
 - [x] **P1** Line 103: `required_margin_for_entry = qty * price + charges + slippage` — slippage is applied on entry. Is exit slippage also applied? (Line 35 yes). Good. *— Verified during audit; both sides apply slippage.*
-- [ ] **P1** Line 275: MTM update — `if close_price:` falsy-check. If close is 0.00 (dividend adjustment), MTM isn't updated. Edge case.
+- [x] **P1** Line 275: MTM update — `if close_price:` falsy-check. If close is 0.00 (dividend adjustment), MTM isn't updated. Edge case. *— Phase 2.1: changed to `is not None`.*
 - [x] **P1** Line 180: `end_epoch = df_orders["entry_epoch"].max()` — what if df_orders has `exit_epoch` > `entry_epoch.max()`? Exits after last entry won't be processed because loop breaks at entry.max. *— Fixed as part of Layer 3 end_epoch refactor: `end_epoch` now always `context["end_epoch"]`; open positions force-close at `end_of_sim_policy="close_at_mtm"`.*
 
 Wait — that's a real concern. Verify by reading the loop carefully.
 
 - [x] **P0** Re-read the loop termination logic. If an order has entry=2024-12-01 and exit=2025-06-01 and `end_epoch = df_orders["entry_epoch"].max() = 2024-12-01`, the exit at 2025-06-01 is never processed. Position stays open forever in the MTM calc? Or simulator breaks at 2024-12-01 and never MTMs thereafter?
-- [ ] **P1** Line 231-262: entries-first-then-exits by default. `exit_before_entry=True` reverses. Document which matches ATO_Simulator and which matches real broker semantics.
-- [ ] **P1** Line 207-216: payout logic. If `next_payout_epoch` is before simulation_date_epoch at start (e.g. resuming from snapshot), payout runs immediately. Verify.
+- [x] **P1** Line 231-262: entries-first-then-exits by default. `exit_before_entry=True` reverses. Document which matches ATO_Simulator and which matches real broker semantics. *— Phase 2.5: documented semantics inline in simulator.py.*
+- [x] **P1** Line 207-216: payout logic. If `next_payout_epoch` is before simulation_date_epoch at start (e.g. resuming from snapshot), payout runs immediately. Verify. *— Phase 2.4: fixed catch-up loop; previously silently skipped missed payouts when resuming past multiple intervals.*
 - [ ] **P2** Line 219-229: `order_value` computation. Multiple types: fixed, pct of account value, pct of margin. Confirm each yields expected order sizing.
 - [ ] **P3** `copy.deepcopy(current_positions)` on every MTM day — expensive for large sweeps. Profile if sweep perf matters.
 
@@ -232,7 +232,7 @@ Scope: broader than the original checklist — covered all 28 signal generators,
 
 **lib/backtest_result.py**
 
-- [ ] **P1** Line 309-318: `_yearly_returns` resets the running peak at each calendar-year boundary. Example: portfolio enters 2022 at $700K after peaking at $1M in 2021, then rallies monotonically to $900K by year-end. Reported 2022 MDD = **0%**, masking that the portfolio is still ~10% below all-time peak. Fix: carry over running peak across years, OR rename the output column to "intra-year MDD" to match behavior.
+- [x] **P1** Line 309-318: `_yearly_returns` resets the running peak at each calendar-year boundary. Example: portfolio enters 2022 at $700K after peaking at $1M in 2021, then rallies monotonically to $900K by year-end. Reported 2022 MDD = **0%**, masking that the portfolio is still ~10% below all-time peak. Fix: carry over running peak across years, OR rename the output column to "intra-year MDD" to match behavior. *— Phase 1.3: carry running peak across years. See AUDIT_FINDINGS.md.*
 - [ ] **P2** Line 550-555: `SweepResult._sorted` substitutes `float("-inf")` for `None` metrics, burying configs with `calmar_ratio=None` (MDD=0 → divide by zero → None) at the bottom of the leaderboard. A genuinely zero-drawdown config is reported as the *worst*. Report `None`-metric configs as "N/A" in a separate section.
 - [ ] **P3** Line 127-128 + 244+: when `len(equity_curve) < 2`, `_empty_result()` produces dict with `"costs": {}`. `print_summary` then accesses `c["total_cost"]` → KeyError. Use `.get(..., 0)` or pre-populate.
 - [ ] **P3** Pipeline equity curve (`engine/pipeline.py:199-201`) feeds only `day_wise_log` entries, which start at the first MTM day, not at `start_epoch` with initial margin. `daily_returns` therefore miss the inception-to-day-1 period. Small but systematic.
@@ -420,24 +420,35 @@ The stacked priority across both passes:
 - Each batch ends with a green full-suite run (`pytest tests/`) before the next begins.
 - Batches 1-2 can proceed in parallel; 3-7 should land sequentially once the metrics/simulator foundation is correct.
 
-### Batch 1 — Metrics & result correctness (5 items)
+### Batch 1 — Metrics & result correctness — LANDED 2026-04-21 (4 of 5 items)
 
 Impact: fixes leaderboard numbers. Blast radius: pure metric code; no trade-generation change. Migrate any affected `results_v2/*.json` via `scripts/recompute_metrics.py` after shipping.
 
-- **Line 234** `_yearly_returns` resets peak at year boundary → intra-year MDD, not true MDD. Fix: carry peak across boundaries; document "yearly MDD" semantics explicitly. Add test with a synthetic 3-year curve that drops mid-year-2.
-- **Line 54** `time_in_market` saturates at 1.0 for any multi-position strategy. Replace `sum(hold_days)` with unique-calendar-days-with-≥1-open-position. Test with a 3-position fixture.
-- **Line 38 + 39** Sortino denominator uses `/n` while variance uses `/(n-1)`; `rf_period` threshold also depends on corrected `periods_per_year`. Fix together — reuse sample variance convention, re-derive against hand-computed fixture.
-- **Line 53** `_portfolio_metrics` turnover / avg holding period / exposure definitions never verified against a hand-computed trade set. Write `test_portfolio_metrics_fixtures.py` with 5 known trade sequences.
-- **Line 237 (Tier 1 additions)** Pipeline equity curve starts at first MTM day, missing the inception-to-day-1 period. Fix: prepend `(start_epoch, start_margin)` to the curve in `pipeline.py:199-201`.
+- [x] **Line 234** `_yearly_returns` resets peak at year boundary → intra-year MDD, not true MDD. *— Phase 1.3 landed.*
+- [x] **Line 54** `time_in_market` saturates at 1.0 for any multi-position strategy. *— Phase 1.4 landed (interval-union).* 
+- [x] **Line 38 + 39** Sortino denominator uses `/n` while variance uses `/(n-1)`; `rf_period` threshold also depends on corrected `periods_per_year`. *— Phase 1.1 + 1.2 landed.*
+- [ ] **Line 53** `_portfolio_metrics` turnover / avg holding period / exposure definitions never verified against a hand-computed trade set. Write `test_portfolio_metrics_fixtures.py` with 5 known trade sequences. *— Still open; rolls into Phase 3 follow-up.*
+- [ ] **Line 237 (Tier 1 additions)** Pipeline equity curve starts at first MTM day, missing the inception-to-day-1 period. Fix: prepend `(start_epoch, start_margin)` to the curve in `pipeline.py:199-201`. *— Still open; rolls into Phase 3 follow-up.*
 
-### Batch 2 — Simulator edge behavior (4 items)
+### Batch 2 — Simulator edge behavior — LANDED 2026-04-21 (all 4 items)
 
 Impact: correctness under edge conditions currently silently wrong. Local to `simulator.py`.
 
-- **Line 84** `if close_price:` falsy-check on 0.00 close skips MTM update on dividend-adjustment bars. Fix to `if close_price is not None:`. Add test with a zero-close fixture.
-- **Line 82** `order_quantity = int(...)` integer truncation → ~1% cash-drag per trade on high-priced stocks. Decision first (fractional shares vs document as known limitation), then implement. Escalate before choosing.
-- **Line 81** `max_order_value.percentage_of_instrument_avg_txn` silently disables cap if epoch missing from `epoch_wise_instrument_stats`. Fix: raise or log; default "no cap" is unsafe.
-- **Line 91** Payout logic: if `next_payout_epoch < simulation_date_epoch` on resume from snapshot, payout runs immediately. Test with a snapshot resume where payouts were skipped during the gap.
+- [x] **Line 84** `if close_price:` falsy-check on 0.00 close. *— Phase 2.1 landed (`is not None`).*
+- [x] **Line 82** `order_quantity = int(...)` integer truncation. *— Phase 2.3 landed (decision: keep, matches CNC semantics; commented).*
+- [x] **Line 81** `max_order_value.percentage_of_instrument_avg_txn` silent skip. *— Phase 2.2 landed (`missing_avg_txn_policy`; default `"no_cap"` preserves legacy, opt-in `"skip"` refuses order; events logged under either policy).*
+- [x] **Line 91** Payout logic on resume. *— Phase 2.4 landed (catch-up loop).*
+
+Also landed incidentally:
+- [x] Phase 2.5 — entries-first-vs-exits ordering documentation
+- [x] Phase 2.6 — `epoch_wise_instrument_stats` memory profile (4.15 GB at 2454×5915; refactor to 2D numpy arrays tracked as future work)
+
+### Batches 1-2 open follow-ups (2 items)
+
+Both items are documented above as P1 but remain open after the Phase 1+2 work. They don't block Phase 3 (they're isolated from ranking/charges/scanner concerns) but should be picked up before closing the full P1 set:
+
+1. **`_portfolio_metrics` verification** (checklist line 53) — write hand-computed fixture tests for turnover, avg holding period, exposure.
+2. **Pipeline equity curve inception point** (Tier 1 additions, checklist line 237) — prepend `(start_epoch, start_margin)` to the curve so `daily_returns[0]` captures day-1 return from the initial margin state.
 
 ### Batch 3 — Ranking verification (3 items)
 
