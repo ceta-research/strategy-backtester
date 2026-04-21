@@ -2,7 +2,7 @@
 
 **Source session:** 2026-04-21 (P1 audit execution + Phase 8A bias A/B)
 **Audit status:** 17/17 P0 + 50/50 P1 closed. Remaining work is strategy-level, not audit-level.
-**Test baseline:** 381 passing at session end (will be higher if concurrent P2 batch commits land).
+**Test baseline:** 443 passing after P2 sprint (2026-04-21).
 
 The items below are the **only critical follow-ups** surfaced by this audit.
 Everything else is either already fixed or deliberately deferred as P2/P3.
@@ -220,21 +220,20 @@ python tests/verification/run_strategy_backtester.py 2>&1 | \
 ## Suggested session-1 ordering (90 minutes)
 
 1. **~5min** — Read this doc end-to-end, confirm test baseline green
-2. **~2min** — Commit or ignore the 10 uncommitted P2-batch files (see session review; they're not audit work from this session)
-3. **~15min** — Run CR-provider A/B for `momentum_top_gainers` + `momentum_rebalance` champion configs. Get real deltas.
-4. **DECISION GATE** — based on all 3 strategies' deltas:
+2. **~15min** — Run CR-provider A/B for `momentum_top_gainers` + `momentum_rebalance` champion configs. Get real deltas.
+3. **DECISION GATE** — based on all 3 strategies' deltas:
    - All > 15pp → retire all three, spend compute on other strategies
    - 5-15pp → Path C cleanup + re-optimize winner(s)
    - < 5pp → Path B re-optimize on existing architecture
-5. **~15min** — Run Critical 3 "scanner-only" A/B to confirm Path C's architecture is viable
-6. **~60min** — Execute chosen path for at least ONE strategy end-to-end (retire with doc, or land architecture cleanup PR, or kick off R1 re-optimization)
+4. **~15min** — Run Critical 3 "scanner-only" A/B to confirm Path C's architecture is viable
+5. **~60min** — Execute chosen path for at least ONE strategy end-to-end (retire with doc, or land architecture cleanup PR, or kick off R1 re-optimization)
 
 ## Explicitly deferred (do not touch in next session unless you want to)
 
 - Flipping flag defaults from legacy to honest — wait until all 3
   strategies are resolved
 - Cross-exchange mass re-runs — on-demand only per publishing pipeline
-- Open P2 items (~49, listed in AUDIT_CHECKLIST with source line refs)
+- Open P2 items — 34 closed + 11 deferred in 2026-04-21 P2 sprint. Remaining work: Batch 7 perf hotspots (4 items) + cost-model-realism items (margin interest D3, dividend income D4). See `docs/AUDIT_FINDINGS.md` and `docs/P2_EXECUTION_PLAN.md`.
 - Open P3 items (~32, mostly hygiene)
 
 ## If you have < 30 minutes
