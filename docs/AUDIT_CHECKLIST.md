@@ -194,10 +194,10 @@ Separate from code audit: check the data itself.
 
 After executing this checklist:
 
-- [ ] `docs/AUDIT_FINDINGS.md` — one entry per bug found, with file:line, impact, and fix sketch
-- [ ] Updated `lib/metrics.py` and `lib/backtest_result.py` with CAGR fix
-- [ ] Test suite passing on the synthetic fixture
-- [ ] Decision doc on how to handle historical `results/*.json` (invalidate? recompute metrics from equity curves?)
+- [x] `docs/AUDIT_FINDINGS.md` — one entry per bug found, with file:line, impact, and fix sketch *— Landed in Layers 0-6 + P2 Batches 1-8.*
+- [x] Updated `lib/metrics.py` and `lib/backtest_result.py` with CAGR fix *— Layer 0+1 (EquityCurve + wall-clock CAGR).*
+- [x] Test suite passing on the synthetic fixture *— 443 passing as of P2 sprint.*
+- [x] Decision doc on how to handle historical `results/*.json` (invalidate? recompute metrics from equity curves?) *— `scripts/recompute_metrics.py` + 214 files migrated to `results_v2/`. See Layer 0+1 in AUDIT_FINDINGS.md.*
 - [ ] Updated `OPTIMIZATION_QUEUE.yaml` with all 6 completed strategies re-verified against the corrected metrics
 
 ---
