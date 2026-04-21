@@ -2,7 +2,7 @@
 
 **Created:** 2026-04-20
 **Last updated:** 2026-04-21
-**Status:** 17/17 P0 closed + 39/53 P1 closed (Phases 1-5 landed 2026-04-21). Authoritative log in `docs/AUDIT_FINDINGS.md`. Remaining work: 14 P1 + 49 P2 + 32 P3 open. Strategies requiring full re-runs: every cross-exchange LSE/HKSE/KSC result (Phase 3 revisit). Signal-strategy re-runs deferred for Phase 5 P1 follow-ups: momentum_top_gainers / momentum_dip_quality / momentum_rebalance (user decision on when to fix known biases).
+**Status:** 17/17 P0 closed + 38/50 P1 closed (Phases 1-6 landed 2026-04-21). Authoritative log in `docs/AUDIT_FINDINGS.md`. Remaining work: 12 P1 + 49 P2 + 32 P3 open. Strategies requiring full re-runs: every cross-exchange LSE/HKSE/KSC/XETRA/JPX/TSX/ASX result (Phase 3 revisit). Signal-strategy re-runs deferred for Phase 5 P1 follow-ups: momentum_top_gainers / momentum_dip_quality / momentum_rebalance (user decision on when to fix known biases).
 **Scope:** 24 core files (engine/ non-signals + lib/). Signals spot-checked only.
 
 Priority tags: **P0** = known bug, must fix. **P1** = high-impact, likely bug. **P2** = medium, needs investigation. **P3** = low, hygiene/edge case.
@@ -270,7 +270,7 @@ Scope: broader than the original checklist — covered all 28 signal generators,
 
 **engine/intraday_simulator_v2.py**
 
-- [ ] **P1** Line 362-365: `fixed_stop = entry_price - atr_multiplier * entry["atr_14"]` can go **negative** if `atr_14 * atr_multiplier > entry_price` (high-vol names or unit-scale error in ATR). `price_low <= fixed_stop` is then never true → stop never fires. Silent "no-stop" mode for volatile names. Fix: `fixed_stop = max(fixed_stop, 0.01 * entry_price)` or refuse the trade.
+- [x] **P1** Line 362-365: `fixed_stop = entry_price - atr_multiplier * entry["atr_14"]` can go **negative** if `atr_14 * atr_multiplier > entry_price` (high-vol names or unit-scale error in ATR). `price_low <= fixed_stop` is then never true → stop never fires. Silent "no-stop" mode for volatile names. Fix: `fixed_stop = max(fixed_stop, 0.01 * entry_price)` or refuse the trade. *— Phase 6.2: floored at 1% of entry_price in `_resolve_exit`.*
 - [ ] **P2** Line 417-422: with `use_hilo=False` (default), stop/target exits use `bar["close"]`, not the stop/target price itself. Example: stop=95, close drops to 92 → exit at 92 (3% extra slippage). Inconsistent with `use_hilo=True` which exits exactly at stop/target. Document — or pick one model.
 - [ ] **P2** Line 370: default `eod_buffer_bars = 30`. Assumes 1-minute bars (30-min buffer). For 5-minute bars this would be a 150-minute buffer, truncating most of the session. Config gotcha; document.
 
@@ -297,7 +297,7 @@ Scope: broader than the original checklist — covered all 28 signal generators,
 
 **lib/cloud_orchestrator.py**
 
-- [ ] **P1** Line 84, 224-233: `self._hash_cache_path = os.path.join(ROOT, ".remote_hashes.json")` — hash cache is per-working-tree, not per-project. If you switch `project_name` (e.g. `sb-remote` → `sb-eod-sweep-v2`), cached hashes from the *old* project claim files are synced, but the *new* project is empty. Subsequent sync skips uploads → run fails with ImportError on the cloud. Fix: scope the cache by `project_id` (separate file per project or a top-level dict keyed by project_id).
+- [x] **P1** Line 84, 224-233: `self._hash_cache_path = os.path.join(ROOT, ".remote_hashes.json")` — hash cache is per-working-tree, not per-project. If you switch `project_name` (e.g. `sb-remote` → `sb-eod-sweep-v2`), cached hashes from the *old* project claim files are synced, but the *new* project is empty. Subsequent sync skips uploads → run fails with ImportError on the cloud. Fix: scope the cache by `project_id` (separate file per project or a top-level dict keyed by project_id). *— Phase 6.3: nested layout `{project_name: {path: hash}}` with backward-compat migration of legacy flat files.*
 
 ### Tier 3 — Signal Generators (additions)
 

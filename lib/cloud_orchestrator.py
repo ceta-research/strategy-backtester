@@ -222,15 +222,55 @@ class CloudOrchestrator:
         return uploaded
 
     def _load_hash_cache(self):
+        """Load the hash cache scoped to this orchestrator's `project_name`.
+
+        Audit P6.3 (2026-04-21): the cache file is a dict-of-dicts:
+            { "<project_name>": { "<path>": "<sha256>", ... }, ... }
+        Pre-fix this was a flat {path: hash} dict, which meant switching
+        `project_name` (e.g. "sb-remote" -> "sb-eod-sweep-v2") had the
+        new project skip uploads claimed by the old cache → the cloud
+        project ended up empty and runs failed with ImportError.
+        Backward-compat: a flat file from before this change is
+        migrated to the new layout under the current project_name on
+        first write.
+        """
         try:
             with open(self._hash_cache_path) as f:
-                return json.load(f)
+                data = json.load(f)
         except (FileNotFoundError, json.JSONDecodeError):
             return {}
 
+        if not isinstance(data, dict):
+            return {}
+
+        # If the file has any values that are themselves dicts, assume
+        # new layout; return the entry for our project (or empty).
+        if any(isinstance(v, dict) for v in data.values()):
+            return dict(data.get(self.project_name, {}))
+
+        # Legacy flat layout: treat as belonging to our project so we
+        # don't re-upload everything on first run after upgrade.
+        return dict(data)
+
     def _save_hash_cache(self, hashes):
+        """Save this project's hashes without clobbering other projects."""
+        # Read the full file (may contain other projects' entries).
+        try:
+            with open(self._hash_cache_path) as f:
+                data = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            data = {}
+
+        if not isinstance(data, dict):
+            data = {}
+
+        # Detect legacy flat format; upgrade in place.
+        if data and not any(isinstance(v, dict) for v in data.values()):
+            data = {self.project_name: data}
+
+        data[self.project_name] = hashes
         with open(self._hash_cache_path, "w") as f:
-            json.dump(hashes, f)
+            json.dump(data, f)
 
     # ------------------------------------------------------------------ #
     # File upload with retry

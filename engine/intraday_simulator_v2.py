@@ -364,6 +364,16 @@ def _resolve_exit(entry: dict, config: dict) -> dict:
     else:
         fixed_stop = entry_price * (1 - config["stop_pct"])
 
+    # Audit P6.2 (2026-04-21): clamp negative / zero / near-zero stops.
+    # Before this guard, a high-volatility name where
+    # `atr_14 * atr_multiplier > entry_price` produced `fixed_stop < 0`,
+    # which `price_low <= fixed_stop` never satisfied → silent no-stop
+    # mode for exactly the positions that most needed a stop. Floor at
+    # 1% of entry_price so the stop is always a real, realistic level.
+    _min_stop = 0.01 * entry_price
+    if fixed_stop < _min_stop:
+        fixed_stop = _min_stop
+
     trailing_pct = config.get("trailing_stop_pct", 0)
     min_hold = config.get("min_hold_bars", 0)
     use_hilo = config.get("use_bar_hilo", False)

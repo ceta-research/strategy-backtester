@@ -253,16 +253,26 @@ affected by P0s #7-10 still need full simulation re-runs; the migrated
 metrics in `results_v2/` will be internally consistent but will reflect
 the pre-fix trade path.
 
-| Strategy | Re-run reason |
+| Strategy / scope | Re-run reason |
 |---|---|
 | `quality_dip_tiered` | P0 #7 — tier collisions silently dropped all but one tier per (instrument, entry_epoch, exit_epoch). |
 | `enhanced_breakout`  | P0 #10 — TSL never fired on red-close breakouts (missing `require_peak_recovery=False`). |
 | `eod_breakout`       | P0 #8 — `abs()` anomalous-drop forced losses on positive gaps. |
 | Any strategy exiting via `order_generator` path | P0 #9 — anomalous-drop branch missing `tracker.add()` produced duplicate exits with non-deterministic pricing. |
+| Any cross-exchange result on **LSE** | Phase 3 revisit (`ba95a05`) — pre-fix flat 0.05%/side; post-fix 0.5% SDRT stamp on BUY + 0.05% broker per side. ~10× cost increase. Returns drop materially. |
+| Any cross-exchange result on **HKSE** | Phase 3 revisit — historical-max 0.13% stamp both sides + SFC + AFRC + trading fee + CCASS + 0.15% broker. ~6× cost increase per side. |
+| Any cross-exchange result on **KSC** | Phase 3 revisit — 0.25% sec tax + 0.15% agricultural tax on SELL (historical max). ~9× sell-side cost. |
+| Any cross-exchange result on **XETRA / JPX / TSX / ASX** | Phase 3 revisit — per-exchange schedules replace flat 0.05%/side. 1.2-2× cost increases; moderate movement. |
 
-For the strategies NOT in the table (`momentum_top_gainers`,
-`momentum_cascade`, `momentum_dip_quality`, `earnings_dip`), the migrated
+For strategies NOT in the table (`momentum_top_gainers`, `momentum_cascade`,
+`momentum_dip_quality`, `earnings_dip` on NSE/US only), the migrated
 `results_v2/` numbers are authoritative.
+
+**Scope of the cross-exchange invalidation:** grep `results/` for any
+run whose config targets LSE/HKSE/XETRA/JPX/KSC/TSX/ASX. Those specific
+results need a simulation re-run, not just a metrics recompute, because
+`calculate_charges` affects trade-level P&L which compounds into the
+equity curve.
 
 ---
 
