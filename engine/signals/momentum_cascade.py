@@ -42,7 +42,7 @@ class MomentumCascadeSignalGenerator:
 
         # Build per-instrument data for signal computation + exit walk
         inst_data = {}
-        for inst_tuple, group in df_ind.group_by("instrument"):
+        for inst_tuple, group in df_ind.group_by("instrument", maintain_order=True):
             inst_name = inst_tuple[0]
             g = group.sort("date_epoch")
             inst_data[inst_name] = {

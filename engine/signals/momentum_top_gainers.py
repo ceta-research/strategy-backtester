@@ -113,7 +113,7 @@ class MomentumTopGainersSignalGenerator:
 
         period_avg = (
             df_ind
-            .group_by("instrument")
+            .group_by("instrument", maintain_order=True)
             .agg(
                 (pl.col("close") * pl.col("volume")).mean().alias("avg_turnover"),
                 pl.col("close").mean().alias("avg_close"),
@@ -192,7 +192,7 @@ class MomentumTopGainersSignalGenerator:
 
             # Build per-instrument exit data for walk-forward
             exit_data = {}
-            for inst_tuple, group in df_signals.group_by("instrument"):
+            for inst_tuple, group in df_signals.group_by("instrument", maintain_order=True):
                 inst_name = inst_tuple[0]
                 g = group.sort("date_epoch")
                 exit_data[inst_name] = {

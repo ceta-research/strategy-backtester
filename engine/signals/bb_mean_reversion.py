@@ -89,7 +89,7 @@ class BbMeanReversionSignalGenerator:
 
                 # Build per-instrument exit lookup
                 exit_data = {}
-                for inst_tuple, group in df_signals.group_by("instrument"):
+                for inst_tuple, group in df_signals.group_by("instrument", maintain_order=True):
                     inst_name = inst_tuple[0]
                     g = group.sort("date_epoch")
                     exit_data[inst_name] = {

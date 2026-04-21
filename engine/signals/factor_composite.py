@@ -202,7 +202,7 @@ def compute_momentum_scores(
     df_start = (
         df.filter(pl.col("date_epoch") <= start_epoch)
         .sort(["instrument", "date_epoch"])
-        .group_by("instrument")
+        .group_by("instrument", maintain_order=True)
         .last()
         .select(["instrument", pl.col("close").alias("close_start")])
     )
@@ -210,7 +210,7 @@ def compute_momentum_scores(
     df_end = (
         df.filter(pl.col("date_epoch") <= end_epoch)
         .sort(["instrument", "date_epoch"])
-        .group_by("instrument")
+        .group_by("instrument", maintain_order=True)
         .last()
         .select(["instrument", pl.col("close").alias("close_end")])
     )
@@ -253,7 +253,7 @@ def compute_fundamental_scores(
     # Most recent filing per instrument
     df = (
         df.sort(["instrument", "period_epoch"])
-        .group_by("instrument")
+        .group_by("instrument", maintain_order=True)
         .last()
     )
 
@@ -410,7 +410,7 @@ class FactorCompositeSignalGenerator:
         )
         df_mkt_avg = (
             df_mkt.filter(pl.col("daily_ret").is_not_null())
-            .group_by("date_epoch")
+            .group_by("date_epoch", maintain_order=True)
             .agg(pl.col("daily_ret").mean().alias("mkt_ret"))
             .sort("date_epoch")
         )
@@ -437,7 +437,7 @@ class FactorCompositeSignalGenerator:
 
             # Precompute per-instrument daily price series for stop-loss walk
             inst_daily = {}
-            for inst_tuple, group in df_tick_data.group_by("instrument"):
+            for inst_tuple, group in df_tick_data.group_by("instrument", maintain_order=True):
                 inst_name = inst_tuple[0]
                 g = group.sort("date_epoch")
                 inst_daily[inst_name] = {

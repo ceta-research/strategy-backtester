@@ -151,7 +151,7 @@ def screen_at_date(
     # Most recent filing per instrument
     df = (
         df.sort(["instrument", "period_epoch"])
-        .group_by("instrument")
+        .group_by("instrument", maintain_order=True)
         .agg(pl.all().last())
     )
 
@@ -224,7 +224,7 @@ class LowPeSignalGenerator:
 
         # Phase 4: Pre-build per-instrument price lookup
         inst_daily = {}
-        for inst_tuple, group in df_tick_data.group_by("instrument"):
+        for inst_tuple, group in df_tick_data.group_by("instrument", maintain_order=True):
             inst_name = inst_tuple[0]
             g = group.sort("date_epoch")
             inst_daily[inst_name] = {

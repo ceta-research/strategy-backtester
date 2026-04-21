@@ -80,7 +80,7 @@ class IndexBreakoutSignalGenerator:
                 trailing_stop_pct = exit_config["trailing_stop_pct"] / 100.0
                 max_hold_days = exit_config["max_hold_days"]
 
-                for inst_tuple, group in df_signals.group_by("instrument"):
+                for inst_tuple, group in df_signals.group_by("instrument", maintain_order=True):
                     inst_name = inst_tuple[0]
                     g = group.sort("date_epoch")
 

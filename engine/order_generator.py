@@ -41,7 +41,7 @@ class OrderGenerationUtil:
             .alias("direction_score")
         )
 
-        df_direction = df_tick_data.group_by("date_epoch").agg(
+        df_direction = df_tick_data.group_by("date_epoch", maintain_order=True).agg(
             pl.col("direction_score").mean()
         )
 
@@ -160,7 +160,7 @@ class OrderGenerationUtil:
             pl.col("instrument").is_in(list(self.order_config_mapping.keys()))
         )
 
-        for instrument_tuple, group in self.df_tick_data.group_by("instrument"):
+        for instrument_tuple, group in self.df_tick_data.group_by("instrument", maintain_order=True):
             instrument_name = instrument_tuple[0]
             instrument_tick_data_map[instrument_name] = group.sort("date_epoch")
 

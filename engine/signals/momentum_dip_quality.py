@@ -223,7 +223,7 @@ class MomentumDipQualitySignalGenerator:
 
             period_avg = (
                 df_ind  # Use full data range (incl. prefetch) to match standalone
-                .group_by("instrument")
+                .group_by("instrument", maintain_order=True)
                 .agg(
                     (pl.col("close") * pl.col("volume")).mean().alias("avg_turnover"),
                     pl.col("close").mean().alias("avg_close"),

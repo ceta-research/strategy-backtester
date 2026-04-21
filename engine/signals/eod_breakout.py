@@ -98,7 +98,7 @@ class EodBreakoutSignalGenerator:
             )
             # Aggregate per date_epoch: mean of above_ma across all instruments
             direction_scores = (
-                df_signals.group_by("date_epoch")
+                df_signals.group_by("date_epoch", maintain_order=True)
                 .agg(pl.col("above_ma").mean().alias("direction_score"))
             )
             df_signals = df_signals.join(direction_scores, on="date_epoch", how="left")
@@ -140,7 +140,7 @@ class EodBreakoutSignalGenerator:
 
             # Build per-instrument exit data for walk-forward
             exit_data = {}
-            for (inst_name,), group in df_signals.group_by("instrument"):
+            for (inst_name,), group in df_signals.group_by("instrument", maintain_order=True):
                 g = group.sort("date_epoch")
                 exit_data[inst_name] = {
                     "epochs": g["date_epoch"].to_list(),

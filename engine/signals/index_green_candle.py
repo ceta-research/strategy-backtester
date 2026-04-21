@@ -66,7 +66,7 @@ class IndexGreenCandleSignalGenerator:
                 stop_loss_pct = exit_config["stop_loss_pct"]
 
                 # Build per-instrument data for forward exit iteration
-                for inst_tuple, group in df_signals.group_by("instrument"):
+                for inst_tuple, group in df_signals.group_by("instrument", maintain_order=True):
                     inst_name = inst_tuple[0]
                     g = group.sort("date_epoch")
 

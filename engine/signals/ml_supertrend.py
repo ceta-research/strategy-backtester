@@ -88,7 +88,7 @@ def _compute_supertrend(df: pl.DataFrame, atr_period: int, multiplier: float) ->
     # SuperTrend requires sequential state (trend direction carries forward).
     # Must process per-instrument in Python for correctness.
     results = []
-    for (inst,), group in df.group_by("instrument"):
+    for (inst,), group in df.group_by("instrument", maintain_order=True):
         g = group.sort("date_epoch")
         closes = g["close"].to_list()
         raw_uppers = g["_raw_upper"].to_list()
@@ -424,7 +424,7 @@ class MLSupertrendSignalGenerator:
 
             # Build per-instrument exit data
             exit_data = {}
-            for inst_tuple, group in df_signals.group_by("instrument"):
+            for inst_tuple, group in df_signals.group_by("instrument", maintain_order=True):
                 inst_name = inst_tuple[0]
                 g = group.sort("date_epoch")
                 exit_data[inst_name] = {

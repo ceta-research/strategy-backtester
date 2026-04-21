@@ -348,7 +348,7 @@ def compute_direction_score(df_tick_data: pl.DataFrame, n_day_ma: int = 3) -> di
 
     # Aggregate: mean uptrend across all instruments per date
     direction_scores = (
-        df.group_by("date_epoch")
+        df.group_by("date_epoch", maintain_order=True)
         .agg(pl.col("uptrend").mean().alias("direction_score"))
         .sort("date_epoch")
     )

@@ -135,7 +135,7 @@ def quality_screen(
         return set()
 
     # Most recent FY per instrument
-    df = df.sort(["instrument", "period_epoch"]).group_by("instrument").last()
+    df = df.sort(["instrument", "period_epoch"]).group_by("instrument", maintain_order=True).last()
 
     # Apply quality filters
     df = df.filter(
@@ -176,7 +176,7 @@ def growth_rank(
     w_earn = growth_weights.get("earnings", 0.5)
 
     scores = {}
-    for inst_tuple, group in df.group_by("instrument"):
+    for inst_tuple, group in df.group_by("instrument", maintain_order=True):
         inst = inst_tuple[0]
         g = group.sort("fiscal_year")
         years = g["fiscal_year"].to_list()
@@ -293,7 +293,7 @@ class TrendingValueSignalGenerator:
 
         # Phase 3: Build per-instrument daily price series
         inst_daily = {}
-        for inst_tuple, group in df_tick_data.group_by("instrument"):
+        for inst_tuple, group in df_tick_data.group_by("instrument", maintain_order=True):
             inst_name = inst_tuple[0]
             g = group.sort("date_epoch")
             inst_daily[inst_name] = {

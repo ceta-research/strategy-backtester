@@ -129,7 +129,7 @@ def remove_price_oscillations(df: pl.DataFrame, price_col: str = "close",
         mild_rows = df_nb.filter(mild_mask).select([symbol_col, date_col])
 
         if mild_rows.height > 0:
-            sym_counts = mild_rows.group_by(symbol_col).agg(pl.len().alias("cnt"))
+            sym_counts = mild_rows.group_by(symbol_col, maintain_order=True).agg(pl.len().alias("cnt"))
             frequent_syms = sym_counts.filter(pl.col("cnt") >= min_mild_count).select(symbol_col)
             tier2_rows = mild_rows.join(frequent_syms, on=symbol_col, how="inner")
 

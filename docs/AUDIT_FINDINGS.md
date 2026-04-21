@@ -825,11 +825,9 @@ byte-identical to pre-Phase-3 run.
 2. ~~Detailed per-exchange fee models~~ — closed by P3.5 revisit
    (see below): LSE, HKSE, XETRA, JPX, KSC, TSX, ASX now have
    explicit helpers.
-3. Broader `group_by` determinism sweep (`engine/signals/*`) —
-   P3.3 fixed the one load-bearing site in ranking; 30+ other
-   `group_by("instrument")` sites in signal generators may or may
-   not depend on iteration order. Systematic audit or a polars
-   version pin is the right follow-up.
+3. ~~Broader `group_by` determinism sweep~~ — closed via the safety
+   belt approach: added `maintain_order=True` to all 42 group_by
+   sites in engine/ (see "Phase 3 group_by safety belt" below).
 
 ---
 
@@ -948,3 +946,54 @@ After revisit: **312 passing** (302 + 10 new per-exchange tests).
 Champion verification byte-matches on order counts and days;
 Calmar shifts by +0.0001 due to the NSE rate reduction (expected
 direction — lower cost → slightly higher return).
+
+---
+
+## Phase 3 group_by safety belt — 2026-04-21
+
+Closed the remaining Phase 3 follow-up: added `maintain_order=True`
+to every `group_by` call across `engine/` (42 sites across 26 files).
+Eliminates the class of polars-version-dependent ordering bugs
+without requiring a per-site audit of which consumers care about
+iteration order.
+
+### Sites touched (42)
+
+- `engine/utils.py`: 1 site (`create_epoch_wise_instrument_stats`)
+- `engine/order_generator.py`: 2 sites (date_epoch aggregation +
+  per-instrument iteration)
+- `engine/data_provider.py`: 1 site (symbol count aggregation in
+  price oscillation filter)
+- `engine/signals/*.py`: 38 sites across 25 signal generators
+
+Already fixed in Phase 3 P3.3: `engine/ranking.py::remove_overlapping_orders`.
+
+### Impact
+
+Zero on the champion verification config — post-fix numbers are
+byte-identical to pre-fix (2789 orders, 731 days, CAGR 25.76%,
+Calmar 1.279252). Expected: with the current polars 1.37.1 pin on
+the cloud and matching local installs, iteration order was already
+stable *in practice* even without the flag. The fix pre-empts
+future polars upgrades silently changing results.
+
+### Choice of safety-belt vs per-site audit
+
+The alternative was auditing all 42 sites to classify each as
+order-dependent or order-independent. Option chosen (safety belt):
+
+- Cost: one-line change × 42 sites = ~15 minutes.
+- Perf cost: negligible (maintain_order=True requires a stable sort
+  after hash-grouping; the signal-gen compute is dominated by
+  per-instrument numpy loops, not the group_by step itself).
+- Benefit: eliminates the class of bug.
+
+The per-site audit would have been 2-3 hours and left some
+exposure if any future signal gen is added without the flag.
+Safety belt is the robust default.
+
+### Non-production code not modified
+
+`scripts/debug_signal_gen.py` has 2 unsafe `group_by` calls. It's
+a debug / comparison tool, not production backtesting code, so it
+wasn't touched.

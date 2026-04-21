@@ -286,7 +286,7 @@ class ForcedSellingDipSignalGenerator:
             # Build sector daily return lookup
             sector_daily = {}  # epoch -> {sector -> mean_return}
             for epoch_row in (
-                df_sector.group_by(["date_epoch", "sector"])
+                df_sector.group_by(["date_epoch", "sector"], maintain_order=True)
                 .agg(pl.col("daily_return").mean().alias("mean_return"))
                 .to_dicts()
             ):
@@ -299,7 +299,7 @@ class ForcedSellingDipSignalGenerator:
 
             # Build per-instrument exit data
             exit_data = {}
-            for inst_tuple, group in df_signals.group_by("instrument"):
+            for inst_tuple, group in df_signals.group_by("instrument", maintain_order=True):
                 inst_name = inst_tuple[0]
                 g = group.sort("date_epoch")
                 exit_data[inst_name] = {

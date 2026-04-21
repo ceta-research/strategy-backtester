@@ -72,7 +72,7 @@ def create_epoch_wise_instrument_stats(df_tick_data: pl.DataFrame) -> dict:
     epoch_wise_data = {}
     one_day = 60 * 60 * 24
 
-    for instrument, group in df_tick_data.group_by("instrument"):
+    for instrument, group in df_tick_data.group_by("instrument", maintain_order=True):
         instrument_name = instrument[0]
         epochs = group["date_epoch"].to_list()
         closes = group["close"].to_list()

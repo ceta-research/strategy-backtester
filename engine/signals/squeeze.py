@@ -140,7 +140,7 @@ class SqueezeSignalGenerator:
                 mom_data = {}
                 for inst_tuple, group in df_signals.filter(
                     pl.col("date_epoch") >= start_epoch
-                ).group_by("instrument"):
+                ).group_by("instrument", maintain_order=True):
                     inst_name = inst_tuple[0]
                     g = group.sort("date_epoch")
                     mom_data[inst_name] = {
@@ -151,7 +151,7 @@ class SqueezeSignalGenerator:
 
                 # Also need raw epoch/close from full data for walking
                 exit_data = {}
-                for inst_tuple, group in df_ind.group_by("instrument"):
+                for inst_tuple, group in df_ind.group_by("instrument", maintain_order=True):
                     inst_name = inst_tuple[0]
                     g = group.sort("date_epoch")
                     exit_data[inst_name] = {
