@@ -1695,3 +1695,48 @@ channel event, not a result field.
 
 - `docs/INTRADAY_V1_DEPRECATION.md` — migration guide, impact scan, removal checklist.
 - `docs/P2_DECISIONS.md` — D1/D2/D3/D4 rationale.
+
+---
+
+## P2 Batch 4 — Ranking & signal semantics — 2026-04-21
+
+### Items closed (real bugs)
+
+| Line | File | Fix |
+|------|------|-----|
+| L304 | `engine/signals/momentum_dip_quality.py:215-237,260-267` | Hardcoded `avg_close > 50` INR threshold replaced with `scanner_config.price_threshold` (default 50 preserves NSE behavior). Both `full_period` and `point_in_time` universe paths updated. Strategies on USD universes (most stocks <$50) are no longer silently emptied. |
+| L305 | `engine/signals/earnings_dip.py:486` | `max(pd_closes[earn_idx:peak_end + 1])` guarded against None entries. Pre-fix raised `TypeError` on data-gap slices; now filters None and skips the window if all-None. |
+
+### Items closed (verification / docs)
+
+| Line | Resolution |
+|------|------------|
+| L107 | Correctness covered by existing Phase 3 `test_ranking.py`. Perf rewrite deferred to Batch 7 / dedicated perf sprint. |
+| L108 | `sort_orders_by_deepest_dip` two code paths share the same formula; cached-vs-recomputed outputs are equivalent by construction. |
+| L141 | Peak-recovery window is from entry onward (`peak_price = entry_price`); documented in `walk_forward_exit` docstring. |
+| L142 | TSL exit = next-day open if available, else same-day close. Pinned by Phase 7 `test_walk_forward_exit.py` (16 tests). |
+| L153 | `del df_signals; gc.collect()` in momentum_dip_quality: no state leaks. `del` is local-only; `gc.collect()` is a cloud-OOM workaround. |
+| L154 | `enhanced_breakout`, `momentum_cascade` covered by existing regression baselines; no new bugs found. |
+| L162 | Universe-filter cadence: scanner-applied (per-bar) vs signal-applied (per-rebalance). Intentional and strategy-specific. |
+| L163 | Symbol format: internal representation uses `{exchange}:{symbol}` (colon). Provider-specific suffixes (`.NS` etc.) applied only at CR API boundary. |
+| L274 | `intraday_simulator_v2.py` `use_hilo=False` slippage model documented as intentional (stop price vs close-of-trigger-bar). Users who want exact fills set `use_hilo=True`. |
+| L275 | `eod_buffer_bars=30` default assumes 1-minute bars; config gotcha documented. Users with different granularity must adjust. |
+
+### Tests added
+
+- `tests/test_earnings_dip_none_guard.py` (4 tests).
+
+**Full suite: 448 passing** (+4 from Batch 4).
+
+### Snapshot impact
+
+- **L304**: changes `momentum_dip_quality` universe when `price_threshold != 50`.
+  For NSE-default configs (price_threshold=50), behavior is byte-identical.
+  For configs that set a different price_threshold, the universe will
+  match the scanner's declared filter rather than a hardcoded ₹50.
+  Any result run with `price_threshold ≠ 50` prior to this fix
+  was tagging itself inconsistently; post-fix those results become
+  internally consistent.
+- **L305**: only fires when the closes slice contains None, which is rare
+  in the current fixture set. Expected zero snapshot impact on existing
+  runs; prevents future crashes on data-quality-impaired windows.

@@ -213,12 +213,21 @@ class MomentumDipQualitySignalGenerator:
             # scanner threshold.  This produces a FIXED set of instruments
             # (matches standalone's fetch_universe SQL approach).
             _turnover_threshold = 70_000_000  # default NSE threshold
+            # P2 L304: avg_close threshold was hardcoded ₹50 — INR-specific
+            # and breaks on USD universes where most stocks trade below $50.
+            # Now sourced from scanner_config.price_threshold (same key the
+            # scanner uses for per-bar filtering). Default 50 preserves
+            # historical NSE behavior for configs that don't set it.
+            _price_threshold = 50.0
             for scanner_cfg in get_scanner_config_iterator(context):
                 thresh_val = scanner_cfg.get("avg_day_transaction_threshold")
                 if isinstance(thresh_val, dict):
                     _turnover_threshold = thresh_val.get("threshold", _turnover_threshold)
                 elif isinstance(thresh_val, (int, float)):
                     _turnover_threshold = thresh_val
+                pt_val = scanner_cfg.get("price_threshold")
+                if isinstance(pt_val, (int, float)):
+                    _price_threshold = float(pt_val)
                 break
 
             # AUDIT P5.2 (2026-04-21): KNOWN LOOK-AHEAD / SURVIVORSHIP BIAS.
@@ -234,7 +243,7 @@ class MomentumDipQualitySignalGenerator:
                 )
                 .filter(
                     (pl.col("avg_turnover") > _turnover_threshold)
-                    & (pl.col("avg_close") > 50)
+                    & (pl.col("avg_close") > _price_threshold)
                 )
             )
             period_universe_set = set(period_avg["instrument"].to_list())
