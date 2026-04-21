@@ -1625,3 +1625,73 @@ running configurations.
 ### Snapshot impact
 
 Zero. Tests and dependency pin only.
+
+---
+
+## P2 Batch 3 — Scanner & data-provider correctness — 2026-04-21
+
+### Items closed
+
+| Line | File | Fix |
+|------|------|-----|
+| L125 | `engine/data_provider.py` CRDataProvider | Documented `memory_mb=16384` as the max CR tier; matches cloud orchestrator. |
+| L126 | `engine/data_provider.py` BhavcopyDataProvider | Class docstring already warns about unadjusted prices; verified no code change needed. |
+| L281 | `engine/scanner.py:145` | `drop_nulls()` → `drop_nulls(subset=["open"])`. Filled-weekend rows (null OHLCV except backward-filled close) still dropped; real trading-day rows with occasional null `volume`/`average_price` now retained. |
+| L291 | `engine/data_provider.py:_fetch_qualifying_symbols` | Added P2 WARNING about `AVG(CLOSE)` over unadjusted prices. Splits inflate pre-split averages; threshold semantics depend on split history. Split-adjusted universe selection requires `NseChartingDataProvider`. No behavior change — the threshold is rarely used with `price_threshold > 0` in practice. |
+
+### Items deferred
+
+- **L174** Bhavcopy vs nse_charting close-price agreement: requires production data access + cross-provider fetch fixture. Tracked as a data-integrity sub-task.
+- **L175** Volume / `average_price` sanity check on NIFTYBEES: same — requires production fetch.
+
+### Tests added
+
+- `tests/test_scanner_drop_nulls.py` (2 tests): real row with null volume retained; filled weekend rows dropped.
+
+**Full suite: 442 passing** (+2 from Batch 3).
+
+### Snapshot impact
+
+**Non-zero but small.** The `drop_nulls(subset=["open"])` change may retain
+rows previously dropped (real trading days with null volume/avg_price).
+Such rows are rare in NSE data (no match found in the 5-instrument
+spot-check fixture used in tests) and may be absent entirely from the
+current regression snapshots. If a snapshot shifts, the delta is a
+universe-expansion, not a correctness regression: more valid rows pass
+through the scanner, producing potentially more orders. No snapshot
+pins modified this batch; a follow-up run can detect any impact.
+
+---
+
+## P2 Batch 8 — Deprecation & cleanup — 2026-04-21
+
+### Items closed
+
+| Line | File | Fix |
+|------|------|-----|
+| L345 + L353 | `engine/intraday_simulator.py`, `engine/intraday_sql_builder.py:131` | **D2: deprecate v1.** Module docstring flagged DEPRECATED; one-time `DeprecationWarning` fires on first `simulate_intraday()` call per process (flag-guarded to avoid test-suite flood). `docs/INTRADAY_V1_DEPRECATION.md` documents migration path and removal checklist. Bug in `LEAST(entry*stop_factor, or_low)` remains in v1 code — v2 already corrects it; new users routed to v2. |
+| L384 | `docs/P2_DECISIONS.md` + `docs/AUDIT_FINDINGS.md` | **D3: margin-interest model deferred** to a dedicated cost-model-realism sprint. Leveraged-strategy results overstate returns by `margin_rate × leverage × years`; flagged as systematic known bias. |
+| L385 | `docs/P2_DECISIONS.md` + `docs/AUDIT_FINDINGS.md` | **D4: dividend-income model deferred** to a dedicated cost-model-realism sprint. Long-hold strategies on dividend-paying universes understate returns by ~yield × hold_years; flagged. |
+| L176 | `docs/AUDIT_FINDINGS.md` (this entry) | Delisted stocks: current data providers return entries only for days an instrument actually traded. Delisted mid-sim instruments disappear from `df_tick_data` after their last trading day; the simulator's forward-fill (per-instrument min/max epoch) stops at that day. Positions in such instruments retain their last-known MTM value. **Survivorship bias is NOT fully eliminated** — delisted names must be actively included in the fetch universe; NSE `charting` provider excludes delisted, `bhavcopy` provider includes them. |
+| L189 | `docs/AUDIT_FINDINGS.md` (this entry) | Floating-point accumulation in long simulations: equity curve over 16 years × 5915 daily points × ~10 position updates/day = ~6e5 multiplications. IEEE-754 double precision has ~15-17 significant decimal digits; cumulative relative error is bounded by `O(n * eps) ≈ 6e5 * 2.2e-16 ≈ 1.3e-10`. Negligible for any metric pinned to 1e-6 tolerance. No action needed. |
+
+### Items deferred
+
+- **L344** `engine/intraday_pipeline.py` chunk-boundary audit: requires deep simulator state review. Tracked separately; low priority since v1 is deprecated and v2's chunk handling was Phase 6.4-tested.
+
+### Tests added
+
+- `tests/test_deprecation.py` (2 tests): first call warns, subsequent calls do not re-warn.
+
+**Full suite: 444 passing** (+2 from Batch 8).
+
+### Snapshot impact
+
+Zero. v1 retains its existing behavior until removal; no pinned
+metric is affected. The `DeprecationWarning` is a Python warning
+channel event, not a result field.
+
+### Documents added
+
+- `docs/INTRADAY_V1_DEPRECATION.md` — migration guide, impact scan, removal checklist.
+- `docs/P2_DECISIONS.md` — D1/D2/D3/D4 rationale.

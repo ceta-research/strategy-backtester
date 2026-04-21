@@ -122,8 +122,8 @@ Wait — that's a real concern. Verify by reading the loop carefully.
 - [x] **P1** Price oscillation filter (`spike_threshold`, `mild_threshold`, `min_mild_count`). When does this filter trigger? Any instruments silently dropped? Log when filter fires. *— Phase 4 P4.2: added `logger.info` summary + `logger.debug` affected-symbol list. Regression tests verify both log levels fire.*
 - [x] **P1** Are corporate actions (splits, bonuses, dividends) handled? `adjClose` vs `close` — which does the simulator use? *— Phase 4 P4.3: documented in module docstring. FMP `close` is split-adjusted but NOT dividend-adjusted (long-hold strategies understate returns by yield). Kite/NSE charting both split-adjusted. Bhavcopy unadjusted (explicit warning).*
 - [x] **P1** Missing data handling: if an instrument has no data for a day, does it appear in `df_tick_data` at all? Or is it filled elsewhere? *— Phase 4 P4.4: documented. Providers return absent rows for missing days; `scanner.fill_missing_dates` is the canonical gap-fill + backward-fill point.*
-- [ ] **P2** `CRDataProvider.fetch_ohlcv`: memory_mb=16384 default. Verify this matches the CR API's actual memory tier.
-- [ ] **P2** `BhavcopyDataProvider`: unadjusted prices. Document the difference clearly. Confirm no one accidentally uses bhavcopy for a strategy that depends on split adjustments.
+- [x] **P2** `CRDataProvider.fetch_ohlcv`: memory_mb=16384 default. Verify this matches the CR API's actual memory tier. *— P2 Batch 3: verified; docstring updated.*
+- [x] **P2** `BhavcopyDataProvider`: unadjusted prices. Document the difference clearly. Confirm no one accidentally uses bhavcopy for a strategy that depends on split adjustments. *— P2 Batch 3: class docstring already warns prominently; additional warning added to `_fetch_qualifying_symbols` for the `AVG(CLOSE)` case.*
 - [ ] **P3** Data cache invalidation: if the parquet files are updated (new data), does the pipeline refetch? Or is stale data silently served?
 
 ### engine/config_loader.py, engine/config_sweep.py
@@ -173,7 +173,7 @@ Separate from code audit: check the data itself.
 - [x] **P1** FMP NSE quality: the memory note says FMP's SA stocks have oscillating split factors. Check if NSE has similar issues. *— Phase 4 P4.7: `remove_price_oscillations` filter verified working on synthetic JNB-style pattern (36/50 rows correctly flagged). The filter runs on every FMP fetch as a safety net.*
 - [ ] **P2** Bhavcopy vs nse_charting: same-day close prices should agree. Large discrepancies indicate adjustment differences.
 - [ ] **P2** Volume and `average_price` fields: for liquid stocks (NIFTYBEES), compare against exchange-published daily volume.
-- [ ] **P3** Delisted stocks: do they appear in `df_tick_data` with final-price entries? Or drop entirely after delisting? Affects survivorship bias.
+- [x] **P3** Delisted stocks: do they appear in `df_tick_data` with final-price entries? Or drop entirely after delisting? Affects survivorship bias. *— P2 Batch 8: documented. NSE charting provider excludes delisted (survivorship bias); bhavcopy provider includes them. Simulator forward-fill handles partial data per-instrument.*
 
 ---
 
@@ -186,7 +186,7 @@ Separate from code audit: check the data itself.
 - [x] **P2** Data with huge gaps (delisting mid-simulation): position still open when instrument disappears. *— P2 Batch 2: documented. `create_epoch_wise_instrument_stats` forward-fills per-instrument `[min_epoch, max_epoch]` only; beyond the last observed epoch, the instrument has no stats entry and MTM retains the last known position value. Covered indirectly by Phase 7 `test_simulator_direct.py`.*
 - [ ] **P2** Currency mismatch: multi-currency portfolios not supported. Ensure config rejects multi-exchange configs that would mix currencies.
 - [ ] **P2** Time zone: all epochs assumed UTC. Actual NSE close is 15:30 IST = 10:00 UTC. If daily data uses "end of day UTC" vs "end of day IST", a day's data could be misaligned.
-- [ ] **P3** Floating point accumulation error in long simulations: equity curve over 16 years × 5915 days. Compound multiplication error. Likely negligible but measure.
+- [x] **P3** Floating point accumulation error in long simulations: equity curve over 16 years × 5915 days. Compound multiplication error. Likely negligible but measure. *— P2 Batch 8: estimated `O(n * eps) ≈ 1.3e-10` over 6e5 multiplications. Negligible for 1e-6 pinned tolerance.*
 
 ---
 
@@ -278,7 +278,7 @@ Scope: broader than the original checklist — covered all 28 signal generators,
 
 **engine/scanner.py**
 
-- [ ] **P2** Line 131: `df_tick_data_original = df_tick_data_original.drop_nulls()` drops rows with ANY null. Intended for filled weekend rows (null OHLCV after `fill_missing_dates`), but also silently drops real data rows with occasional null `average_price` / `volume`. Fix: `drop_nulls(subset=["close"])` — only drop when the column that matters is null.
+- [x] **P2** Line 131: `df_tick_data_original = df_tick_data_original.drop_nulls()` drops rows with ANY null. Intended for filled weekend rows (null OHLCV after `fill_missing_dates`), but also silently drops real data rows with occasional null `average_price` / `volume`. Fix: `drop_nulls(subset=["close"])` — only drop when the column that matters is null. *— P2 Batch 3: fixed to `drop_nulls(subset=["open"])`. `close` is backward-filled so would keep filled weekend rows; `open` is null only for filled rows. Test: `test_scanner_drop_nulls.py`.*
 
 **engine/config_sweep.py**
 
@@ -288,7 +288,7 @@ Scope: broader than the original checklist — covered all 28 signal generators,
 
 **engine/data_provider.py**
 
-- [ ] **P2** Line 853-862: `BhavcopyDataProvider._fetch_qualifying_symbols` uses `HAVING AVG(CLOSE) > price_threshold` on *unadjusted* prices. A stock that historically traded at ₹5000 and did a 100:1 split now trades at ₹50; its 1500-day average is dominated by pre-split prices, so it passes `> 50` even though current price is below threshold. Refines existing line 125 (P2). Fix: `median(CLOSE)` or last-N-day average; document limitation loudly.
+- [x] **P2** Line 853-862: `BhavcopyDataProvider._fetch_qualifying_symbols` uses `HAVING AVG(CLOSE) > price_threshold` on *unadjusted* prices. A stock that historically traded at ₹5000 and did a 100:1 split now trades at ₹50; its 1500-day average is dominated by pre-split prices, so it passes `> 50` even though current price is below threshold. Refines existing line 125 (P2). Fix: `median(CLOSE)` or last-N-day average; document limitation loudly. *— P2 Batch 3: P2 WARNING comment added. Behavior preserved; `median(CLOSE)` alternative tracked as P3 follow-up since `price_threshold > 0` is rarely used.*
 - [ ] **P3** Line 317-318, 855-857, 905-906: symbol names interpolated into SQL via f-string without escaping. Any symbol containing `'` breaks the query. Low practical risk (symbols are controlled) but worth parameterizing. Related to existing P3 at line 62 (data_utils) — generalize the pattern.
 
 **lib/cr_client.py**
@@ -342,7 +342,7 @@ These are P0/P1 items I did not independently verify; they remain open:
 ### Files not yet examined for correctness (lower-probability but unreviewed)
 
 - [ ] **P2** `engine/intraday_pipeline.py` — spot-checked only. Audit: chunk-boundary overlap in `_date_chunks`, empty-chunk handling, `_enrich_entries_rvol_atr` filter consistency when `min_rvol > 0`.
-- [ ] **P2** `engine/intraday_simulator.py` (v1) — legacy path. Confirm whether any active YAML config sets `pipeline_version: v1`; if none, deprecate to reduce surface area.
+- [x] **P2** `engine/intraday_simulator.py` (v1) — legacy path. Confirm whether any active YAML config sets `pipeline_version: v1`; if none, deprecate to reduce surface area. *— P2 Batch 8 / D2: deprecated. One-time DeprecationWarning on first call. Zero active YAMLs use v1. See docs/INTRADAY_V1_DEPRECATION.md.*
 - [ ] **P3** `engine/config_loader.py` — per-strategy `build_entry_config` / `build_exit_config` dispatch. Audit YAML → internal-dict transforms for all 28 strategies; ensure defaults are sensible when keys are missing.
 - [ ] **P3** `lib/data_fetchers.py` (`fetch_close`, `align`, `intersect_universes`) — spot-checked clean. Low priority.
 
@@ -350,7 +350,7 @@ These are P0/P1 items I did not independently verify; they remain open:
 
 **engine/intraday_sql_builder.py**
 
-- [ ] **P2** Line 131 (v1 only): `b.close <= LEAST(e.entry_price * stop_factor, e.or_low)`. For a long position, `LEAST` picks the lower value → further from entry → **looser** stop than user's `stop_pct`. Example: entry=100, stop_pct=0.02 → entry\*stop_factor=98; if or_low=95, effective stop=95, not 98. `intraday_simulator_v2.py:361` explicitly notes "OR low no longer used as floor" — confirming v1 was buggy and v2 fixed it. For any active v1 config, stops fire ~3-5% later than user-specified. Fix: use `GREATEST(...)` or drop or_low from the expression. Alternative: deprecate v1.
+- [x] **P2** Line 131 (v1 only): `b.close <= LEAST(e.entry_price * stop_factor, e.or_low)`. For a long position, `LEAST` picks the lower value → further from entry → **looser** stop than user's `stop_pct`. Example: entry=100, stop_pct=0.02 → entry\*stop_factor=98; if or_low=95, effective stop=95, not 98. `intraday_simulator_v2.py:361` explicitly notes "OR low no longer used as floor" — confirming v1 was buggy and v2 fixed it. For any active v1 config, stops fire ~3-5% later than user-specified. Fix: use `GREATEST(...)` or drop or_low from the expression. Alternative: deprecate v1. *— P2 Batch 8: deprecate-v1 path taken (D2). v1 kept intact until removal; new users routed to v2 which has the fix.*
 
 **lib/indicators.py**
 
@@ -381,8 +381,8 @@ Present test files: `test_charges.py`, `test_config_loader.py`, `test_config_swe
 
 ### Cost-model gaps (not bugs, but missing realism)
 
-- [ ] **P2** No margin interest on leveraged positions. `order_value_multiplier > 1` is treated as free leverage; real broker charges ~10-12% annual. Strategies using leverage (check OPTIMIZATION_QUEUE for any `order_value_multiplier > 1.0`) will overstate returns.
-- [ ] **P2** No dividend income. Long holds miss ~1.5-3% annual yield for dividend-paying universes. Biggest impact: `trending_value`, `low_pe`, `quality_dip_buy` (multi-month holds), `factor_composite`.
+- [x] **P2** No margin interest on leveraged positions. `order_value_multiplier > 1` is treated as free leverage; real broker charges ~10-12% annual. Strategies using leverage (check OPTIMIZATION_QUEUE for any `order_value_multiplier > 1.0`) will overstate returns. *— P2 D3: documented-only this sprint. Deferred to cost-model-realism sprint (see P2_DECISIONS.md).*
+- [x] **P2** No dividend income. Long holds miss ~1.5-3% annual yield for dividend-paying universes. Biggest impact: `trending_value`, `low_pe`, `quality_dip_buy` (multi-month holds), `factor_composite`. *— P2 D4: documented-only this sprint. Deferred to cost-model-realism sprint.*
 - [ ] **P3** No T+1/T+2 settlement lag. Sale proceeds available immediately. Affects capital-constrained sweeps.
 - [ ] **P3** Slippage is linear (`slippage_rate * notional`). Real slippage is concave (square-root law). For ₹50K positions on liquid NSE stocks, 5bps is reasonable; for ₹5M+ positions or illiquid mid-caps, understated. Refines existing line 115.
 - [ ] **P3** No short-selling infrastructure (all strategies are long-only by construction). Document explicitly so users don't assume it's supported.

@@ -1,14 +1,31 @@
-"""Intraday portfolio simulator.
+"""Intraday portfolio simulator (v1 — DEPRECATED).
 
 All positions open and close within the same trading day.
 Produces day_wise_log and trade_log matching the artifact structure
 of ATO_Simulator / EOD pipeline for consistent analysis.
+
+DEPRECATED — P2 D2 (2026-04-21): v2 (`engine.intraday_simulator_v2`)
+supersedes this module. v1 has a known stop-loss bug in
+`engine/intraday_sql_builder.py:131` where `LEAST(entry*stop_factor,
+or_low)` produces a looser stop than user-specified by 3-5%. v2
+corrected this by dropping `or_low` from the stop floor.
+
+Removal target: next minor release. Migrate callers by setting
+`pipeline_version: v2` in strategy YAML. See
+`docs/INTRADAY_V1_DEPRECATION.md` for details.
 """
 
+import warnings
 from collections import defaultdict
 from datetime import datetime, timezone
 
 from engine.charges import nse_intraday_charges, us_intraday_charges
+
+# Module-level flag: fire the deprecation warning once per process on the
+# first call to simulate_intraday(). Import-time warn is too aggressive
+# (triggers on every `from engine.intraday_simulator import ...` even in
+# tests that want to exercise v1 specifically).
+_DEPRECATION_WARNED = False
 
 
 def _get_charges_fn(exchange: str):
@@ -31,6 +48,18 @@ def simulate_intraday(trades: list, config: dict) -> dict:
         dict with: daily_returns, bench_returns, day_wise_log, trade_count,
                    win_count, trade_log
     """
+    global _DEPRECATION_WARNED
+    if not _DEPRECATION_WARNED:
+        warnings.warn(
+            "engine.intraday_simulator (v1) is deprecated; migrate to "
+            "engine.intraday_simulator_v2 (set pipeline_version: v2 in "
+            "strategy YAML). v1 has a known stop-loss bug "
+            "(intraday_sql_builder.py:131 LEAST vs GREATEST) that v2 "
+            "fixes. See docs/INTRADAY_V1_DEPRECATION.md.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        _DEPRECATION_WARNED = True
     initial_capital = config["initial_capital"]
     max_positions = config["max_positions"]
     order_value = config["order_value"]

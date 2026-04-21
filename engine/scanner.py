@@ -142,7 +142,15 @@ def process(context: dict, df_tick_data_original: pl.DataFrame) -> pl.DataFrame:
     # Remove prefetch data - keep only data within simulation range
     start_epoch = context.get("start_epoch", context["static_config"]["start_epoch"])
     df_tick_data_original = df_tick_data_original.filter(pl.col("date_epoch") >= start_epoch)
-    df_tick_data_original = df_tick_data_original.drop_nulls()
+    # P2 L281: drop rows injected by `fill_missing_dates` (weekend/holiday
+    # forward-fill rows). Those filled rows have null open/high/low/volume
+    # but a non-null (backward-filled) `close`, so `drop_nulls(subset=["close"])`
+    # would keep them. `drop_nulls(subset=["open"])` targets only the filled
+    # rows while preserving real data rows that happen to have null `volume`
+    # or `average_price` (a known quirk of corporate-action days and some
+    # bhavcopy entries). Pre-fix, bare `drop_nulls()` silently dropped any
+    # real row with a single null column, shrinking the universe.
+    df_tick_data_original = df_tick_data_original.drop_nulls(subset=["open"])
 
     df_tick_data_original = df_tick_data_original.with_columns(
         (pl.col("instrument").cast(pl.Utf8) + pl.lit(":") + pl.col("date_epoch").cast(pl.Utf8)).alias("uid")
