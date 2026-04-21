@@ -29,7 +29,8 @@ import json
 import os
 from datetime import datetime, timezone
 
-from lib.metrics import compute_metrics
+from lib.metrics import compute_metrics_from_curve
+from lib.equity_curve import EquityCurve, Frequency
 
 
 class BacktestResult:
@@ -46,7 +47,14 @@ class BacktestResult:
     """
 
     def __init__(self, strategy_name, params, instrument, exchange,
-                 capital, slippage_bps=5, description="", risk_free_rate=0.02):
+                 capital, slippage_bps=5, description="", risk_free_rate=0.02,
+                 equity_curve_frequency=Frequency.DAILY_CALENDAR):
+        """
+        equity_curve_frequency: sampling rate of add_equity_point() calls.
+            Default DAILY_CALENDAR matches the engine's forward-filled output.
+            Use DAILY_TRADING for strategies that only emit points on trading
+            days (e.g. intraday pipelines, standalone index scripts).
+        """
         self.strategy = {
             "name": strategy_name,
             "description": description,
@@ -58,6 +66,7 @@ class BacktestResult:
             "risk_free_rate": risk_free_rate,
         }
         self._risk_free_rate = risk_free_rate
+        self._frequency = equity_curve_frequency
         self.equity_curve = []       # [(epoch, value)]
         self.trades = []             # [trade_dict]
         self.benchmark_values = []   # [(epoch, value)]
@@ -127,18 +136,22 @@ class BacktestResult:
             self._computed = self._empty_result()
             return self
 
-        # Daily returns
-        daily_returns = _returns_from_values([v for _, v in self.equity_curve])
+        # Build typed EquityCurve for metrics. CAGR is now wall-clock based
+        # and independent of sampling frequency; vol annualization uses the
+        # frequency-declared periods_per_year. See lib/equity_curve.py.
+        port_curve = EquityCurve.from_pairs(self.equity_curve, self._frequency)
 
-        # Benchmark returns
         if len(self.benchmark_values) == len(self.equity_curve):
-            bench_returns = _returns_from_values([v for _, v in self.benchmark_values])
+            bench_curve = EquityCurve.from_pairs(self.benchmark_values, self._frequency)
         else:
-            bench_returns = [0.0] * len(daily_returns)
+            bench_curve = None
 
-        # Core metrics via lib/metrics.py
-        core = compute_metrics(daily_returns, bench_returns, periods_per_year=252,
-                               risk_free_rate=self._risk_free_rate)
+        # Daily returns retained for time-series outputs (best/worst day etc.)
+        daily_returns = port_curve.period_returns()
+
+        # Core metrics via lib/metrics.py (EquityCurve path)
+        core = compute_metrics_from_curve(port_curve, bench_curve,
+                                          risk_free_rate=self._risk_free_rate)
 
         # Time-series breakdowns (cached for reuse)
         monthly = self._monthly_returns()
@@ -151,9 +164,10 @@ class BacktestResult:
         summary.update(self._time_extremes(daily_returns, monthly, yearly))
 
         self._computed = {
-            "version": "1.0",
+            "version": "1.1",  # v1.1: adds equity_curve_frequency for migration safety
             "type": "single",
             "strategy": self.strategy,
+            "equity_curve_frequency": self._frequency.name,
             "summary": summary,
             "benchmark": core["benchmark"],
             "comparison": core["comparison"],
@@ -694,17 +708,6 @@ def _trim_catalog():
 
 def _epoch_to_date(epoch):
     return datetime.fromtimestamp(int(epoch), tz=timezone.utc).strftime("%Y-%m-%d")
-
-
-def _returns_from_values(values):
-    """Compute period returns from a value series."""
-    returns = []
-    for i in range(1, len(values)):
-        if values[i - 1] > 0:
-            returns.append(values[i] / values[i - 1] - 1)
-        else:
-            returns.append(0.0)
-    return returns
 
 
 def _print_metric(label, value, pct=False, fmt=".2f"):

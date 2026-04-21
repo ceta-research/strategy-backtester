@@ -150,10 +150,73 @@ def test_us_taf_cap():
     shares = 10_000_000 / 50.0
     uncapped_taf = shares * 0.000166
     assert uncapped_taf > 8.30  # confirm cap would apply
-    # Total should include SEC + capped TAF
+    # Total should include SEC + capped TAF; 2dp precision matches module convention
     expected_sec = 10_000_000 * 0.0000278
-    expected = round(expected_sec + 8.30, 4)
+    expected = round(expected_sec + 8.30, 2)
     assert charges == expected, f"Expected {expected}, got {charges}"
+
+
+# --- P0 regression: non-IN/US exchanges must be per-side, not round-trip ---
+
+def test_non_in_us_exchange_is_per_side():
+    """Audit P0 #11: Pre-fix, non-IN/US exchanges returned order_value * 0.001
+    with a comment claiming '0.1% round-trip estimate', but simulator.py calls
+    calculate_charges() once per leg, so actual round-trip was 0.2%. Fix:
+    per-leg rate is OTHER_EXCHANGE_PER_SIDE_RATE = 0.0005 (0.05% per leg =
+    0.1% round-trip, matching the original stated intent).
+    """
+    from engine.charges import OTHER_EXCHANGE_PER_SIDE_RATE, calculate_round_trip
+    # 0.05% per leg, not 0.1%
+    assert OTHER_EXCHANGE_PER_SIDE_RATE == 0.0005
+    # LSE buy leg only
+    buy = calculate_charges("LSE", 100_000, "EQUITY", "DELIVERY", "BUY_SIDE")
+    sell = calculate_charges("LSE", 100_000, "EQUITY", "DELIVERY", "SELL_SIDE")
+    # Each leg: 0.05% of 100k = 50
+    assert buy == 50.0, f"LSE buy leg should be 50, got {buy}"
+    assert sell == 50.0, f"LSE sell leg should be 50, got {sell}"
+    # Round-trip: 100 total (0.1% of notional)
+    rt = calculate_round_trip("LSE", 100_000, "EQUITY", "DELIVERY")
+    assert rt == 100.0, f"LSE round-trip should be 100 (0.1%), got {rt}"
+
+
+def test_every_exchange_has_per_side_semantics():
+    """For any exchange, round-trip must equal buy + sell. This is the
+    invariant that went wrong before the fix."""
+    from engine.charges import calculate_round_trip
+    for exchange in ("NSE", "LSE", "HKSE", "JPX", "NASDAQ"):
+        for trade_type in ("DELIVERY", "INTRADAY"):
+            buy = calculate_charges(exchange, 100_000, "EQUITY", trade_type, "BUY_SIDE")
+            sell = calculate_charges(exchange, 100_000, "EQUITY", trade_type, "SELL_SIDE")
+            rt = calculate_round_trip(exchange, 100_000, "EQUITY", trade_type)
+            assert abs(rt - (buy + sell)) < 0.01, (
+                f"{exchange}/{trade_type}: round_trip={rt}, buy+sell={buy+sell}"
+            )
+
+
+def test_nse_intraday_per_side_matches_helper_round_trip():
+    """P1 regression: pre-fix, `_india_per_side` used the delivery stamp
+    duty rate (0.015%) for intraday too. Post-fix, intraday uses 0.003%,
+    matching the existing `nse_intraday_charges` helper that models Zerodha
+    MIS. This test locks in agreement: calculate_round_trip(..., INTRADAY)
+    must equal nse_intraday_charges up to the rounding difference per leg.
+    """
+    from engine.charges import calculate_round_trip
+    for ov in (10_000, 50_000, 100_000, 500_000):
+        per_side_rt = calculate_round_trip("NSE", ov, "EQUITY", "INTRADAY")
+        helper_rt = nse_intraday_charges(ov)
+        # Within 2 rupees to absorb per-leg rounding; was >>50 rupees pre-fix
+        assert abs(per_side_rt - helper_rt) < 2.0, (
+            f"ov={ov}: per_side_rt={per_side_rt}, helper_rt={helper_rt}, "
+            f"diff={per_side_rt - helper_rt} (pre-fix this was ~0.012% of ov)"
+        )
+
+
+def test_nse_sell_side_stt_present():
+    """NSE delivery: STT is on BOTH sides. Make the math explicit."""
+    sell = calculate_charges("NSE", 100_000, "EQUITY", "DELIVERY", "SELL_SIDE")
+    # STT 0.1% = 100, plus brokerage 20, exchange 3.45, sebi 0.1, gst ~4.22
+    # No stamp duty sell side.
+    assert 120 < sell < 135, f"Expected NSE delivery sell ~127, got {sell}"
 
 
 if __name__ == "__main__":

@@ -25,6 +25,7 @@ from engine.intraday_simulator import simulate_intraday, _date_to_epoch
 from engine.intraday_simulator_v2 import simulate_intraday_v2
 from lib.backtest_result import BacktestResult, SweepResult
 from lib.cr_client import CetaResearch
+from lib.equity_curve import Frequency
 
 
 # Map strategy_name -> SQL builder function
@@ -197,9 +198,12 @@ def _run_pipeline(config_path, raw, sql_builders, sql_keys, sim_keys,
             config_id = _make_config_id(sql_cfg, sim_cfg)
             params = {**sql_cfg, **sim_cfg}
 
-            # Build BacktestResult
+            # Build BacktestResult. Intraday simulator emits one equity point per
+            # TRADING day (no forward-fill), so frequency must be DAILY_TRADING —
+            # the default DAILY_CALENDAR would overstate vol by sqrt(365/252).
             br = BacktestResult(strategy_name, params, "PORTFOLIO", exchange,
-                                initial_capital, risk_free_rate=risk_free_rate)
+                                initial_capital, risk_free_rate=risk_free_rate,
+                                equity_curve_frequency=Frequency.DAILY_TRADING)
 
             # Feed equity points
             for day in sim_result["day_wise_log"]:

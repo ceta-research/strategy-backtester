@@ -20,6 +20,122 @@ See METHODOLOGY.md for formula definitions and interpretation guides.
 
 import math
 
+from lib.equity_curve import EquityCurve, Frequency
+
+
+def compute_metrics_from_curve(port_curve, bench_curve=None,
+                               risk_free_rate=0.02, additional_benchmarks=None):
+    """Compute metrics from EquityCurve objects.
+
+    This is the correct path for all new callers. CAGR is derived from
+    wall-clock duration (`curve.years`), not from sample count. Volatility
+    annualization uses the curve's declared `frequency.periods_per_year`.
+
+    Result is a superset of compute_metrics() output; legacy callers that
+    pass raw returns lists should continue to use compute_metrics().
+
+    Args:
+        port_curve: EquityCurve of portfolio values.
+        bench_curve: EquityCurve of benchmark values. Must have the same
+            frequency and equal length as port_curve; if omitted, benchmark
+            metrics are reported as zeros.
+        risk_free_rate: Annual risk-free rate (default 0.02).
+        additional_benchmarks: Optional dict[str, EquityCurve].
+
+    Returns:
+        Same dict shape as compute_metrics(). See that function's docstring.
+    """
+    if not isinstance(port_curve, EquityCurve):
+        raise TypeError(f"port_curve must be EquityCurve, got {type(port_curve).__name__}")
+    if bench_curve is not None and not isinstance(bench_curve, EquityCurve):
+        raise TypeError(f"bench_curve must be EquityCurve or None, got {type(bench_curve).__name__}")
+
+    if len(port_curve) < 2:
+        return _empty_metrics()
+
+    ppy = port_curve.frequency.periods_per_year
+    port_returns = port_curve.period_returns()
+
+    if bench_curve is not None:
+        if bench_curve.frequency != port_curve.frequency:
+            raise ValueError(
+                f"bench_curve frequency ({bench_curve.frequency}) must match "
+                f"port_curve frequency ({port_curve.frequency})"
+            )
+        if len(bench_curve) != len(port_curve):
+            raise ValueError(
+                f"bench_curve length ({len(bench_curve)}) must match "
+                f"port_curve length ({len(port_curve)})"
+            )
+        bench_returns = bench_curve.period_returns()
+    else:
+        bench_returns = [0.0] * len(port_returns)
+
+    port_cagr, port_total_return = _cagr_from_curve(port_curve)
+    port = _compute_series_metrics_with_cagr(
+        port_returns, ppy, risk_free_rate, port_cagr, port_total_return)
+
+    if bench_curve is not None:
+        bench_cagr, bench_total_return = _cagr_from_curve(bench_curve)
+        bench = _compute_series_metrics_with_cagr(
+            bench_returns, ppy, risk_free_rate, bench_cagr, bench_total_return)
+    else:
+        bench_cagr = 0.0
+        bench = _compute_series_metrics_with_cagr(
+            bench_returns, ppy, risk_free_rate, 0.0, 0.0)
+
+    comp = _compute_comparison(port_returns, bench_returns, ppy, risk_free_rate,
+                               port_cagr, bench_cagr)
+
+    result = {"portfolio": port, "benchmark": bench, "comparison": comp}
+
+    if additional_benchmarks:
+        result["additional_benchmarks"] = {}
+        for name, ab_curve in additional_benchmarks.items():
+            if not isinstance(ab_curve, EquityCurve):
+                raise TypeError(f"additional_benchmarks[{name!r}] must be EquityCurve")
+            if ab_curve.frequency != port_curve.frequency or len(ab_curve) != len(port_curve):
+                continue
+            ab_returns = ab_curve.period_returns()
+            ab_cagr, ab_total = _cagr_from_curve(ab_curve)
+            ab_metrics = _compute_series_metrics_with_cagr(
+                ab_returns, ppy, risk_free_rate, ab_cagr, ab_total)
+            ab_comp = _compute_comparison(port_returns, ab_returns, ppy,
+                                          risk_free_rate, port_cagr, ab_cagr)
+            result["additional_benchmarks"][name] = {
+                "metrics": ab_metrics,
+                "comparison": ab_comp,
+            }
+
+    return result
+
+
+def _cagr_from_curve(curve):
+    """Return (cagr, total_return) using wall-clock years.
+
+    CAGR is frequency-independent: a 10-year backtest with 2520 trading-day
+    points produces the same CAGR as the same backtest with 3653 calendar-day
+    (forward-filled) points. This is the invariant the old `n / ppy` formula
+    violated.
+
+    Callers that want to reject short-duration CAGR numbers (e.g. a 5-day
+    backtest produces an absurd annualization) should check curve.years at
+    the call site. The metric itself is well-defined for any years > 0.
+    """
+    if len(curve) < 2:
+        return None, 0.0
+    start, end = curve.values[0], curve.values[-1]
+    if start <= 0:
+        return None, 0.0
+    total_return = end / start - 1
+    years = curve.years
+    if years <= 0:  # impossible given EquityCurve invariants but guard anyway
+        return None, total_return
+    if end <= 0:
+        return -1.0, total_return
+    cagr = (end / start) ** (1.0 / years) - 1
+    return cagr, total_return
+
 
 def compute_metrics(period_returns, benchmark_returns, periods_per_year,
                     risk_free_rate=0.02, additional_benchmarks=None):
@@ -77,18 +193,66 @@ def compute_metrics(period_returns, benchmark_returns, periods_per_year,
 
 
 def _compute_series_metrics(returns, ppy, risk_free_rate):
-    """Compute metrics for a single return series."""
+    """Legacy entry point: computes CAGR from sample count (`years = n / ppy`).
+
+    Retained for backwards compatibility with callers that pass already-correct
+    returns series (e.g. the intraday stack, which produces one return per
+    trading day and passes ppy=252). New callers should go via
+    compute_metrics_from_curve().
+    """
     n = len(returns)
     if n < 2:
         return {}
 
+    # Legacy CAGR: `years = n / ppy`. Correct ONLY when sampling rate == ppy.
+    cumulative = 1.0
+    for r in returns:
+        cumulative *= (1 + r)
+    years = n / ppy
+    if cumulative > 0 and years > 0:
+        cagr = cumulative ** (1.0 / years) - 1
+    else:
+        cagr = -1.0
+    total_return = cumulative - 1
+
+    return _compute_series_metrics_with_cagr(returns, ppy, risk_free_rate, cagr, total_return)
+
+
+def _compute_series_metrics_with_cagr(returns, ppy, risk_free_rate, cagr, total_return):
+    """Compute all series metrics given an externally-supplied CAGR.
+
+    This is the shared body used by both legacy and EquityCurve-based paths.
+    CAGR and total_return are inputs so the caller can source them from
+    wall-clock years (correct) or from sample-count (legacy).
+
+    For n < 2 returns (e.g. a 2-point EquityCurve spanning a long wall-clock
+    interval), CAGR and total_return are still defined but variance-based
+    metrics (vol, Sharpe, Sortino, skew, kurt) are not.
+    """
+    n = len(returns)
+    if n < 2:
+        return {
+            "cagr": cagr,
+            "total_return": total_return,
+            "max_drawdown": 0.0 if n == 0 else min(0.0, returns[0]),
+            "max_dd_duration_periods": None,
+            "annualized_volatility": None,
+            "sharpe_ratio": None,
+            "sortino_ratio": None,
+            "calmar_ratio": None,
+            "var_95": None, "cvar_95": None,
+            "best_period": None, "worst_period": None,
+            "pct_negative_periods": None,
+            "max_consecutive_losses": None,
+            "skewness": None, "kurtosis": None,
+        }
+
     rf_period = risk_free_rate / ppy
 
-    # Cumulative return and drawdown
+    # Drawdown + cumulative equity path (used only for MDD + duration)
     cumulative = 1.0
     peak = 1.0
     max_dd = 0.0
-    dd_start = 0
     max_dd_duration = 0
     current_dd_start = 0
     in_drawdown = False
@@ -120,22 +284,15 @@ def _compute_series_metrics(returns, ppy, risk_free_rate):
         if duration > max_dd_duration:
             max_dd_duration = duration
 
-    # CAGR
-    years = n / ppy
-    if cumulative > 0 and years > 0:
-        cagr = cumulative ** (1.0 / years) - 1
-    else:
-        cagr = -1.0
-
-    total_return = cumulative - 1
+    # CAGR and total_return are supplied by the caller.
 
     # Volatility (annualized)
     mean_r = sum(returns) / n
     variance = sum((r - mean_r) ** 2 for r in returns) / (n - 1)
     vol = math.sqrt(variance) * math.sqrt(ppy)
 
-    # Sharpe ratio
-    sharpe = (cagr - risk_free_rate) / vol if vol > 0 else None
+    # Sharpe ratio (None if CAGR is not defined or vol is zero)
+    sharpe = (cagr - risk_free_rate) / vol if (vol > 0 and cagr is not None) else None
 
     # Sortino ratio (downside deviation)
     downside_sq = []
@@ -147,10 +304,10 @@ def _compute_series_metrics(returns, ppy, risk_free_rate):
             downside_sq.append(0.0)
     downside_var = sum(downside_sq) / n if n > 0 else 0
     downside_dev = math.sqrt(downside_var) * math.sqrt(ppy)
-    sortino = (cagr - risk_free_rate) / downside_dev if downside_dev > 0 else None
+    sortino = (cagr - risk_free_rate) / downside_dev if (downside_dev > 0 and cagr is not None) else None
 
-    # Calmar ratio
-    calmar = cagr / abs(max_dd) if max_dd != 0 else None
+    # Calmar ratio (None when MDD is zero or CAGR is not defined)
+    calmar = cagr / abs(max_dd) if (max_dd != 0 and cagr is not None) else None
 
     # VaR 95% (historical method - 5th percentile)
     sorted_returns = sorted(returns)
@@ -218,14 +375,23 @@ def _compute_series_metrics(returns, ppy, risk_free_rate):
 
 def _compute_comparison(port_returns, bench_returns, ppy, risk_free_rate,
                         port_cagr, bench_cagr):
-    """Compute comparison metrics between portfolio and benchmark."""
+    """Compute comparison metrics between portfolio and benchmark.
+
+    port_cagr / bench_cagr can be None (e.g. an equity curve starting at 0 or
+    a length-1 curve). When either is None, excess_cagr and alpha are
+    propagated as None; other comparison metrics that don't depend on CAGR
+    (tracking error, capture ratios, beta) are still computed.
+    """
     n = len(port_returns)
     if n < 2:
         return {}
 
     # Excess returns
     excess = [p - b for p, b in zip(port_returns, bench_returns)]
-    excess_cagr = port_cagr - bench_cagr
+    if port_cagr is not None and bench_cagr is not None:
+        excess_cagr = port_cagr - bench_cagr
+    else:
+        excess_cagr = None
 
     # Win rate
     wins = sum(1 for e in excess if e > 0)
@@ -270,8 +436,11 @@ def _compute_comparison(port_returns, bench_returns, ppy, risk_free_rate,
 
     if bench_var_sum > 0:
         beta = cov_sum / bench_var_sum
-        # Jensen's alpha (annualized)
-        alpha = port_cagr - (risk_free_rate + beta * (bench_cagr - risk_free_rate))
+        # Jensen's alpha (annualized); None if either CAGR is undefined.
+        if port_cagr is not None and bench_cagr is not None:
+            alpha = port_cagr - (risk_free_rate + beta * (bench_cagr - risk_free_rate))
+        else:
+            alpha = None
     else:
         beta = None
         alpha = None

@@ -176,11 +176,15 @@ def process(context, df_orders, epoch_wise_instrument_stats, current_snapshot, s
             order_epochs.add(positions[order_id]["exit_epoch"])
             date_orders[positions[order_id]["exit_epoch"]]["exits"].append(positions[order_id])
 
+    # Layer 3 (audit P0 #6): simulation window is authoritative from context.
+    # Pre-fix, `end_epoch = df_orders.entry_epoch.max()` when orders existed,
+    # which (a) stopped MTM updates at the last entry day, (b) skipped any
+    # exits scheduled after that date, and (c) used a different rule when
+    # df_orders was empty. Now: single source of truth.
+    end_epoch = context["end_epoch"]
+
     if len(df_orders) > 0:
-        end_epoch = df_orders["entry_epoch"].max()
         order_epochs = set(df_orders["entry_epoch"].unique().to_list()) | set(df_orders["exit_epoch"].unique().to_list())
-    else:
-        end_epoch = context["end_epoch"]
 
     mtm_epochs = set(epoch_wise_instrument_stats.keys())
     processing_dates = sorted(mtm_epochs | order_epochs)
@@ -197,7 +201,8 @@ def process(context, df_orders, epoch_wise_instrument_stats, current_snapshot, s
     for simulation_date_epoch in processing_dates:
         if simulation_date_epoch < current_snapshot["simulation_date"]:
             continue
-        if simulation_date_epoch >= end_epoch:
+        # Layer 3 fix: `> end_epoch` so end_epoch itself is processed (off-by-one).
+        if simulation_date_epoch > end_epoch:
             break
 
         current_account_value = current_position_value + margin_available
@@ -285,7 +290,60 @@ def process(context, df_orders, epoch_wise_instrument_stats, current_snapshot, s
                 "margin_available": margin_available,
             }
             day_wise_log.append(day_summary)
+            # NOTE: day_wise_positions captures the open-positions snapshot taken
+            # DURING the main MTM loop (before the end-of-sim close block below).
+            # As a result, day_wise_positions[end_epoch] may show positions that
+            # snapshot["current_positions"] reports as empty after the function
+            # returns (the force-close ran between the two). Consumers that
+            # want the final state should read snapshot["current_positions"],
+            # not day_wise_positions[end_epoch].
             day_wise_positions[simulation_date_epoch] = copy.deepcopy(current_positions)
+
+    # ── End-of-simulation policy: close any remaining open positions ─────
+    #
+    # Layer 3 (audit P0 #6): pre-fix, any position with exit_epoch beyond the
+    # last entry date was silently abandoned — its trade row never emitted,
+    # its final P&L never realized in metrics. Now: at the simulation boundary
+    # we force-close every open position at its last known MTM price, record
+    # the exit with exit_reason="end_of_sim", and settle cash.
+    #
+    # Policy is `close_at_mtm` (default). Callers that want to report unrealized
+    # open positions separately can read `current_snapshot.current_positions`
+    # before this function returns; we do not support that mode yet.
+    end_of_sim_policy = context.get("end_of_sim_policy", "close_at_mtm")
+    if end_of_sim_policy == "close_at_mtm" and current_positions:
+        for instrument in list(current_positions.keys()):
+            positions = current_positions[instrument]
+            exchange = instrument.split(":")[0]
+            for order_id in list(positions.keys()):
+                pos = positions[order_id]
+                exit_price = pos["last_close_price"]
+                sell_charges = calculate_charges(
+                    exchange,
+                    pos["quantity"] * exit_price,
+                    segment="EQUITY",
+                    trade_type="DELIVERY",
+                    which_side="SELL_SIDE",
+                )
+                sell_slippage = pos["quantity"] * exit_price * slippage_rate
+                margin_available += pos["quantity"] * exit_price - sell_charges - sell_slippage
+                current_positions_count -= 1
+                trade_log.append({
+                    "instrument": pos["instrument"],
+                    "entry_epoch": pos["entry_epoch"],
+                    "exit_epoch": end_epoch,
+                    "entry_price": pos["entry_price"],
+                    "exit_price": exit_price,
+                    "quantity": pos["quantity"],
+                    "entry_charges": pos.get("entry_charges", 0),
+                    "sell_charges": sell_charges,
+                    "slippage": pos.get("entry_slippage", 0) + sell_slippage,
+                    "exit_reason": "end_of_sim",
+                })
+                del positions[order_id]
+            if not positions:
+                del current_positions[instrument]
+        current_position_value = 0
 
     # Update snapshot
     current_snapshot["margin_available"] = margin_available

@@ -986,9 +986,14 @@ def simulate_portfolio(
     Returns:
         BacktestResult
     """
+    # Equity points are emitted at trading-day epochs (union of bar dates),
+    # not forward-filled. DAILY_TRADING is required; the default DAILY_CALENDAR
+    # would overstate vol by sqrt(365/252).
+    from lib.equity_curve import Frequency  # local import to avoid reshuffling top imports
     result = BacktestResult(
         strategy_name, params or {}, "PORTFOLIO", exchange, capital,
         slippage_bps=int(slippage * 10000), description=description,
+        equity_curve_frequency=Frequency.DAILY_TRADING,
     )
 
     # Build per-symbol epoch->close and epoch->open lookups

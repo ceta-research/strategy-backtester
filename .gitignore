@@ -6,8 +6,10 @@ __pycache__/
 dist/
 build/
 
-# Results (generated output)
+# Results (generated output). results_v2/ is the migrated post-fix mirror
+# of results/ — same gitignore rule applies.
 results/
+results_v2/
 result.json
 
 # Verification data (generated during P2 comparison)
