@@ -240,6 +240,36 @@ class MomentumDipQualitySignalGenerator:
             period_universe_set = set(period_avg["instrument"].to_list())
             print(f"  Period-avg turnover filter: {len(period_universe_set)} instruments")
 
+            # Phase 8A (audit P5.2): opt-in honest universe.
+            # "full_period" (default) uses the static set above.
+            # "point_in_time" recomputes averages per rebalance using only
+            # data strictly before that epoch. Cached for reuse.
+            universe_mode = entry_config.get("universe_mode", "full_period")
+            _pit_cache = {}
+
+            def _universe_at(epoch):
+                """Return the eligible instrument set at `epoch` under the
+                active universe_mode."""
+                if universe_mode != "point_in_time":
+                    return period_universe_set
+                if epoch in _pit_cache:
+                    return _pit_cache[epoch]
+                pit = (
+                    df_ind.filter(pl.col("date_epoch") < epoch)
+                    .group_by("instrument", maintain_order=True)
+                    .agg(
+                        (pl.col("close") * pl.col("volume")).mean().alias("avg_turnover"),
+                        pl.col("close").mean().alias("avg_close"),
+                    )
+                    .filter(
+                        (pl.col("avg_turnover") > _turnover_threshold)
+                        & (pl.col("avg_close") > 50)
+                    )
+                )
+                result = frozenset(pit["instrument"].to_list())
+                _pit_cache[epoch] = result
+                return result
+
             # Build quality universe (re-screen periodically)
             epochs = sorted(df_signals["date_epoch"].unique().to_list())
             rescreen_interval = rescreen_days * 86400
@@ -256,7 +286,7 @@ class MomentumDipQualitySignalGenerator:
                     continue
                 day_data = df_signals.filter(
                     (pl.col("date_epoch") == epoch)
-                    & (pl.col("instrument").is_in(list(period_universe_set)))
+                    & (pl.col("instrument").is_in(list(_universe_at(epoch))))
                     & (pl.col("is_quality") == True)  # noqa: E712
                 )
                 quality_universe[epoch] = set(day_data["instrument"].to_list())
@@ -276,7 +306,7 @@ class MomentumDipQualitySignalGenerator:
                 day_data = (
                     df_signals.filter(
                         (pl.col("date_epoch") == epoch)
-                        & (pl.col("instrument").is_in(list(period_universe_set)))
+                        & (pl.col("instrument").is_in(list(_universe_at(epoch))))
                         & (pl.col("momentum_return").is_not_null())
                     )
                     .sort("momentum_return", descending=True)
@@ -502,6 +532,9 @@ class MomentumDipQualitySignalGenerator:
             "regime_sma_period": entry_cfg.get("regime_sma_period", [0]),
             "direction_score_n_day_ma": entry_cfg.get("direction_score_n_day_ma", [0]),
             "direction_score_threshold": entry_cfg.get("direction_score_threshold", [0]),
+            # Phase 8A: "full_period" (default, legacy) or "point_in_time"
+            # (honest). See generate_orders / _universe_at.
+            "universe_mode": entry_cfg.get("universe_mode", ["full_period"]),
         }
 
     @staticmethod

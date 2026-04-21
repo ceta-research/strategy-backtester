@@ -138,6 +138,34 @@ class MomentumTopGainersSignalGenerator:
         period_universe_set = set(period_avg["instrument"].to_list())
         print(f"  Period-avg turnover filter: {len(period_universe_set)} instruments")
 
+        # Point-in-time universe cache. Populated lazily on first rebalance
+        # when universe_mode='point_in_time' is in effect. Maps
+        # rebalance_epoch -> frozenset(instruments). See _pit_universe below.
+        _pit_universe_cache = {}
+
+        def _pit_universe(rebalance_epoch):
+            """Point-in-time universe: averages use only data strictly
+            BEFORE `rebalance_epoch`, so a stock that becomes liquid after
+            this rebalance is NOT included. This is the honest (audit P5.2)
+            alternative to the full-period static universe above."""
+            if rebalance_epoch in _pit_universe_cache:
+                return _pit_universe_cache[rebalance_epoch]
+            pit = (
+                df_ind.filter(pl.col("date_epoch") < rebalance_epoch)
+                .group_by("instrument", maintain_order=True)
+                .agg(
+                    (pl.col("close") * pl.col("volume")).mean().alias("avg_turnover"),
+                    pl.col("close").mean().alias("avg_close"),
+                )
+                .filter(
+                    (pl.col("avg_turnover") > _turnover_threshold)
+                    & (pl.col("avg_close") > 50)
+                )
+            )
+            result = frozenset(pit["instrument"].to_list())
+            _pit_universe_cache[rebalance_epoch] = result
+            return result
+
         # Phase 3: Generate orders per entry/exit config
         t1 = time.time()
         all_order_rows = []
@@ -151,6 +179,13 @@ class MomentumTopGainersSignalGenerator:
             regime_sma_period = entry_config.get("regime_sma_period", 0)
             direction_n_day_ma = entry_config.get("direction_score_n_day_ma", 0)
             direction_threshold = entry_config.get("direction_score_threshold", 0)
+            # Phase 8A (audit P5.2): opt-in honest universe.
+            #   "full_period" (default, LEGACY): static universe using the
+            #       full-data averages. Contains look-ahead/survivorship bias.
+            #   "point_in_time" (HONEST): at each rebalance, recompute the
+            #       universe from data strictly BEFORE the rebalance day.
+            # Default is "full_period" for result parity with pre-audit runs.
+            universe_mode = entry_config.get("universe_mode", "full_period")
 
             bull_epochs = regime_cache.get(
                 (regime_instrument, regime_sma_period), set()
@@ -230,10 +265,18 @@ class MomentumTopGainersSignalGenerator:
                         if ds <= direction_threshold:
                             continue
 
+                    # Select the universe according to the universe_mode flag.
+                    # Full-period is the legacy default (look-ahead bias);
+                    # point-in-time uses only data before rb_epoch.
+                    if universe_mode == "point_in_time":
+                        universe = list(_pit_universe(rb_epoch))
+                    else:
+                        universe = list(period_universe_set)
+
                     # Get scanner-eligible stocks with momentum at this epoch
                     day_data = df_signals.filter(
                         (pl.col("date_epoch") == rb_epoch)
-                        & (pl.col("instrument").is_in(list(period_universe_set)))
+                        & (pl.col("instrument").is_in(universe))
                         & (pl.col("momentum_return").is_not_null())
                         & (pl.col("close") > 0)
                         & (pl.col("next_epoch").is_not_null())
@@ -331,6 +374,9 @@ class MomentumTopGainersSignalGenerator:
             "regime_sma_period": entry_cfg.get("regime_sma_period", [0]),
             "direction_score_n_day_ma": entry_cfg.get("direction_score_n_day_ma", [0]),
             "direction_score_threshold": entry_cfg.get("direction_score_threshold", [0]),
+            # Phase 8A: "full_period" (default, legacy) or "point_in_time"
+            # (honest, no look-ahead). See generate_orders for the semantics.
+            "universe_mode": entry_cfg.get("universe_mode", ["full_period"]),
         }
 
     @staticmethod

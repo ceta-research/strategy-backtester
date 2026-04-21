@@ -1,0 +1,32 @@
+{
+  "strategy": "momentum_top_gainers",
+  "config": "strategies/momentum_top_gainers/config_phase_8a_local.yaml",
+  "provider": "parquet",
+  "flag_path": "entry.universe_mode",
+  "legacy": {
+    "value": "full_period",
+    "elapsed_sec": 0.1,
+    "summary": {
+      "cagr": 0.25127757940992956,
+      "total_return": 0.5652151968189998,
+      "max_drawdown": -0.1797572644534245,
+      "calmar_ratio": 1.397871625238468,
+      "sharpe_ratio": 1.4111553766064522,
+      "total_trades": 87,
+      "win_rate": 0.5747
+    }
+  },
+  "honest": {
+    "value": "point_in_time",
+    "elapsed_sec": 0.1,
+    "summary": {
+      "cagr": 0.25127757940992956,
+      "total_return": 0.5652151968189998,
+      "max_drawdown": -0.1797572644534245,
+      "calmar_ratio": 1.397871625238468,
+      "sharpe_ratio": 1.4111553766064522,
+      "total_trades": 87,
+      "win_rate": 0.5747
+    }
+  }
+}

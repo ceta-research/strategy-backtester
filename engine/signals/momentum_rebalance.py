@@ -94,17 +94,36 @@ class MomentumRebalanceSignalGenerator:
             num_positions = entry_config["num_positions"]
             regime_instrument = entry_config.get("regime_instrument", "")
             regime_sma_period = entry_config.get("regime_sma_period", 0)
+            # Phase 8A (audit P5.4): opt-in honest MOC execution.
+            # moc_signal_lag_days=0 (default, LEGACY): momentum uses close[T]
+            #   in the numerator AND entry_price=close[T] — same-bar bias.
+            # moc_signal_lag_days=1 (HONEST): shifts the numerator to
+            #   close[T-1] so the rank is observable BEFORE the day-T close,
+            #   then the MOC order executes at close[T]. This is the only
+            #   MOC-compatible form for live trading.
+            # Current default is 0 for result parity with pre-audit runs;
+            # new backtests should set this to 1.
+            moc_signal_lag_days = entry_config.get("moc_signal_lag_days", 0)
 
             bull_epochs = regime_cache.get(
                 (regime_instrument, regime_sma_period), set()
             )
             use_regime = bool(bull_epochs)
 
-            # Compute trailing momentum return
+            # Compute trailing momentum return.
+            # The numerator is `close` under the legacy default, or
+            # `close.shift(moc_signal_lag_days)` under the honest path.
+            if moc_signal_lag_days > 0:
+                numerator = pl.col("close").shift(moc_signal_lag_days).over("instrument")
+                denom_shift = momentum_lookback + moc_signal_lag_days
+            else:
+                numerator = pl.col("close")
+                denom_shift = momentum_lookback
+
             df_mom = df_ind.with_columns(
                 (
-                    pl.col("close")
-                    / pl.col("close").shift(momentum_lookback).over("instrument")
+                    numerator
+                    / pl.col("close").shift(denom_shift).over("instrument")
                     - 1.0
                 ).alias("momentum_return")
             )
@@ -231,6 +250,9 @@ class MomentumRebalanceSignalGenerator:
             "num_positions": entry_cfg.get("num_positions", [10]),
             "regime_instrument": entry_cfg.get("regime_instrument", [""]),
             "regime_sma_period": entry_cfg.get("regime_sma_period", [0]),
+            # Phase 8A: 0 = legacy same-bar (default, for parity);
+            # 1 = MOC-compatible honest form. See generate_orders.
+            "moc_signal_lag_days": entry_cfg.get("moc_signal_lag_days", [0]),
         }
 
     @staticmethod

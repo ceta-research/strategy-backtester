@@ -1,0 +1,32 @@
+{
+  "strategy": "momentum_dip_quality",
+  "config": "strategies/momentum_dip_quality/config_phase_8a_local.yaml",
+  "provider": "parquet",
+  "flag_path": "entry.universe_mode",
+  "legacy": {
+    "value": "full_period",
+    "elapsed_sec": 0.1,
+    "summary": {
+      "cagr": 0.30884467600723475,
+      "total_return": 0.712443338448,
+      "max_drawdown": -0.0844391301118161,
+      "calmar_ratio": 3.657601346653572,
+      "sharpe_ratio": 2.186674093511182,
+      "total_trades": 74,
+      "win_rate": 0.7703
+    }
+  },
+  "honest": {
+    "value": "point_in_time",
+    "elapsed_sec": 0.2,
+    "summary": {
+      "cagr": 0.30884467600723475,
+      "total_return": 0.712443338448,
+      "max_drawdown": -0.0844391301118161,
+      "calmar_ratio": 3.657601346653572,
+      "sharpe_ratio": 2.186674093511182,
+      "total_trades": 74,
+      "win_rate": 0.7703
+    }
+  }
+}
