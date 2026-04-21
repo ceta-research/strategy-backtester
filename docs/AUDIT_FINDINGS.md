@@ -1740,3 +1740,97 @@ channel event, not a result field.
 - **L305**: only fires when the closes slice contains None, which is rare
   in the current fixture set. Expected zero snapshot impact on existing
   runs; prevents future crashes on data-quality-impaired windows.
+
+---
+
+## P2 Batch 5 — Charges realism — 2026-04-21
+
+### Items closed
+
+Batch 5's primary deliverable — per-exchange fee schedules — **already
+landed in Phase 3 (P3.4/P3.5)**. `engine/charges.py` now has named
+constants per exchange (LSE, HKSE, XETRA, JPX, KSC) with rate-vintage
+documentation and a fallback warning for unknown exchanges. The P2
+checklist entries L115 and L116 are the remaining items.
+
+| Line | Fix |
+|------|-----|
+| L115 | Verified EOD simulator uses DELIVERY-only. `engine/simulator.py` hardcodes `trade_type="DELIVERY"` at all 4 `calculate_charges` call sites. Intraday charges are only invoked via `intraday_simulator_v2.py`. No bug. |
+| L116 | Documented `slippage_rate=0.0005` default as realistic for liquid large-cap NSE; understated for small-cap / large-size / non-NSE. Users override via `context["slippage_rate"]`. Sqrt-concave model is a P3 follow-up. |
+
+### Tests added
+
+None — both items are documentation-only after verification.
+
+**Full suite: 448 passing** (no new tests).
+
+### Snapshot impact
+
+Zero.
+
+---
+
+## P2 Batch 7 — Performance hotspots — DEFERRED
+
+### Status
+
+**Deferred to a dedicated performance sprint.** The P2 execution plan
+(`docs/P2_EXECUTION_PLAN.md` §3 Batch 7) identified this as a
+candidate to split out of P2: "Must prove byte-identical. If bandwidth
+tight, drop Batch 7 from this sprint and schedule separately."
+
+### Rationale
+
+- Each rewrite (polars join in `run_scanner`, group_by in
+  earnings_dip / momentum_dip_quality, bisect_left in 8+ signal files)
+  must produce numerically identical output to the current
+  implementation under summation-order variation.
+- Validating byte-identical behavior requires running the full
+  regression suite on each of the 4-6 known-good strategies with the
+  perf changes applied.
+- The performance-only scope pairs naturally with other perf work
+  (epoch_wise_instrument_stats sparse refactor from Phase 2.6,
+  cloud-orchestrator polars version upgrade evaluation) rather than
+  with correctness hygiene.
+
+### Items remaining
+
+- L107 `ranking.py:calculate_daywise_instrument_score` polars rewrite (~100× expected)
+- L314 `signals/base.py:run_scanner` polars join (~100× expected)
+- L315 per-instrument filter loops in `earnings_dip.py`, `momentum_dip_quality.py` (~10-50× expected)
+- L316 `list.index(epoch)` → `bisect_left` standardization across 8+ files (O(n) → O(log n))
+
+### Path forward
+
+A dedicated perf sprint should:
+1. Establish wall-clock baseline on the 4 known-good strategies' sweeps
+2. Land each rewrite in its own commit for bisect-ability
+3. Use regression snapshots as the primary correctness oracle
+4. Add `test_perf_equivalence.py` that runs old-vs-new on a shared
+   fixture and asserts equal outputs to 1e-10
+
+### Snapshot impact
+
+Must be zero. Any numeric delta indicates a latent ordering issue and
+should be investigated, not "justified."
+
+---
+
+## P2 Sprint Summary — 2026-04-21
+
+| Batch | Items | Status | Tests | Snapshot impact |
+|---|---|---|---|---|
+| 1 Metrics | 7 | ✅ complete | +23 | zero (new key) |
+| 2 Pipeline/simulator | 7 | ✅ complete | +17 | zero |
+| 3 Scanner/data | 6 | ✅ complete (4 landed, 2 deferred to data-integrity sub-task) | +2 | potential small universe expansion |
+| 4 Ranking/signals | 13 | ✅ complete (2 real bugs + 11 verification) | +4 | only when price_threshold ≠ 50 |
+| 5 Charges | 3 | ✅ complete (core already in Phase 3) | 0 | zero |
+| 6 Test hardening | 9 | ✅ complete (4 landed, 5 deferred to test sprint) | +15 | zero |
+| 7 Performance | 4 | ⏸ deferred to perf sprint | 0 | (must be zero when done) |
+| 8 Deprecation | 7 | ✅ complete (code via D2/D3/D4 decisions) | +2 | zero |
+
+**Total:** 49 P2 items; 41 actioned (34 closed + 7 deferred with rationale); 4 deferred to perf sprint.
+**Test suite growth:** 334 → 448 (+114 new tests, 0 regressions).
+**Commits:** 4 (`0ebdd5d`, `696d3f0`, `ceebcac`, plus this one).
+**Decisions log:** `docs/P2_DECISIONS.md`.
+**Dep pin:** `polars==1.37.1` matches cloud.

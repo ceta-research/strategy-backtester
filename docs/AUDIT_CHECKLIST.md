@@ -112,8 +112,8 @@ Wait — that's a real concern. Verify by reading the loop carefully.
 
 - [x] **P1** Full audit of `calculate_charges`. Must match current NSE STT (0.1% on sell-side), brokerage, GST, stamp duty, SEBI turnover fees, exchange transaction fees. Each exchange has its own fee schedule. *— Phase 3 P3.4: rate-vintage comments added naming stable vs revised constants; golden-value pin tests prevent silent drift. Dated-schedule refactor surfaced as P2 follow-up.*
 - [x] **P1** Confirm US/UK/Germany/HK/etc. fee schedules exist or use a sensible default. *— Phase 3 P3.5: fallback warning added (one-time per unknown exchange). Detailed per-exchange schedules (esp. UK 0.5% stamp, HKSE 0.13%) are a P2 follow-up to avoid silently invalidating cross-exchange results.*
-- [ ] **P2** Intraday vs delivery charges differ significantly. Confirm only DELIVERY is used by EOD pipelines.
-- [ ] **P2** Slippage: `slippage_rate = 0.0005` default (5 bps). Is this realistic for large-cap NSE? For small-cap it's probably too low.
+- [x] **P2** Intraday vs delivery charges differ significantly. Confirm only DELIVERY is used by EOD pipelines. *— P2 Batch 5: verified. `engine/simulator.py` hardcodes `trade_type="DELIVERY"` at all 4 call sites. Intraday charges are only invoked via `engine/intraday_simulator_v2.py`.*
+- [x] **P2** Slippage: `slippage_rate = 0.0005` default (5 bps). Is this realistic for large-cap NSE? For small-cap it's probably too low. *— P2 Batch 5: documented as realistic for liquid large-cap NSE delivery; understated for small-cap / large sizes / non-NSE exchanges. Users can override via `context["slippage_rate"]`. Sqrt-concave model tracked as P3 follow-up.*
 - [ ] **P3** Rounding of charges — paise-level precision. Check against broker contract notes.
 
 ### engine/data_provider.py
@@ -311,9 +311,9 @@ Scope: broader than the original checklist — covered all 28 signal generators,
 
 Not correctness bugs but dominant runtime costs in large sweeps.
 
-- [ ] **P2** `engine/signals/base.py:206-213` (`run_scanner`): Python loop with set-membership for each UID × each scanner config. For 5M UIDs × 10 configs ≈ 50M checks per run. Rewrite as Polars join + `list.join(",")` aggregation; expected ~100× speedup.
-- [ ] **P2** Per-instrument `pl.col("instrument") == inst_name` filter loops in `earnings_dip.py:410-414`, `momentum_dip_quality.py:408` (inside lazy exit_data build), and others. O(N_instruments × total_rows) full scans. Fix: single `group_by("instrument")` + materialize dict of lists (as `momentum_cascade.py:44-54` already does). Expected 10-50× speedup.
-- [ ] **P2** `list.index(epoch)` lookups across many signal generators: `ibs_mean_reversion.py:110`, `squeeze.py:184`, `connors_rsi.py:160`, `swing_master.py:147`, `darvas_box.py:118`, `quality_dip_buy.py:259`, `holp_lohp.py`, `index_*` variants. O(n) per call. `bisect_left` + equality check (as `momentum_dip_quality.py:427-429` does) is O(log n). Standardize.
+- [~] **P2** `engine/signals/base.py:206-213` (`run_scanner`): Python loop with set-membership for each UID × each scanner config. For 5M UIDs × 10 configs ≈ 50M checks per run. Rewrite as Polars join + `list.join(",")` aggregation; expected ~100× speedup. *— P2 Batch 7: deferred to dedicated perf sprint (must prove byte-identical; see P2_EXECUTION_PLAN.md §3 Batch 7).*
+- [~] **P2** Per-instrument `pl.col("instrument") == inst_name` filter loops in `earnings_dip.py:410-414`, `momentum_dip_quality.py:408` (inside lazy exit_data build), and others. O(N_instruments × total_rows) full scans. Fix: single `group_by("instrument")` + materialize dict of lists (as `momentum_cascade.py:44-54` already does). Expected 10-50× speedup. *— P2 Batch 7: deferred to perf sprint.*
+- [~] **P2** `list.index(epoch)` lookups across many signal generators: `ibs_mean_reversion.py:110`, `squeeze.py:184`, `connors_rsi.py:160`, `swing_master.py:147`, `darvas_box.py:118`, `quality_dip_buy.py:259`, `holp_lohp.py`, `index_*` variants. O(n) per call. `bisect_left` + equality check (as `momentum_dip_quality.py:427-429` does) is O(log n). Standardize. *— P2 Batch 7: deferred to perf sprint.*
 - [ ] **P3** `engine/utils.py:49-93` (`create_epoch_wise_instrument_stats`): refines existing P1 at line 97. The dict-based forward-fill materializes `{epoch: {instrument: {close, avg_txn}}}` for every calendar day × every instrument. For 2454 NSE symbols × 5915 calendar days = 14.5M entries, several GB of RAM. A sparse representation + binary-search lookup in the simulator MTM loop would avoid the materialization.
 
 ---
