@@ -94,6 +94,14 @@ def process(context: dict, df_tick_data_original: pl.DataFrame) -> pl.DataFrame:
         avg_day_transaction_period = avg_day_transaction_threshold_config["period"]
         avg_day_transaction_threshold = avg_day_transaction_threshold_config["threshold"]
 
+        # avg_txn_turnover: SAME-DAY volume × average_price, rolled.
+        # Scanner applies this as a UNIVERSE FILTER at bar close — a known
+        # bar includes its own volume, so same-day is correct here.
+        # Contrast with engine/ranking.py::sort_orders_by_highest_avg_txn
+        # which uses PREV-DAY (shifted by 1) because it ranks order entries
+        # and must be look-ahead-safe. Both conventions match ATO_Simulator
+        # (util.py:186 uses same-day for stats; util.py:251 uses prev-day
+        # for ranking). Audit P3.1 / P3.6 — 2026-04-21.
         df_tick_data = df_tick_data.with_columns(
             (pl.col("volume") * pl.col("average_price")).alias("avg_txn_turnover")
         )
@@ -116,6 +124,12 @@ def process(context: dict, df_tick_data_original: pl.DataFrame) -> pl.DataFrame:
         )
 
         df_tick_data = df_tick_data.drop_nulls()
+        # price_threshold is a PER-BAR filter, not a "stock ever exceeded X"
+        # filter. A stock trading at ₹55 today and ₹45 last week will have
+        # last week's row dropped and today's retained. The universe is
+        # day-by-day, which is what we want for strategies that trade on
+        # liquidity/price criteria that vary over time. Audit P3.7 —
+        # 2026-04-21.
         df_tick_data = df_tick_data.filter(pl.col("close") > scanner_config["price_threshold"])
         df_tick_data = df_tick_data.filter(pl.col("avg_txn_turnover") > avg_day_transaction_threshold)
         df_tick_data = df_tick_data.filter(pl.col("gain") > n_day_gain_threshold)

@@ -219,6 +219,89 @@ def test_nse_sell_side_stt_present():
     assert 120 < sell < 135, f"Expected NSE delivery sell ~127, got {sell}"
 
 
+# --- P3.4: rate-vintage pins ---------------------------------------------
+# These tests lock the exact values of every India/US rate constant so that
+# any future rate change is a deliberate edit. If one of these fails, the
+# expectation is "update both the constant and this test in the same commit,
+# with a rate-vintage note in the module docstring", not "silently relax the
+# test".
+
+def test_nse_rate_constants_vintage_pinned():
+    from engine import charges
+    assert charges.NSE_BROKERAGE_RATE == 0.0003
+    assert charges.NSE_BROKERAGE_CAP == 20.0
+    assert charges.NSE_STT_DELIVERY == 0.001
+    assert charges.NSE_STT_INTRADAY_SELL == 0.00025
+    assert charges.NSE_EXCHANGE_RATE == 0.0000345
+    assert charges.NSE_SEBI_RATE == 0.000001
+    assert charges.NSE_GST_RATE == 0.18
+    assert charges.NSE_STAMP_DUTY_DELIVERY_BUY == 0.00015
+    assert charges.NSE_STAMP_DUTY_INTRADAY == 0.00003
+
+
+def test_us_rate_constants_vintage_pinned():
+    from engine import charges
+    assert charges.US_SEC_FEE_RATE == 0.0000278
+    assert charges.US_TAF_PER_SHARE == 0.000166
+    assert charges.US_TAF_CAP == 8.30
+    assert charges.US_TAF_ESTIMATED_SHARE_PRICE == 50.0
+
+
+def test_other_exchange_fallback_rate_pinned():
+    from engine import charges
+    assert charges.OTHER_EXCHANGE_PER_SIDE_RATE == 0.0005
+
+
+# --- P3.5: fallback warning fires exactly once per exchange ---------------
+
+def test_unknown_exchange_warns_once(caplog):
+    """The generic OTHER_EXCHANGE fallback should log a warning the first
+    time each exchange is seen, and be silent thereafter — so cross-exchange
+    backtests flag but don't spam."""
+    import logging
+    from engine import charges
+
+    # Reset the module-level warned set so the test is hermetic.
+    charges._WARNED_FALLBACK_EXCHANGES.clear()
+    caplog.clear()
+
+    with caplog.at_level(logging.WARNING, logger="engine.charges"):
+        # First call: warning should fire.
+        charges.calculate_charges("LSE", 100_000, "EQUITY", "DELIVERY", "BUY_SIDE")
+        # Second call, same exchange: warning should NOT fire again.
+        charges.calculate_charges("LSE", 50_000, "EQUITY", "DELIVERY", "SELL_SIDE")
+        # Different exchange: should warn.
+        charges.calculate_charges("HKSE", 100_000, "EQUITY", "DELIVERY", "BUY_SIDE")
+
+    lse_warnings = [r for r in caplog.records if "'LSE'" in r.getMessage()]
+    hkse_warnings = [r for r in caplog.records if "'HKSE'" in r.getMessage()]
+    assert len(lse_warnings) == 1, f"Expected 1 LSE warning, got {len(lse_warnings)}"
+    assert len(hkse_warnings) == 1, f"Expected 1 HKSE warning, got {len(hkse_warnings)}"
+
+
+def test_known_exchanges_do_not_warn(caplog):
+    """NSE/BSE/US/NASDAQ/NYSE have detailed schedules; no fallback
+    warning should fire."""
+    import logging
+    from engine import charges
+
+    charges._WARNED_FALLBACK_EXCHANGES.clear()
+    caplog.clear()
+
+    with caplog.at_level(logging.WARNING, logger="engine.charges"):
+        for exch in ("NSE", "BSE", "US", "NASDAQ", "NYSE", "AMEX"):
+            charges.calculate_charges(exch, 100_000, "EQUITY", "DELIVERY", "BUY_SIDE")
+
+    fallback_warnings = [
+        r for r in caplog.records
+        if "has no detailed fee schedule" in r.getMessage()
+    ]
+    assert not fallback_warnings, (
+        f"Known exchanges should not emit fallback warnings; got: "
+        f"{[r.getMessage() for r in fallback_warnings]}"
+    )
+
+
 if __name__ == "__main__":
     import pytest
     pytest.main([__file__, "-v"])

@@ -12,32 +12,62 @@ See docs/AUDIT_FINDINGS.md.
 
 Fee data is organized as module-level constants so adding a new exchange is
 editing data, not control flow.
+
+Rate vintage (audit P3.4, 2026-04-21):
+  The Indian regulatory rates below were believed current as of early 2024.
+  Several are adjusted periodically:
+    - NSE_EXCHANGE_RATE — revised multiple times 2023-2024
+    - NSE_STAMP_DUTY_* — unified to uniform central collection in July 2020
+    - NSE_STT_* — last changed for F&O in 2024; equity STT unchanged since 2013
+  Tests in tests/test_charges.py pin exact golden values for the current
+  constants, so any future rate update is a deliberate, reviewed change.
+  A dated-schedule refactor (pick rate based on trade date) is a P2 follow-up.
 """
 
+import logging
 from engine.constants import BROKER_KITE, EXCHANGE_BROKER_MAP
+
+_logger = logging.getLogger(__name__)
+
+# Exchanges that fall through to `OTHER_EXCHANGE_PER_SIDE_RATE` — we log a
+# one-time warning the first time each is used so silent approximation
+# does not go unnoticed in cross-exchange backtests.
+_WARNED_FALLBACK_EXCHANGES = set()
 
 # ── Named constants (fee schedules as data) ──────────────────────────────
 
-# India (NSE/BSE, delivery and intraday)
-NSE_BROKERAGE_RATE = 0.0003        # 0.03%, capped per-leg
-NSE_BROKERAGE_CAP = 20.0           # Rs 20 per leg
-NSE_STT_DELIVERY = 0.001           # 0.1% on BOTH buy and sell
-NSE_STT_INTRADAY_SELL = 0.00025    # 0.025% on sell side only
-NSE_EXCHANGE_RATE = 0.0000345      # 0.00345% per leg
-NSE_SEBI_RATE = 0.000001           # Rs 10 per crore
-NSE_GST_RATE = 0.18                # on (brokerage + exchange)
-NSE_STAMP_DUTY_DELIVERY_BUY = 0.00015  # 0.015% buy-side only
-NSE_STAMP_DUTY_INTRADAY = 0.00003      # 0.003% buy-side only (round-trip basis in helper)
+# India (NSE/BSE, delivery and intraday). All rates are as of early 2024
+# per Zerodha's brokerage calculator. See module docstring on vintage.
+NSE_BROKERAGE_RATE = 0.0003        # 0.03%, capped per-leg (Zerodha equity intraday)
+NSE_BROKERAGE_CAP = 20.0           # Rs 20 per leg (Zerodha max brokerage)
+NSE_STT_DELIVERY = 0.001           # 0.1% on BOTH buy and sell (stable)
+NSE_STT_INTRADAY_SELL = 0.00025    # 0.025% on sell side only (stable)
+NSE_EXCHANGE_RATE = 0.0000345      # 0.00345% per leg (NSE revised this in
+                                   # 2023-2024; value here may be slightly
+                                   # stale — audit P3.4 flagged for follow-up)
+NSE_SEBI_RATE = 0.000001           # Rs 10 per crore (stable)
+NSE_GST_RATE = 0.18                # on (brokerage + exchange) (stable)
+NSE_STAMP_DUTY_DELIVERY_BUY = 0.00015  # 0.015% buy-side only (uniform from 2020-07)
+NSE_STAMP_DUTY_INTRADAY = 0.00003      # 0.003% buy-side only (uniform from 2020-07)
 
 # US equities (zero-commission, regulatory fees sell-side only)
-US_SEC_FEE_RATE = 0.0000278          # ~$27.80 per million, sell side
-US_TAF_PER_SHARE = 0.000166          # FINRA TAF, sell side
+US_SEC_FEE_RATE = 0.0000278          # ~$27.80 per million, sell side (revised
+                                     # 2024 — actual SEC Section 31 rate varies
+                                     # annually; pinned value is mid-2024)
+US_TAF_PER_SHARE = 0.000166          # FINRA TAF, sell side (revised 2024)
 US_TAF_CAP = 8.30                    # per-transaction cap
 US_TAF_ESTIMATED_SHARE_PRICE = 50.0  # used when share count unknown
 
-# Other exchanges (LSE, JPX, HKSE, XETRA, KSC, ASX, TSX, SAO, SES, SHH, SHZ, TAI, JNB)
-# Flat per-side percentage as a coarse estimate until exchange-specific
-# schedules are added. 0.05% per leg = 0.10% round-trip.
+# Other exchanges (LSE, JPX, HKSE, XETRA, KSC, ASX, TSX, SAO, SES, SHH, SHZ,
+# TAI, JNB, TWO, SET, JKT, PAR). Flat per-side percentage as a coarse
+# estimate — real-world schedules differ materially:
+#   LSE:   0.5% stamp duty on BUY only (SDRT)
+#   HKSE:  0.13% stamp duty on BOTH sides (raised from 0.10% in 2021)
+#   XETRA: no stamp duty, ~0.05% combined commission + exchange fees
+# Using a single flat rate understates UK/HKSE and roughly matches XETRA.
+# Audit P3.5: a dated, per-exchange schedule is a P2 follow-up. For any
+# cross-exchange backtest where cost sensitivity matters, treat the
+# numbers as approximate. A one-time warning is logged per unknown exchange.
 OTHER_EXCHANGE_PER_SIDE_RATE = 0.0005
 
 US_EXCHANGES = frozenset({"US", "NASDAQ", "NYSE", "AMEX"})
@@ -72,7 +102,20 @@ def calculate_charges(exchange, order_value, segment="EQUITY",
         return _us_per_side(order_value, which_side)
     if exchange in INDIA_EXCHANGES:
         return _india_per_side(order_value, segment, trade_type, which_side)
-    # Other exchanges: per-side flat rate
+    # Other exchanges: per-side flat rate. Warn once per unknown exchange so
+    # cross-exchange backtests don't silently rely on the coarse 0.05%/side
+    # approximation (audit P3.5). Real LSE / HKSE stamp duties in particular
+    # are materially higher than this fallback.
+    if exchange not in _WARNED_FALLBACK_EXCHANGES:
+        _WARNED_FALLBACK_EXCHANGES.add(exchange)
+        _logger.warning(
+            "charges.calculate_charges: exchange=%r has no detailed fee "
+            "schedule; using OTHER_EXCHANGE_PER_SIDE_RATE=%.4f (%.3f%% per "
+            "side). Real per-exchange rates differ — see engine/charges.py "
+            "module docstring.", exchange,
+            OTHER_EXCHANGE_PER_SIDE_RATE,
+            OTHER_EXCHANGE_PER_SIDE_RATE * 100,
+        )
     return round(order_value * OTHER_EXCHANGE_PER_SIDE_RATE, 2)
 
 

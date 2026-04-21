@@ -42,7 +42,16 @@ def sort_orders(df_config_orders: pl.DataFrame, sim_config: dict, df_tick_data: 
 
 
 def sort_orders_by_highest_avg_txn(df_orders: pl.DataFrame, df_tick_data: pl.DataFrame, order_ranking_window_days: int) -> pl.DataFrame:
-    """Rank orders by rolling average transaction volume."""
+    """Rank orders by rolling average transaction volume.
+
+    Uses PREV-DAY (shifted by 1) volume and average_price, matching ATO's
+    util.py:251-256. This is the look-ahead-safe form for ranking order
+    entries — using same-day would peek at the current bar's volume before
+    the entry decision. Contrast with `engine/scanner.py` and
+    `engine/utils.py::create_epoch_wise_instrument_stats`, which use
+    SAME-DAY for a universe filter / liquidity cap (different purpose, so
+    different convention). See docs/AUDIT_FINDINGS.md entry P3.1.
+    """
     df_tick_data = df_tick_data.with_columns(pl.col("instrument").cast(pl.Utf8))
     df_tick_data = df_tick_data.sort(["instrument", "date_epoch"])
 
@@ -116,8 +125,16 @@ def calculate_daywise_instrument_score(df_orders: pl.DataFrame, instrument_day_w
     df_orders = df_orders.sort(["instrument", "entry_epoch", "exit_epoch"])
 
     def remove_overlapping_orders(_df_orders: pl.DataFrame) -> pl.DataFrame:
+        # maintain_order=True makes this deterministic across polars versions.
+        # Without it, polars may iterate groups in hash order. The per-group
+        # walk sorts by (entry_epoch, exit_epoch) inside the loop, so the
+        # per-instrument dedup itself is order-independent — but the final
+        # pl.DataFrame(idx_to_keep) concatenation reflects the outer group
+        # order, and downstream joins in sort_orders_by_top_performer pick up
+        # a specific row order for scoring. Pinning the outer order gives
+        # byte-identical results across runs. See AUDIT_FINDINGS.md P3.3.
         idx_to_keep = []
-        for instrument_tuple, group in _df_orders.group_by("instrument"):
+        for instrument_tuple, group in _df_orders.group_by("instrument", maintain_order=True):
             group = group.sort(["entry_epoch", "exit_epoch"])
             current_end = None
             for row in group.iter_rows(named=True):

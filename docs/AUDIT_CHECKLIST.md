@@ -2,7 +2,7 @@
 
 **Created:** 2026-04-20
 **Last updated:** 2026-04-21
-**Status:** 17/17 P0 closed + 18/53 P1 closed (Phase 1 + Phase 2 of the P1 plan landed 2026-04-21). Authoritative log in `docs/AUDIT_FINDINGS.md`. Remaining work: 35 P1 + 51 P2 + 32 P3 open, plus 4 strategies requiring full re-runs.
+**Status:** 17/17 P0 closed + 26/53 P1 closed (Phase 1 + Phase 2 + Phase 3 of the P1 plan landed 2026-04-21). Authoritative log in `docs/AUDIT_FINDINGS.md`. Remaining work: 27 P1 + 51 P2 + 32 P3 open, plus 4 strategies requiring full re-runs.
 **Scope:** 24 core files (engine/ non-signals + lib/). Signals spot-checked only.
 
 Priority tags: **P0** = known bug, must fix. **P1** = high-impact, likely bug. **P2** = medium, needs investigation. **P3** = low, hygiene/edge case.
@@ -101,17 +101,17 @@ Wait — that's a real concern. Verify by reading the loop carefully.
 
 ### engine/ranking.py
 
-- [ ] **P1** `sort_orders_by_highest_avg_txn`: uses `prev_volume * prev_average_price` (yesterday's values) vs ATO which uses same-day values. Look-ahead safer, but verify this was intentional.
-- [ ] **P1** `sort_orders_by_highest_gainer`: rank = `(prev_close - ref_close) / ref_close` where ref = `prev_close.shift(order_ranking_window_days)`. Verify against ATO's implementation.
-- [ ] **P1** `sort_orders_by_top_performer`: `remove_overlapping_orders` — iterates per-instrument groups. Verify polars `group_by` yields identical ordering to pandas (unstable without `maintain_order=True`?).
+- [x] **P1** `sort_orders_by_highest_avg_txn`: uses `prev_volume * prev_average_price` (yesterday's values) vs ATO which uses same-day values. Look-ahead safer, but verify this was intentional. *— Phase 3 P3.1: confirmed matches ATO util.py:251-256 (prev-day for ranking) and ATO util.py:186 (same-day for stats). Cross-linked comments added.*
+- [x] **P1** `sort_orders_by_highest_gainer`: rank = `(prev_close - ref_close) / ref_close` where ref = `prev_close.shift(order_ranking_window_days)`. Verify against ATO's implementation. *— Phase 3 P3.2: verified matches ATO util.py:281-283. Synthetic test pins ordering.*
+- [x] **P1** `sort_orders_by_top_performer`: `remove_overlapping_orders` — iterates per-instrument groups. Verify polars `group_by` yields identical ordering to pandas (unstable without `maintain_order=True`?). *— Phase 3 P3.3: fixed with `maintain_order=True`. Champion config byte-identical; determinism regression test runs 10× on shuffled input.*
 - [ ] **P2** `calculate_daywise_instrument_score`: O(entries × orders) double loop. For 486 configs × 32K orders × 2000 entry_epochs = potentially billions of iterations. Profile.
 - [ ] **P2** `sort_orders_by_deepest_dip`: uses pre-computed `dip_pct` if present, else computes from tick data. Two code paths, only one tested per strategy. Verify agreement.
 - [ ] **P3** All sort types use `join(how="inner")` which drops orders not in rank_df. If instrument missing from rank data (e.g. IPO in middle of simulation), order silently dropped. Should log.
 
 ### engine/charges.py
 
-- [ ] **P1** Full audit of `calculate_charges`. Must match current NSE STT (0.1% on sell-side), brokerage, GST, stamp duty, SEBI turnover fees, exchange transaction fees. Each exchange has its own fee schedule.
-- [ ] **P1** Confirm US/UK/Germany/HK/etc. fee schedules exist or use a sensible default.
+- [x] **P1** Full audit of `calculate_charges`. Must match current NSE STT (0.1% on sell-side), brokerage, GST, stamp duty, SEBI turnover fees, exchange transaction fees. Each exchange has its own fee schedule. *— Phase 3 P3.4: rate-vintage comments added naming stable vs revised constants; golden-value pin tests prevent silent drift. Dated-schedule refactor surfaced as P2 follow-up.*
+- [x] **P1** Confirm US/UK/Germany/HK/etc. fee schedules exist or use a sensible default. *— Phase 3 P3.5: fallback warning added (one-time per unknown exchange). Detailed per-exchange schedules (esp. UK 0.5% stamp, HKSE 0.13%) are a P2 follow-up to avoid silently invalidating cross-exchange results.*
 - [ ] **P2** Intraday vs delivery charges differ significantly. Confirm only DELIVERY is used by EOD pipelines.
 - [ ] **P2** Slippage: `slippage_rate = 0.0005` default (5 bps). Is this realistic for large-cap NSE? For small-cap it's probably too low.
 - [ ] **P3** Rounding of charges — paise-level precision. Check against broker contract notes.
@@ -135,9 +135,9 @@ Wait — that's a real concern. Verify by reading the loop carefully.
 
 ### engine/scanner.py, engine/order_generator.py
 
-- [ ] **P1** `avg_day_transaction_threshold`: same rolling-30 logic as `avg_txn` in utils.py. Confirm consistent.
-- [ ] **P1** `price_threshold`: filtered at what granularity — entry day only, or every day?
-- [ ] **P1** Entry/exit epoch scheduling: for `max_hold_days=252`, does exit_epoch = entry_epoch + 252 calendar days or trading days?
+- [x] **P1** `avg_day_transaction_threshold`: same rolling-30 logic as `avg_txn` in utils.py. Confirm consistent. *— Phase 3 P3.6: confirmed same rolling-mean convention across scanner/utils/ranking. Cross-linked comments explain the prev-day (ranking) vs same-day (scanner+stats) split — matches ATO.*
+- [x] **P1** `price_threshold`: filtered at what granularity — entry day only, or every day? *— Phase 3 P3.7: confirmed per-bar filter. Comment added at scanner.py:119. Regression test locks in per-bar semantics.*
+- [x] **P1** Entry/exit epoch scheduling: for `max_hold_days=252`, does exit_epoch = entry_epoch + 252 calendar days or trading days? *— Phase 3 P3.8: confirmed CALENDAR days across exits.py, base.py, and 15+ signal generators. Docstring at max_hold_reached now states the unit explicitly.*
 - [ ] **P2** Peak-recovery logic: `require_peak_recovery=True` — what's the peak window? Is it from entry or from pre-entry?
 - [ ] **P2** Exit price computation: if using TSL exit, what exact price does the exit_price field hold? Close price on trigger day? Next day's open?
 

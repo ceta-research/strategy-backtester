@@ -105,6 +105,12 @@ def below_min_hold(this_epoch: int, entry_epoch: int,
 def max_hold_reached(this_epoch: int, entry_epoch: int,
                      max_hold_days: int, close_price: float) -> Optional[ExitDecision]:
     """Fires at close on the bar where hold_days >= max_hold_days.
+
+    Units: `max_hold_days` is CALENDAR days (this_epoch and entry_epoch are
+    both unix seconds, and the difference is divided by 86400). This matches
+    `engine.signals.base.walk_forward_exit`, `below_min_hold`, and every
+    signal generator that uses `max_hold_days` today. Mixing trading-day
+    lookbacks with calendar-day exit gates would be a bug — keep one unit.
     max_hold_days == 0 means no max (disabled)."""
     if max_hold_days <= 0:
         return None

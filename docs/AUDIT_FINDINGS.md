@@ -690,3 +690,143 @@ correctness. Baseline before work: 285 passing. After: 293 passing
 After Phase 1 + Phase 2 work: **293 passing** (285 baseline + 8 new
 regression tests). No pre-existing tests broke. All fixes carry
 dedicated regression tests in `tests/test_review_findings.py`.
+
+---
+
+## Phase 3 P1s — 2026-04-21
+
+Completed 8 P1 items spanning ranking determinism, scanner/ranking
+convention documentation, charges rate vintage, and unknown-exchange
+warnings. Baseline before work: 293 passing. After: 302 passing (9 new
+regression tests in `tests/test_ranking.py` and `tests/test_charges.py`).
+
+Champion verification (`tests/verification/config_ato_match.yaml`): all 16
+configs remain byte-identical to the Phase 1+2 baseline — 2789 orders, 731
+days, CAGR 25.8%/19.4%, MDD -20.1%/-16.6%. Zero historical-number movement.
+
+### Phase 3 — Ranking, Scanner, Charges
+
+**P3.1 — avg_txn prev-day vs same-day conventions**
+(`engine/ranking.py:45-54`, `engine/scanner.py:97-105`,
+`engine/utils.py:62-63`)
+- Investigation, not a bug. Verified against
+  `ATO_Simulator/simulator/steps/simulate_step/util.py`:
+    - ATO uses PREV-DAY (`.shift(1)`) for `sort_orders_by_highest_avg_txn`
+      at util.py:251-256 — look-ahead-safe for order ranking.
+    - ATO uses SAME-DAY for `create_epoch_wise_instrument_stats` at
+      util.py:186 — liquidity cap on a known bar.
+- Our engine matches ATO exactly in both places. The split is
+  intentional because the two code paths have different purposes.
+- Added cross-linked block comments at each call site so the next
+  reader doesn't file the same audit item again.
+- Regression test: `tests/test_ranking.py::TestAvgTxnPrevDay` — builds
+  a 4-day × 2-instrument fixture where same-day vs prev-day produce
+  opposite orderings, asserts prev-day is used.
+
+**P3.2 — highest_gainer formula** (`engine/ranking.py:84-93`)
+- Verification only. Formula is
+  `(prev_close - prev_close.shift(N)) / prev_close.shift(N)` —
+  identical to ATO util.py:281-283.
+- Regression test: `tests/test_ranking.py::TestHighestGainerFormula` —
+  pins descending-gain ordering on a 3-instrument × 6-day fixture
+  where the expected rank is known by construction.
+
+**P3.3 — remove_overlapping_orders determinism**
+(`engine/ranking.py:118-132`)
+- Pre-fix: `_df_orders.group_by("instrument")` without
+  `maintain_order=True`. Polars documents group order as unordered
+  unless the flag is set, meaning two runs on the same shuffled input
+  could produce a different `pl.DataFrame(idx_to_keep)` row order, and
+  the subsequent score join in
+  `sort_orders_by_top_performer` could break ties differently.
+- Post-fix: `group_by("instrument", maintain_order=True)`.
+  Per-group dedup was already ordering-safe; this pins the OUTER
+  aggregation.
+- Impact on historical `results/`: champion verification
+  (`config_ato_match.yaml`) is byte-identical pre and post. The
+  test run used pandas-stable ordering by accident, so the fix is a
+  safety guarantee, not a number change. Any future polars upgrade
+  that changes group_by internals is now safe.
+- Regression test:
+  `tests/test_ranking.py::TestRemoveOverlappingDeterministic` — runs
+  `calculate_daywise_instrument_score` 10× on shuffled input and
+  asserts all outputs are bit-identical.
+
+**P3.6 — avg_day_transaction_threshold convention**
+(`engine/scanner.py:97-105`)
+- Documentation-only. Same prev-day-vs-same-day split as P3.1.
+  Scanner uses same-day (matches ATO stats path), ranking uses
+  prev-day (matches ATO ranking path). Cross-linked comments added.
+
+**P3.7 — price_threshold is per-bar** (`engine/scanner.py:117-124`)
+- Documentation-only. Confirmed via code-read: the threshold filter
+  runs inside the per-scanner-config loop and drops any row where
+  close <= threshold. A stock above threshold on some days and below
+  on others is in the universe only for the above-threshold days.
+  This is deliberate (day-by-day universe for liquidity/price-
+  dependent strategies) but worth naming.
+- Regression test:
+  `tests/test_ranking.py::TestScannerPriceThresholdPerBar` — builds
+  a 10-day fixture where `close=45` on days 0-4 and `close=55` on
+  days 5-9, asserts scanner_config_ids is non-null only on the
+  above-threshold days.
+
+**P3.8 — max_hold_days unit** (`engine/exits.py:105-115`,
+`engine/signals/base.py:247`)
+- Documentation-only. Verified via grep: every call site (base.py,
+  exits.py, 15+ signal generators) computes hold_days as
+  `(this_epoch - entry_epoch) / 86400` — unambiguously CALENDAR
+  days. Docstring at `max_hold_reached` now states the unit and
+  warns against mixing with trading-day lookbacks.
+
+**P3.4 — charges rate vintage** (`engine/charges.py`)
+- No rate changed. The concern was that several Indian regulatory
+  rates (NSE transaction charge, STT, stamp duty) have changed over
+  the last few years, and a long-running backtest spanning a rate
+  change would use a single rate throughout. This is a known
+  approximation, not a bug — flagging explicitly as a P2 follow-up
+  for a dated-schedule refactor.
+- Fix: added rate-vintage comments naming which constants are
+  stable vs revised, and pinned every India/US constant in
+  `tests/test_charges.py::test_nse_rate_constants_vintage_pinned` /
+  `test_us_rate_constants_vintage_pinned`. Any future rate update
+  must edit the test in the same commit — prevents silent drift.
+
+**P3.5 — non-India/US exchange warnings** (`engine/charges.py:71-93`)
+- No rate changed (by design — silently updating LSE from 0.05%/side
+  to UK-stamp 0.5% buy-side would retroactively invalidate every
+  cross-exchange result in `results/`, including the US/UK/Taiwan
+  backtests referenced in memory).
+- Fix: one-time warning logged the first time each unknown exchange
+  hits the `OTHER_EXCHANGE_PER_SIDE_RATE` fallback. Users running
+  cross-exchange backtests now see a visible flag that the cost
+  model is coarse. Real LSE (0.5% buy stamp) and HKSE (0.13% both
+  sides) are materially different from 0.05%/side — follow-up P2
+  task to add dated per-exchange schedules is tracked in the
+  module docstring.
+- Regression tests: `tests/test_charges.py::test_unknown_exchange_warns_once`
+  (warns once per exchange, not per call) and
+  `test_known_exchanges_do_not_warn` (NSE/BSE/US/NASDAQ/NYSE/AMEX
+  do not emit fallback warnings).
+
+### Phase 3 regression suite
+
+After Phase 3 work: **302 passing** (293 + 9 new). No pre-existing
+tests broke. All fixes carry dedicated regression tests. Champion
+config verification (16 configs in `config_ato_match.yaml`)
+byte-identical to pre-Phase-3 run.
+
+### Open follow-ups surfaced by Phase 3 (all P2)
+
+1. Dated regulatory rate schedules (`engine/charges.py`) — pick rate
+   by trade date rather than a single constant. Biggest impact on
+   multi-year Indian backtests that span 2020-07 (stamp duty
+   unification) and 2023-2024 (NSE transaction rate revisions).
+2. Detailed per-exchange fee models (`engine/charges.py`) — LSE,
+   HKSE, XETRA, JPX, KSC, TSX, ASX are all used in active configs
+   and currently share a single 0.05%/side fallback.
+3. Broader `group_by` determinism sweep (`engine/signals/*`) —
+   P3.3 fixed the one load-bearing site in ranking; 30+ other
+   `group_by("instrument")` sites in signal generators may or may
+   not depend on iteration order. Systematic audit or a polars
+   version pin is the right follow-up.
