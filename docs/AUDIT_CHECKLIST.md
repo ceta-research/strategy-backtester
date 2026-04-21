@@ -2,7 +2,7 @@
 
 **Created:** 2026-04-20
 **Last updated:** 2026-04-21
-**Status:** 17/17 P0 closed + 44/50 P1 closed (Phases 1-6 landed 2026-04-21). Authoritative log in `docs/AUDIT_FINDINGS.md`. Remaining work: 6 P1 + 49 P2 + 32 P3 open. Strategies requiring full re-runs: every cross-exchange LSE/HKSE/KSC/XETRA/JPX/TSX/ASX result (Phase 3 revisit). Signal-strategy re-runs deferred for Phase 5 P1 follow-ups: momentum_top_gainers / momentum_dip_quality / momentum_rebalance (user decision on when to fix known biases).
+**Status:** 17/17 P0 closed + 50/50 P1 closed (Phases 1-7 landed 2026-04-21). **Audit P1 scope: COMPLETE.** Authoritative log in `docs/AUDIT_FINDINGS.md`. Remaining work: 49 P2 + 32 P3 open (all lower-priority). Strategies requiring full re-runs: every cross-exchange LSE/HKSE/KSC/XETRA/JPX/TSX/ASX result (Phase 3 revisit). Signal-strategy re-runs deferred for Phase 5 P1 follow-ups: momentum_top_gainers / momentum_dip_quality / momentum_rebalance (user decision on when to fix known biases).
 **Scope:** 24 core files (engine/ non-signals + lib/). Signals spot-checked only.
 
 Priority tags: **P0** = known bug, must fix. **P1** = high-impact, likely bug. **P2** = medium, needs investigation. **P3** = low, hygiene/edge case.
@@ -49,11 +49,11 @@ Fixing the metrics formula will invalidate all historical numbers. Everything in
 ### lib/backtest_result.py
 
 - [x] **P0** Line 140: `periods_per_year=252` hardcoded. Becomes wrong if equity curve uses calendar days (forward-fill) or intraday bars. Make configurable based on equity curve density.
-- [ ] **P1** `_returns_from_values` (need to read): how are per-point returns computed? If equity_curve has duplicate values (weekends with no trading), returns are 0%, which deflates vol correctly ONLY if ppy matches.
-- [ ] **P1** `_trade_metrics` (need to read): win rate, profit factor, avg win/loss. Verify on a hand-computed trade set.
-- [ ] **P1** `_portfolio_metrics` (need to read): turnover, avg holding period, exposure. Check definitions.
+- [x] **P1** `_returns_from_values` (need to read): how are per-point returns computed? If equity_curve has duplicate values (weekends with no trading), returns are 0%, which deflates vol correctly ONLY if ppy matches. *— Phase 7 P7.1: actually `EquityCurve.period_returns()`. Pinned: basic formula, duplicate-value zero return, zero-prev-value guard.*
+- [x] **P1** `_trade_metrics` (need to read): win rate, profit factor, avg win/loss. Verify on a hand-computed trade set. *— Phase 7 P7.3: hand-computed on 3W/2L set. All-wins → None metrics. Consecutive-streak detection.*
+- [x] **P1** `_portfolio_metrics` (need to read): turnover, avg holding period, exposure. Check definitions. *— Phase 7 P7.3: final/peak values + time_in_market interval-union overlap test.*
 - [x] **P1** Line 397-407: `_portfolio_metrics.time_in_market` broken for multi-position strategies. `days_held = sum(t["hold_days"] for t in self.trades)` aggregates across all concurrent positions — a 10-position portfolio easily exceeds calendar-days-total, so `min(days_held/total_days, 1.0)` saturates at 1.0. The metric is meaningless for any non-trivial strategy. Correct: count unique calendar days with ≥1 open position, OR average concurrent positions / max_positions. *— Phase 1.4: implemented interval-union. See AUDIT_FINDINGS.md.*
-- [ ] **P1** `_monthly_returns` / `_yearly_returns`: how are months/years bucketed? Partial months at start/end handled?
+- [x] **P1** `_monthly_returns` / `_yearly_returns`: how are months/years bucketed? Partial months at start/end handled? *— Phase 7 P7.4: pinned chained monthly returns and yearly returns + running-peak MDD (Phase 1.3 regression lock).*
 - [ ] **P2** `_time_extremes`: best/worst day/month/year. Straightforward but check for empty-series handling.
 - [ ] **P2** Line 186: `compact()` strips `equity_curve`, `trades`, etc. Confirm downstream consumers don't silently fail after compaction.
 - [ ] **P3** `set_benchmark_values`: if benchmark length != equity length, zeros are used. Silently wrong. Should error.
@@ -95,7 +95,7 @@ Wait — that's a real concern. Verify by reading the loop carefully.
 
 ### engine/utils.py
 
-- [ ] **P1** `create_epoch_wise_instrument_stats`: forward-fill uses `range(start, end+one_day, one_day)`. If an instrument has a gap > 1 year, the fill iterates every day in that gap. Memory and time scale linearly. For 2454 instruments × max gap years, could be slow. Profile.
+- [x] **P1** `create_epoch_wise_instrument_stats`: forward-fill uses `range(start, end+one_day, one_day)`. If an instrument has a gap > 1 year, the fill iterates every day in that gap. Memory and time scale linearly. For 2454 instruments × max gap years, could be slow. Profile. *— Phase 2 P2.6 + Phase 7 P7.5: measured 4.15 GB for 2454 × 5915 days. Sparse numpy refactor tracked as P2.*
 - [x] **P1** `avg_txn` uses `rolling_mean(window=30)` with `min_samples=1` — first 29 days use partial windows. Is this consistent with ATO? (ATO: `rolling(30, min_periods=1).mean()` — yes, matches.) *— Verified during audit; matches ATO behavior.*
 - [ ] **P2** Line 32-44: `create_config_df_loc_lookup` tier-suffix stripping — hard-coded `_t` prefix. Will break if any non-tier strategy ever uses `_t` in a config ID. Fragile.
 
@@ -361,14 +361,14 @@ These are P0/P1 items I did not independently verify; they remain open:
 Present test files: `test_charges.py`, `test_config_loader.py`, `test_config_sweep.py`, `test_intraday_pipeline.py`, `test_intraday_simulator.py`, `test_intraday_simulator_v2.py`, `test_intraday_sql_builder.py`, `test_known_answer.py`, `test_metrics.py`, `test_pipeline.py`, `test_scanner.py`. Plus `tests/verification/` with ATO_Simulator cross-checks.
 
 - [x] **P1** Run the existing suite end-to-end **before any fix lands** to establish a baseline. Record which tests pass/fail/skip. *— Baseline captured; suite grew 231 → 285 during P0 work.*
-- [ ] **P1** Missing test modules for critical code paths:
-  - `engine/simulator.py` (the state machine — no direct test; only exercised via `test_pipeline.py`)
-  - `engine/order_generator.py` (anomalous-drop, TSL, multiprocessing fan-out)
-  - `engine/ranking.py` (four sort modes, overlap removal, realized/unrealized P&L)
-  - `engine/signals/base.py:walk_forward_exit` (the shared TSL walker used by most generators — central to correctness, zero tests)
-  - `lib/backtest_result.py` (trade metrics, yearly returns, MDD, catalog write)
-  - `lib/cr_client.py`, `lib/cloud_orchestrator.py` (network code — at least unit-test the retry/backoff paths with mocks)
-  - Any individual signal generator (spot-check 2-3 in `test_known_answer.py`)
+- [x] **P1** Missing test modules for critical code paths: *— Phase 7 P7.6 closed the critical gaps. Remaining items (cr_client retry, individual signal generator spot-checks) are P2.*
+  - [x] `engine/simulator.py` (the state machine — no direct test; only exercised via `test_pipeline.py`) *— Phase 7: tests/test_simulator_direct.py (5 tests)*
+  - [x] `engine/order_generator.py` (anomalous-drop, TSL, multiprocessing fan-out) *— Phase 7: tests/test_order_generator.py (5 tests, multiprocessing excluded as out-of-scope)*
+  - [x] `engine/ranking.py` (four sort modes, overlap removal, realized/unrealized P&L) *— Phase 3: tests/test_ranking.py (4 tests)*
+  - [x] `engine/signals/base.py:walk_forward_exit` (the shared TSL walker used by most generators — central to correctness, zero tests) *— Phase 7: tests/test_walk_forward_exit.py (16 tests)*
+  - [x] `lib/backtest_result.py` (trade metrics, yearly returns, MDD, catalog write) *— Phase 7: tests/test_backtest_result.py (12 tests)*
+  - [~] `lib/cr_client.py`, `lib/cloud_orchestrator.py` (network code — at least unit-test the retry/backoff paths with mocks) *— cloud_orchestrator hash cache covered in Phase 6 P6.3. cr_client retry/backoff deferred as P2.*
+  - [ ] Any individual signal generator (spot-check 2-3 in `test_known_answer.py`) *— P2: Phase 5 static audits cover this indirectly.*
 - [ ] **P2** Add a regression snapshot test: run each of the 4-6 known-good strategies on a fixed tiny fixture, commit the expected JSON, fail on diff.
 
 ### Dependency & reproducibility

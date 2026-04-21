@@ -1384,3 +1384,124 @@ Verified 4 edge cases:
 
 After Phase 6 work: **334 passing** (321 + 13 new). Champion
 byte-identical. No pre-existing tests broke.
+
+---
+
+## Phase 7 P1s — 2026-04-21
+
+Completed 6 P1 items. Phase 7 is entirely additive: test coverage for
+methods that were previously only exercised indirectly (via pipeline
+tests) or whose behavior was documented but unpinned.
+
+Baseline before work: 334 passing. After: 372 passing (38 new across
+4 new test files). Champion verification byte-identical (CAGR 25.76%,
+Calmar 1.2792521). Zero code changes to engine/ or lib/.
+
+### P7.1 — `EquityCurve.period_returns` hand-computed tests
+
+Previously unpinned. Covered the duplicate-value and zero-previous-
+value edge cases, plus the basic `v[i]/v[i-1] - 1` formula.
+
+- `tests/test_backtest_result.py::TestPeriodReturns` (3 tests)
+
+### P7.2 — `walk_forward_exit` direct tests
+
+The central TSL walker is used by 20+ signal generators. Pre-Phase-7
+it was covered only via integration through test_pipeline.py and
+test_exits.py (which tests the guard + one semantics case). Now has
+16 direct tests covering:
+
+- TSL-zero mode (peak recovery without TSL)
+- Breakout mode (TSL from entry, `require_peak_recovery=False`)
+- Dip-buy mode (TSL gated by peak recovery)
+- Next-day-open exit with fallback to same-day close
+- max_hold_days interaction with TSL
+- None close values skipped
+- WFE-1 footgun guard (percent vs fraction)
+- End-of-data fallback + start_past_end returns (None, None)
+
+File: `tests/test_walk_forward_exit.py` (16 tests).
+
+### P7.3 / P7.4 — `_trade_metrics`, `_portfolio_metrics`, monthly /
+yearly bucketing
+
+Hand-computed tests over:
+
+- 3W/2L trade set: asserts win_rate, profit_factor, payoff, Kelly,
+  expectancy, avg_hold (all pinned to exact values).
+- All-wins case: profit_factor / payoff / Kelly return None (not
+  infinity).
+- Empty trades: None for ratio metrics.
+- Consecutive streaks: max_cw, max_cl on a known W/L sequence.
+- `_portfolio_metrics`: final/peak values; time_in_market interval-
+  union correctly counts overlaps once (locks the Phase 1.4 fix).
+- Monthly returns chain correctly across month boundaries.
+- Yearly returns + running-peak MDD locks the Phase 1.3 fix.
+
+File: `tests/test_backtest_result.py` (12 tests).
+
+### P7.5 — `create_epoch_wise_instrument_stats` profile
+
+Closed via cross-reference to Phase 2 P2.6 which measured memory
+consumption at 4.15 GB for 2454 instruments × 5915 calendar days.
+The nested-dict layout is load-bearing for simulator MTM and
+ranking; a sparse numpy refactor would save ~18× memory but touches
+too many call sites for this audit. Tracked as a standalone P2
+refactor task.
+
+### P7.6a — simulator direct tests
+
+Previously exercised only via `test_pipeline.py` and
+`test_simulator_end_epoch.py`. Added 5 direct tests over
+`simulator.process()`:
+
+- Full single-trade cycle: entry → MTM → exit → margin accounting
+  balances (ignoring explicit charges/slippage).
+- 3 concurrent positions with mixed outcomes.
+- `exit_before_entry=True` frees slot on same day.
+- Snapshot resume with trade fully inside chunk 1 (state carried
+  forward unchanged).
+- Snapshot resume with trade straddling chunk boundary (force-close
+  at chunk end per close_at_mtm policy).
+
+File: `tests/test_simulator_direct.py` (5 tests).
+
+**Documented behavior quirk surfaced by this phase:** in the
+`exit_before_entry=True` branch, `simulator.py:365` overrides
+`sim_config["order_value"]` with `current_account_value /
+max_positions` — so callers relying on fixed-value sizing get the
+wrong behavior under exit_before_entry. Not fixed here (change
+invalidates historical backtests); the test works around it with
+`max_order_value` + larger `start_margin`. Open P2 for future
+simulator cleanup.
+
+### P7.6b — order_generator exit-integration tests
+
+Direct tests for `generate_exit_attributes_for_instrument`, the
+integration point between the exit primitives in `engine/exits.py`
+and the per-instrument walk-forward loop. Covers:
+
+- Anomalous-drop signed check (P0 #8 regression lock): +25% gap does
+  NOT fire anomalous_drop; the strategy walks forward to find a real
+  TSL or end-of-data.
+- Anomalous-drop priority: fires BEFORE TSL on the same bar.
+- Tracker prevents duplicate exits (P0 #9 regression lock): a series
+  that triggers anomalous_drop AND would later satisfy TSL produces
+  exactly ONE exit row.
+- Multiple exit configs track independently.
+- Min-hold gate blocks TSL but NOT anomalous_drop.
+
+File: `tests/test_order_generator.py` (5 tests).
+
+### Phase 7 regression suite
+
+After Phase 7 work: **372 passing** (334 + 38 new). All 50/50 P1s
+now closed. No pre-existing tests broke. No code changes. Champion
+byte-identical.
+
+### Audit status: FINAL
+
+17/17 P0 closed. 50/50 P1 closed. Remaining work is P2 / P3 items
+and the open strategy re-runs from Phase 3 revisit (non-IN/US
+cross-exchange) + Phase 5 follow-ups (momentum_top_gainers /
+momentum_dip_quality / momentum_rebalance bias fixes).
