@@ -2,7 +2,7 @@
 
 **Created:** 2026-04-20
 **Last updated:** 2026-04-21
-**Status:** 17/17 P0 closed + 33/53 P1 closed (Phases 1-4 + revisits landed 2026-04-21). Authoritative log in `docs/AUDIT_FINDINGS.md`. Remaining work: 20 P1 + 49 P2 + 32 P3 open. Strategies requiring full re-runs: every strategy with a non-NSE/US cross-exchange result (LSE/HKSE/KSC most affected, post Phase 3 revisit).
+**Status:** 17/17 P0 closed + 39/53 P1 closed (Phases 1-5 landed 2026-04-21). Authoritative log in `docs/AUDIT_FINDINGS.md`. Remaining work: 14 P1 + 49 P2 + 32 P3 open. Strategies requiring full re-runs: every cross-exchange LSE/HKSE/KSC result (Phase 3 revisit). Signal-strategy re-runs deferred for Phase 5 P1 follow-ups: momentum_top_gainers / momentum_dip_quality / momentum_rebalance (user decision on when to fix known biases).
 **Scope:** 24 core files (engine/ non-signals + lib/). Signals spot-checked only.
 
 Priority tags: **P0** = known bug, must fix. **P1** = high-impact, likely bug. **P2** = medium, needs investigation. **P3** = low, hygiene/edge case.
@@ -147,18 +147,18 @@ Wait — that's a real concern. Verify by reading the loop carefully.
 
 Spot-check approach: read 3 representative strategies cover-to-cover, then skim the rest for pattern violations.
 
-- [ ] **P1** `eod_breakout.py` — reference strategy. Must be correct. Audit fully.
-- [ ] **P1** `momentum_top_gainers.py` — high-CAGR strategy, biggest impact if wrong. Audit fully.
-- [ ] **P1** `earnings_dip.py` — relies on FMP earnings data + NSE pricing. Cross-data-source audit.
+- [x] **P1** `eod_breakout.py` — reference strategy. Must be correct. Audit fully. *— Phase 5 P5.1: clean. Next-day open entry, anomalous_drop pre-TSL priority (post-P0), custom TSL convention matches ATO.*
+- [~] **P1** `momentum_top_gainers.py` — high-CAGR strategy, biggest impact if wrong. Audit fully. *— Phase 5 P5.2: flagged. Full-period turnover universe (look-ahead/survivorship bias) + scanner fallback to "1". Documented inline; left as-is for result parity. Open P1 for author review.*
+- [x] **P1** `earnings_dip.py` — relies on FMP earnings data + NSE pricing. Cross-data-source audit. *— Phase 5 P5.3: clean. Post-earnings peak fully in past; MOC next-day open entry; dip-buy walk_forward_exit with require_peak_recovery=True.*
 - [ ] **P2** `momentum_dip_quality.py` — was the victim of the cloud-OOM hack. Audit the `del df_signals; gc.collect()` boundary — any state leaks?
 - [ ] **P2** `enhanced_breakout.py`, `momentum_cascade.py` — second-tier verification.
 - [ ] **P3** Remaining 25 signals: skim for common pitfalls (look-ahead bias, divide-by-zero, inconsistent epoch arithmetic).
 
 ### Generic per-signal checks
 
-- [ ] **P1** Look-ahead bias: entry signal on day T must NOT use any data from day T's close. Must use day T-1 or prior.
-- [ ] **P1** Exit price: for TSL, what price triggers the stop? Close below threshold uses next-day open? Or same-day close? Consistency across signals.
-- [ ] **P1** Date-range handling: `start_epoch - prefetch_days` gives warm-up window. Signals must NOT emit orders in the prefetch period.
+- [~] **P1** Look-ahead bias: entry signal on day T must NOT use any data from day T's close. Must use day T-1 or prior. *— Phase 5 P5.4: swept all 32 signal gens. 29 use next-day open for entry (safe). 1 flagged (momentum_rebalance.py same-bar entry, documented as open P1). 2 (momentum_top_gainers/momentum_dip_quality) have full-period universe look-ahead, documented separately as P5.2. Regression test blocks new same-bar entries.*
+- [x] **P1** Exit price: for TSL, what price triggers the stop? Close below threshold uses next-day open? Or same-day close? Consistency across signals. *— Phase 5: eod_breakout custom TSL exits at next-day open when drawdown > threshold. walk_forward_exit in base.py exits at next-day open if available, else same-day close. Consistent per-strategy convention.*
+- [x] **P1** Date-range handling: `start_epoch - prefetch_days` gives warm-up window. Signals must NOT emit orders in the prefetch period. *— Phase 4 P4.1 + Phase 5: all 32 signal gens verified to filter entries to >= start_epoch.*
 - [ ] **P2** Universe filter: does the filter evaluate on every day or only at rebalance? Inconsistent across signals.
 - [ ] **P2** Symbol normalization: `NSE:TCS` vs `TCS.NS` — data providers differ. Check for hardcoded format assumptions.
 

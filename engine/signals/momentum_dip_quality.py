@@ -221,6 +221,10 @@ class MomentumDipQualitySignalGenerator:
                     _turnover_threshold = thresh_val
                 break
 
+            # AUDIT P5.2 (2026-04-21): KNOWN LOOK-AHEAD / SURVIVORSHIP BIAS.
+            # Full-period average is used as a static universe across every
+            # entry day. Same pattern as momentum_top_gainers.py. See
+            # docs/AUDIT_FINDINGS.md Phase 5 for the rationale and impact.
             period_avg = (
                 df_ind  # Use full data range (incl. prefetch) to match standalone
                 .group_by("instrument", maintain_order=True)

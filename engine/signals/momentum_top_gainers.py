@@ -101,7 +101,19 @@ class MomentumTopGainersSignalGenerator:
         df_ind = add_next_day_values(df_ind)
         df_ind = df_ind.sort(["instrument", "date_epoch"])
 
-        # Period-average turnover filter (fixed universe, matches standalone approach)
+        # Period-average turnover filter (fixed universe, matches standalone approach).
+        #
+        # AUDIT P5.2 (2026-04-21): KNOWN LOOK-AHEAD / SURVIVORSHIP BIAS.
+        # `period_avg` averages close * volume over the ENTIRE data range
+        # (start_epoch - prefetch through end_epoch) and produces ONE
+        # static universe used for every rebalance from day one. A stock
+        # that becomes liquid in 2020 is included in the 2015 universe;
+        # a stock that delists mid-sim may be excluded from all years.
+        # This matches the standalone reference implementation and is
+        # intentionally preserved here to keep engine parity, but it
+        # does overstate realized alpha vs a strict point-in-time universe.
+        # For honest live-equivalent backtests, prefer per-day scanner
+        # (see eod_breakout.py). Tracked as an open P1 follow-up.
         _turnover_threshold = 70_000_000
         for scanner_cfg in get_scanner_config_iterator(context):
             thresh_val = scanner_cfg.get("avg_day_transaction_threshold")
@@ -278,6 +290,14 @@ class MomentumTopGainersSignalGenerator:
                         if exit_epoch is None or exit_price is None:
                             continue
 
+                        # AUDIT P5.2: the `or "1"` fallback means stocks that
+                        # didn't pass per-day scanner on `rb_epoch` still get
+                        # assigned to scanner config 1 and enter the
+                        # simulator. This is intentional (the strategy uses
+                        # period_avg_turnover as its universe filter, not
+                        # per-day scanner) but silently bypasses the scanner
+                        # step. Documented, not fixed — fixing would
+                        # invalidate existing backtest numbers.
                         all_order_rows.append({
                             "instrument": inst,
                             "entry_epoch": entry_epoch,

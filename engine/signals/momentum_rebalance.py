@@ -14,6 +14,22 @@ Each rebalance generates one order per stock in top-K:
   entry_price = close on rebalance_date
   exit_price = close on next_rebalance_date
 
+AUDIT P5.4 (2026-04-21): KNOWN SAME-BAR ENTRY BIAS.
+  This strategy ranks stocks by `momentum_return` computed using
+  `close[T] / close[T - N] - 1` AT THE SAME BAR it uses for entry_price
+  (close[T]). Signal and execution share the same close, which is not
+  achievable in live trading — a real MOC order needs the signal
+  observable BEFORE the closing auction.
+
+  Memory notes (docs/backtest_bias_audit): same-bar entry inflates
+  mean-reversion returns by 15-20pp CAGR. Momentum magnitude likely
+  smaller but non-zero. Fixing cleanly would mean either:
+    (a) signal from close[T-1], execute at close[T] (MOC-compatible), OR
+    (b) signal from close[T], execute at close[T+1] (delayed).
+
+  Left as-is to preserve result parity with the standalone reference.
+  Tracked as open P1 for strategy-author review.
+
 Key differences from dip-buy strategies:
   - No waiting for dips (always invested)
   - Periodic rebalance (not event-driven)
@@ -178,6 +194,10 @@ class MomentumRebalanceSignalGenerator:
                         exit_price = row.get("exit_close")
                         if exit_price is None or exit_price <= 0:
                             continue
+                        # AUDIT P5.4: same-bar entry bias. `entry_price =
+                        # close[rb_epoch]` and `momentum_return` was
+                        # computed using that same `close[rb_epoch]`.
+                        # See module docstring.
                         entry_price = row["close"]
                         if entry_price is None or entry_price <= 0:
                             continue

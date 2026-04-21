@@ -1109,3 +1109,172 @@ Champion verification: byte-identical (CAGR 25.76%, Calmar
 
 After Phase 4 work: **315 passing** (312 + 3 new). Champion
 byte-identical. No pre-existing tests broke.
+
+---
+
+## Phase 5 P1s — 2026-04-21
+
+Completed 4 P1 items covering the signal-generator audit layer.
+Baseline before work: 315 passing. After: 321 passing (6 new static
+audit tests in `tests/test_signal_audit.py`).
+
+Champion verification: byte-identical (CAGR 25.76%, Calmar 1.2792521).
+Zero historical-number movement from Phase 5 changes (which are
+documentation + tests only).
+
+### P5.1 — eod_breakout.py full audit (reference strategy)
+
+Clean. Verified:
+- Entry filter evaluates at day T close (n_day_ma, n_day_high,
+  direction_score, scanner_config_ids); entry executes at day T+1
+  open via `entry["next_open"]` / `entry["next_epoch"]`. No
+  look-ahead.
+- Custom `_walk_forward_tsl` (not base.walk_forward_exit) —
+  `max_price` tracks max(close since entry) rather than max
+  starting from entry_price. Slightly more lenient than
+  base.walk_forward_exit on entry-day red candles; matches ATO's
+  original convention.
+- `anomalous_drop` checked before TSL (post-P0-fix signed gap
+  detection — no false exits on positive gaps).
+- Last-bar handling: exit at close when no other trigger fires.
+- Minor perf note: `ed["epochs"].index(entry_epoch)` is O(n); same
+  O(n) pattern across several signal generators. Logged as a
+  performance (not correctness) P2 in the original checklist.
+
+Regression test: `TestReferenceStrategyPattern::test_eod_breakout_uses_next_day_open_entry`
+— asserts `entry["next_open"]` / `entry["next_epoch"]` / is_not_null
+guards remain in the source. Fails if someone silently changes to
+same-bar entry.
+
+### P5.2 — momentum_top_gainers.py + momentum_dip_quality.py
+
+**Finding A: full-period turnover universe (LOOK-AHEAD / SURVIVORSHIP BIAS).**
+
+Both strategies compute `period_avg = df_ind.group_by("instrument").
+agg(mean(close * volume), mean(close)).filter(...)` over the ENTIRE
+data range (start_epoch - prefetch through end_epoch) and use the
+resulting `period_universe_set` as a static universe for every
+rebalance day. Consequence:
+
+- A stock that becomes liquid in 2020 is included in the 2015
+  universe (cannot happen in live trading).
+- A stock that delists mid-sim may be included or excluded depending
+  on its period-avg turnover (forward-looking information).
+- Net effect: moderate overstatement of alpha vs a strict
+  point-in-time universe.
+
+The code comment ("matches standalone approach") indicates this
+is intentional for parity with the standalone reference
+implementation. Left as-is to avoid invalidating existing
+optimization results — documented with a prominent AUDIT P5.2
+warning at the call site in both files.
+
+**Finding B: scanner_config_ids fallback to "1".**
+
+`momentum_top_gainers.py:289`: `"scanner_config_ids": row.get(
+"scanner_config_ids") or "1"`. When a stock didn't pass the per-day
+scanner on the rebalance day, it still enters with
+`scanner_config_ids = "1"` — bypassing the scanner check. Same
+pattern in `momentum_dip_quality.py:458`. Documented at the call
+sites; no code change (bypass is intentional since the strategy
+uses period_avg as its universe filter).
+
+Regression tests:
+- `TestKnownBiasWarningsInPlace::test_mtg_period_avg_bias_is_documented`
+- `TestKnownBiasWarningsInPlace::test_mdq_period_avg_bias_is_documented`
+
+Both assert the AUDIT P5.2 warnings stay in source so a silent
+removal fails the test.
+
+### P5.3 — earnings_dip.py cross-source audit
+
+Mostly clean. Cross-source (FMP earnings × NSE tick pricing) is
+handled correctly:
+
+- Earnings events sorted chronologically per symbol; earnings epoch
+  compared against `start_epoch` to avoid pre-sim events.
+- Post-earnings peak uses the first 5 trading days AFTER earnings;
+  dip scan starts at earn_idx+5 — peak is fully in the past from
+  each scan day's perspective.
+- Volume confirmation uses 20-day pre-earnings average (not
+  post-earnings), so no forward-looking data.
+- Entry at next-day open via `pd_next_epochs[i]` / `pd_opens[i]`.
+  No same-bar bias.
+- Exit via `walk_forward_exit` with `require_peak_recovery=True`
+  (correct for dip-buy — only activate TSL after price recovers
+  to the post-earnings peak).
+
+Minor concern: quality-universe fuzzy match (line 453-462) extends
+±5 days from the earnings date when looking up is_quality. Since
+is_quality is computed from prior-year returns shifted 252/504/...
+days back, the data feeding is_quality stays pre-earnings regardless
+of which adjacent rescreen snapshot is used — only the snapshot
+timestamp is slightly fuzzy. Impact: negligible. Not flagged in
+code.
+
+Regression test: `TestEarningsDipPattern::test_earnings_dip_uses_next_day_open_and_peak_recovery`.
+
+### P5.4 — momentum_rebalance.py same-bar entry + generic sweep
+
+**Finding: momentum_rebalance.py has SAME-BAR ENTRY BIAS.**
+
+Source convention:
+- `momentum_return = close[T] / close[T - N] - 1` — uses close[T]
+  in the numerator
+- At rebalance date T: filter stocks by `momentum_return`, rank,
+  pick top K
+- `entry_price = row["close"]` = close[T]
+- `entry_epoch = rb_epoch` = day T itself
+
+Signal and execution share the same close[T]. This is not
+achievable in live trading — a real MOC order needs the signal
+observable BEFORE the closing auction. Memory notes
+(`docs/backtest_bias_audit`): same-bar entry inflates mean-reversion
+returns by 15-20pp CAGR; momentum magnitude likely smaller but
+non-zero.
+
+The docstring explicitly states this convention
+("entry_price = close on rebalance_date"), indicating it's a
+deliberate choice to match the standalone reference. Clean fixes:
+  (a) signal from close[T-1], execute at close[T] (MOC-compatible), OR
+  (b) signal from close[T], execute at close[T+1] (delayed).
+
+Added module-level AUDIT P5.4 warning and an inline warning at the
+assignment site. No code change to entry logic — fixing would
+invalidate existing comparison against the standalone reference.
+Tracked as open P1 for strategy-author review.
+
+**Generic sweep result:** all other 29 signal generators use
+`next_epoch` (via `add_next_day_values`) or `next_trading_day` for
+entry execution. No new same-bar patterns found. Two files use
+`entry_price = closes[entry_idx]` as an OPEN-FAIL FALLBACK (low_pe,
+factor_composite) where `entry_idx` already points to the
+next-trading-day — this is execution slippage, not same-bar bias.
+
+Regression tests:
+- `TestKnownBiasWarningsInPlace::test_momentum_rebalance_same_bar_bias_is_documented`
+- `TestNoOtherSameBarEntries::test_no_new_same_bar_entries_introduced` —
+  sweeps every signal file; fails if a new file introduces
+  `entry_price = row["close"]` without the AUDIT P5.4 warning.
+
+### Phase 5 regression suite
+
+After Phase 5 work: **321 passing** (315 + 6 new static audit
+tests). Champion byte-identical. No code changes to signal logic —
+only inline doc comments and unit-test scaffolding, so no backtest
+numbers moved.
+
+### Open P1s surfaced by Phase 5 (deferred per user direction to
+preserve result parity)
+
+1. momentum_top_gainers.py + momentum_dip_quality.py:
+   full-period universe → point-in-time universe would invalidate
+   existing optimization results (CAGR likely drops by several
+   percentage points). Requires full re-run if fixed.
+2. momentum_top_gainers.py + momentum_dip_quality.py: scanner
+   fallback `or "1"` silently bypasses per-day scanner. Fix is
+   either `continue` instead of assigning "1", or explicitly
+   documenting the period_avg universe as the canonical filter.
+3. momentum_rebalance.py: same-bar entry fix — options (a) or (b)
+   above. Expected impact: small-to-moderate CAGR reduction
+   depending on momentum_lookback.
