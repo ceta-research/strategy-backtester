@@ -2,7 +2,7 @@
 
 **Created:** 2026-04-20
 **Last updated:** 2026-04-21
-**Status:** 17/17 P0 closed + 38/50 P1 closed (Phases 1-6 landed 2026-04-21). Authoritative log in `docs/AUDIT_FINDINGS.md`. Remaining work: 12 P1 + 49 P2 + 32 P3 open. Strategies requiring full re-runs: every cross-exchange LSE/HKSE/KSC/XETRA/JPX/TSX/ASX result (Phase 3 revisit). Signal-strategy re-runs deferred for Phase 5 P1 follow-ups: momentum_top_gainers / momentum_dip_quality / momentum_rebalance (user decision on when to fix known biases).
+**Status:** 17/17 P0 closed + 44/50 P1 closed (Phases 1-6 landed 2026-04-21). Authoritative log in `docs/AUDIT_FINDINGS.md`. Remaining work: 6 P1 + 49 P2 + 32 P3 open. Strategies requiring full re-runs: every cross-exchange LSE/HKSE/KSC/XETRA/JPX/TSX/ASX result (Phase 3 revisit). Signal-strategy re-runs deferred for Phase 5 P1 follow-ups: momentum_top_gainers / momentum_dip_quality / momentum_rebalance (user decision on when to fix known biases).
 **Scope:** 24 core files (engine/ non-signals + lib/). Signals spot-checked only.
 
 Priority tags: **P0** = known bug, must fix. **P1** = high-impact, likely bug. **P2** = medium, needs investigation. **P3** = low, hygiene/edge case.
@@ -128,8 +128,8 @@ Wait — that's a real concern. Verify by reading the loop carefully.
 
 ### engine/config_loader.py, engine/config_sweep.py
 
-- [ ] **P1** `create_config_iterator`: confirm that for N params each with K values, generates K^N combinations in deterministic order. Config IDs must be stable across runs.
-- [ ] **P1** YAML parsing: if a param is missing from YAML, what's the fallback? Silent default or error?
+- [x] **P1** `create_config_iterator`: confirm that for N params each with K values, generates K^N combinations in deterministic order. Config IDs must be stable across runs. *— Phase 6 P6.1: verified `itertools.product` over Python 3.7+ dicts is stable. Test pins same-input → same-output.*
+- [x] **P1** YAML parsing: if a param is missing from YAML, what's the fallback? Silent default or error? *— Phase 6 P6.1: silent default (documented). `validate_config` catches structural issues. Test pins default key set and structural error cases.*
 - [ ] **P2** Compound params (e.g. `direction_score: [{n_day_ma: 3, score: 0.54}]`) — how are they counted in the iterator?
 - [ ] **P3** Scanner instrument format: `[{exchange: NSE, symbols: []}]`. Empty symbols = all symbols. Document explicitly.
 
@@ -179,10 +179,10 @@ Separate from code audit: check the data itself.
 
 ## Tier 5 — Edge Cases & Failure Modes
 
-- [ ] **P1** Zero-trade simulation: signal gen emits no orders. Does pipeline return empty sweep gracefully or crash?
-- [ ] **P1** Single-day simulation: start=end. Metrics undefined — should error, not silently return junk.
-- [ ] **P1** All-loser simulation: every trade loses. MDD = -99%, Calmar undefined. Check division-by-zero guards.
-- [ ] **P1** Capital exhaustion: simulator runs out of margin. Does it halt or keep trying failed entries?
+- [x] **P1** Zero-trade simulation: signal gen emits no orders. Does pipeline return empty sweep gracefully or crash? *— Phase 6 P6.4: graceful. Empty trade_log, starting margin preserved, MTM log still emits.*
+- [x] **P1** Single-day simulation: start=end. Metrics undefined — should error, not silently return junk. *— Phase 6 P6.4: `validate_config` raises ValueError at load time.*
+- [x] **P1** All-loser simulation: every trade loses. MDD = -99%, Calmar undefined. Check division-by-zero guards. *— Phase 6 P6.4: monotonic-decline curve produces valid negative CAGR + MDD; Calmar is None or finite float, no ZeroDivisionError.*
+- [x] **P1** Capital exhaustion: simulator runs out of margin. Does it halt or keep trying failed entries? *— Phase 6 P6.4: skips individual entries when margin insufficient (no retry, no crash, margin preserved). Simulator continues for MTM updates.*
 - [ ] **P2** Data with huge gaps (delisting mid-simulation): position still open when instrument disappears.
 - [ ] **P2** Currency mismatch: multi-currency portfolios not supported. Ensure config rejects multi-exchange configs that would mix currencies.
 - [ ] **P2** Time zone: all epochs assumed UTC. Actual NSE close is 15:30 IST = 10:00 UTC. If daily data uses "end of day UTC" vs "end of day IST", a day's data could be misaligned.

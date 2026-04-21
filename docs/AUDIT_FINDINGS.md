@@ -1288,3 +1288,99 @@ preserve result parity)
 3. momentum_rebalance.py: same-bar entry fix — options (a) or (b)
    above. Expected impact: small-to-moderate CAGR reduction
    depending on momentum_lookback.
+
+---
+
+## Phase 6 P1s — 2026-04-21
+
+Completed 4 P1 items covering config determinism, intraday stop-loss
+robustness, cloud-orchestrator cache scoping, and simulator edge
+cases. Baseline before work: 321 passing. After: 334 passing (13 new
+regression tests in `tests/test_edge_cases.py`).
+
+Champion verification: byte-identical (CAGR 25.76%, Calmar 1.2792521).
+
+### P6.1 — config_iterator determinism + YAML fallbacks
+
+Investigation + tests. `create_config_iterator` is already
+deterministic — `itertools.product(*kwargs.values())` is stable and
+Python 3.7+ dict insertion order is preserved. Verified:
+
+- `TestConfigIteratorDeterminism::test_same_input_yields_same_output`
+  — identical input produces bit-identical config lists incl. ids.
+- `test_k_to_the_n_total` / `test_mixed_length_cartesian` pin the
+  Cartesian count and id sequence.
+
+YAML missing-key behavior is documented as intentional: every key in
+every config section has a default. `validate_config` is the single
+guard for structural issues (inverted epochs, zero max_positions,
+bad trailing_stop_pct). Tests:
+
+- `test_simulation_config_defaults_for_missing_keys` pins the full
+  default key set.
+- `test_validate_config_rejects_inverted_epochs` + `_zero_max_positions`.
+
+Cost of the default-if-missing design: typos silently fall through
+(e.g. `n_day_MA` vs `n_day_ma`). Not a bug, documented as a user-
+facing gotcha.
+
+### P6.2 — intraday_simulator_v2 fixed_stop clamp
+
+Pre-fix: `fixed_stop = entry_price - atr_multiplier * atr_14` could
+go negative on high-volatility names where
+`atr_14 * atr_multiplier > entry_price`. The `price_low <= fixed_stop`
+check then never fired on positive prices → silent no-stop mode for
+exactly the positions that most needed a stop.
+
+Post-fix (`engine/intraday_simulator_v2.py` in `_resolve_exit`):
+clamp `fixed_stop` to `max(fixed_stop, 0.01 * entry_price)` after
+the raw computation. Stop is always a realistic positive level.
+
+Regression test: source-level assertion that the clamp marker and
+guard appear AFTER the raw fixed_stop assignment
+(`TestIntradayFixedStopClamp::test_negative_stop_clamped_to_floor`).
+
+### P6.3 — cloud_orchestrator hash cache per-project scoping
+
+Pre-fix (`lib/cloud_orchestrator.py:224-233`): the hash cache was a
+flat `{path: hash}` dict, NOT keyed by `project_name`. Switching
+projects (e.g. `sb-remote` → `sb-eod-sweep-v2`) made the new project
+inherit the old project's "already uploaded" hashes, skipped the
+uploads, and the cloud project ended up empty → runs crashed with
+`ImportError` on missing modules.
+
+Post-fix: nested `{project_name: {path: hash}}` layout.
+`_load_hash_cache` returns the sub-dict for the current project;
+`_save_hash_cache` updates only that sub-dict. Legacy flat-format
+files are adopted by the current project on first save (so users
+don't re-upload everything on upgrade).
+
+Regression tests:
+- `TestHashCacheProjectScoping::test_two_projects_have_independent_caches`
+- `test_legacy_flat_format_is_migrated`
+
+### P6.4 — simulator edge cases
+
+Verified 4 edge cases:
+
+1. **Zero-trade simulation.** `simulator.process()` with an empty
+   `df_orders` completes cleanly: empty `trade_log`, starting margin
+   preserved, per-day MTM log still emitted.
+   `TestZeroTradeSimulation::test_empty_orders_returns_clean_state`.
+2. **Single-day simulation (start_epoch == end_epoch).**
+   `validate_config` raises `ValueError` at config-load time —
+   simulation never runs on a zero-duration window.
+   `TestSingleDaySimulationValidation::test_validate_config_rejects_single_day`.
+3. **All-loser simulation.** Monotonically decreasing equity curve
+   produces valid negative CAGR, valid negative MDD, Calmar is None
+   or a finite float — no ZeroDivisionError leaks through.
+   `TestAllLoserSimulation::test_all_losses_produces_valid_metrics`.
+4. **Capital exhaustion.** `simulator.py:154` skips entries when
+   `margin_available < required_margin_for_entry`. No retry at
+   reduced size, no crash, margin preserved.
+   `TestCapitalExhaustion::test_insufficient_margin_skips_entry_gracefully`.
+
+### Phase 6 regression suite
+
+After Phase 6 work: **334 passing** (321 + 13 new). Champion
+byte-identical. No pre-existing tests broke.
