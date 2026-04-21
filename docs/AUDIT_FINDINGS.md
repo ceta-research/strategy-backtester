@@ -1,7 +1,7 @@
 # Strategy-Backtester Audit Findings
 
 **Started:** 2026-04-21
-**Status:** All 11 P0s fixed. Layers 0-5 landed. Layer 6 (full batch migration of `results/*.json`) is a batch job using the existing `scripts/recompute_metrics.py` tool.
+**Status:** All 11 P0s fixed. Layers 0-6 landed. Historical batch migration complete (214 files in `results_v2/`); strategies affected by P0s #7-10 still require full simulation re-runs (see Layer 6).
 
 **Self-review log:** After initial implementation, a critical code review found
 and fixed four additional bugs introduced during the work:
@@ -120,7 +120,7 @@ these are frequency-invariant.
 
 - `results/` directory is preserved read-only as the buggy archive.
 - `scripts/recompute_metrics.py <result.json>` recomputes on demand.
-- Batch migration to `results_v2/` is Layer 6 (pending).
+- Batch migration to `results_v2/` complete (Layer 6); 214 files migrated.
 - Any public claim (blog, Reddit, LinkedIn) citing pre-fix CAGR/Sharpe/Calmar
   should be reviewed against the post-fix numbers before new content publishes.
 
@@ -222,8 +222,9 @@ Re-run backtests to pick up the delta.
   using the corrected path, writes new files under `results_v2/` preserving
   the original structure (single-result or sweep).
 - Each migrated file adds `summary_v1_pre_fix` (original summary, for audit),
-  `equity_curve_frequency` (auto-detected), and `migration_report`.
-- `results_v2/MIGRATION_REPORT.md` — aggregate before/after report.
+  `equity_curve_frequency` (auto-detected), and a per-file `migration_report`
+  field. No top-level aggregate report is produced; before/after deltas are
+  streamed to stdout during the run.
 
 ### Batch run result
 
@@ -240,9 +241,28 @@ Re-run backtests to pick up the delta.
 
 - Every public claim referencing a result in `results/` can now be validated
   against the corrected value in `results_v2/`.
-- No simulation rerun needed — metrics are redrived from the stored curve,
-  which is the authoritative output.
+- No simulation rerun needed for metric-formula corrections (Layers 1, 5) —
+  metrics are rederived from the stored equity curve.
 - `results/` remains the buggy archive (preserved for audit chain).
+
+### Caveat: `results_v2/` is not universally authoritative
+
+Migration re-derives metrics from stored equity curves but CANNOT recover
+from trade-generation changes. Strategies whose executed trades were
+affected by P0s #7-10 still need full simulation re-runs; the migrated
+metrics in `results_v2/` will be internally consistent but will reflect
+the pre-fix trade path.
+
+| Strategy | Re-run reason |
+|---|---|
+| `quality_dip_tiered` | P0 #7 — tier collisions silently dropped all but one tier per (instrument, entry_epoch, exit_epoch). |
+| `enhanced_breakout`  | P0 #10 — TSL never fired on red-close breakouts (missing `require_peak_recovery=False`). |
+| `eod_breakout`       | P0 #8 — `abs()` anomalous-drop forced losses on positive gaps. |
+| Any strategy exiting via `order_generator` path | P0 #9 — anomalous-drop branch missing `tracker.add()` produced duplicate exits with non-deterministic pricing. |
+
+For the strategies NOT in the table (`momentum_top_gainers`,
+`momentum_cascade`, `momentum_dip_quality`, `earnings_dip`), the migrated
+`results_v2/` numbers are authoritative.
 
 ---
 
