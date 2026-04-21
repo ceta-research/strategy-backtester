@@ -478,25 +478,16 @@ class EarningsDipSignalGenerator:
                         if earn_vol < avg_vol * 1.5:
                             continue
 
-                    # Find post-earnings peak (highest close in first 5
-                    # trading days after earnings).
-                    # P2 L305: guard against None entries in the slice.
-                    # `fill_missing_dates` can insert weekend rows with
-                    # null close that were not backward-filled at this
-                    # stage (e.g. if earn_idx falls near a data gap).
-                    # Unguarded `max(...)` raises TypeError when the
-                    # slice contains None. Use a generator with default.
+                    # Highest close in first 5 trading days after earnings.
+                    # Filter None to avoid TypeError from data gaps.
                     peak_end = min(earn_idx + 5, len(pd_closes) - 1)
                     if peak_end <= earn_idx:
                         continue
-                    _peak_slice = [
-                        x for x in pd_closes[earn_idx:peak_end + 1]
-                        if x is not None
-                    ]
-                    if not _peak_slice:
-                        continue
-                    post_peak = max(_peak_slice)
-                    if post_peak <= 0:
+                    post_peak = max(
+                        (x for x in pd_closes[earn_idx:peak_end + 1] if x is not None),
+                        default=None,
+                    )
+                    if post_peak is None or post_peak <= 0:
                         continue
 
                     # Look for dip from post-earnings peak within window

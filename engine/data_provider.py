@@ -269,10 +269,8 @@ class CRDataProvider:
                     smaller transfer, faster parsing).
             timeout: CR API query timeout in seconds.
             memory_mb: CR API memory allocation in MB. Default 16_384 (16 GiB)
-                is the maximum memory tier exposed by the CR API's per-query
-                resource allocator. Lowering below 8 GiB can cause OOM on full
-                NSE-universe queries spanning 10+ years. P2 L125: matches the
-                cloud orchestrator's advertised tier; verified 2026-04-21.
+                is the maximum memory tier. Lowering below 8 GiB can cause
+                OOM on full NSE-universe queries spanning 10+ years.
             threads: CR API parallel threads.
             disk_mb: CR API disk allocation in MB.
             spike_threshold: Price oscillation tier 1 threshold (x multiplier).
@@ -892,16 +890,10 @@ class BhavcopyDataProvider:
         Includes warmup window (1500 days before start_epoch) in the averaging period
         to match standalone methodology.
 
-        P2 L291 WARNING: `AVG(CLOSE) > price_threshold` operates on UNADJUSTED
-        bhavcopy prices. A stock that traded at ₹5000 pre-split and ₹50
-        post-split will have its 1500-day average dominated by pre-split
-        prices and pass a ₹50 threshold even if current price is below it.
-        Conversely, a stock that traded at ₹50 pre-split and ₹0.50
-        post-split will fail the filter on current prices. For long
-        horizons with frequent splits, prefer `median(CLOSE)` or
-        last-N-day-average (tracked as a P3 follow-up). Split-adjusted
-        universe selection requires `NseChartingDataProvider` which has
-        adjusted prices.
+        WARNING: `AVG(CLOSE) > price_threshold` runs on UNADJUSTED prices,
+        so splits skew the average (a pre-split ₹5000 stock passes a ₹50
+        threshold even after a 100:1 split drops it to ₹50). For
+        split-aware selection use `NseChartingDataProvider`.
         """
         having_clauses = []
         if self.turnover_threshold > 0:

@@ -50,8 +50,7 @@ def test_dict_values():
 
 
 def test_compound_param_counts_as_one_slot():
-    """P2 L133: compound dict params occupy ONE slot in the cartesian
-    product — the whole dict is the value. 3 compound × 2 scalar = 6."""
+    """Compound dict params occupy one cartesian slot; 3 × 2 = 6."""
     total, gen = create_config_iterator(
         composite=[
             {"a": 1, "b": 2},
@@ -66,8 +65,7 @@ def test_compound_param_counts_as_one_slot():
 
 
 def test_empty_list_raises_value_error():
-    """P2 L285: commented-out YAML values produce empty lists which
-    previously silenced the sweep (zero iterations, no error)."""
+    """Commented-out YAML values produce empty lists; reject explicitly."""
     try:
         create_config_iterator(a=[1, 2], b=[])
         assert False, "Should have raised ValueError"

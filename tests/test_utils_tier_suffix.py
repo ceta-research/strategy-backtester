@@ -1,9 +1,7 @@
-"""Tests for engine.utils.create_config_df_loc_lookup tier-suffix handling (P2 L100).
+"""Tests for engine.utils.create_config_df_loc_lookup tier-suffix handling.
 
-Pre-audit notes flagged the `_t` suffix strip as fragile — it would
-collapse any non-tier config_id that happened to contain `_t` into a
-single base id. This test pins the expected behavior so the fragility
-cannot regress silently.
+Pins the `_t` suffix strip behavior so the documented fragility cannot
+regress silently.
 """
 
 import os

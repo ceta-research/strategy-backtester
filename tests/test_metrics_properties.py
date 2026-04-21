@@ -1,15 +1,6 @@
-"""Property-style invariant tests for lib/metrics.py (P2 L28).
+"""Property-style invariant tests for lib/metrics.py.
 
-Parametrized across representative inputs — not true Hypothesis tests
-(hypothesis is not a project dependency), but assert the same class of
-invariants that property testing targets.
-
-Invariants:
-- CAGR of a flat unit series `[1, 1, 1, ...]` is 0%.
-- Calmar is None when MDD is 0 (divide-by-zero guard).
-- Sharpe (geometric) is None when vol is 0 (constant-return series).
-- max_drawdown is 0 on a strictly increasing series.
-- max_drawdown bounded in [-1, 0] for any series.
+Parametrized across representative inputs without a Hypothesis dep.
 """
 
 import math
@@ -75,7 +66,7 @@ class TestMonotoneSeriesInvariants(unittest.TestCase):
         self.assertIsNone(res["portfolio"]["calmar_ratio"])
 
     def test_monotone_up_duration_zero_not_none(self):
-        """P2 L43 invariant: no drawdown → duration 0, not None."""
+        """No drawdown → duration 0, not None."""
         curve = _curve([100.0 + i for i in range(20)])
         res = compute_metrics_from_curve(curve)
         self.assertEqual(res["portfolio"]["max_dd_duration_periods"], 0)

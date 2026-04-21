@@ -1,15 +1,7 @@
-"""Tests for engine.scanner drop_nulls subset behavior (P2 L281).
+"""Tests for engine.scanner drop_nulls subset behavior.
 
-Pre-fix, bare `drop_nulls()` at the end of scanner.process silently
-dropped any row with a null in ANY column. Filled weekend rows (from
-`fill_missing_dates`) have null open/high/low/volume/average_price but
-non-null close (backward-filled); this was the intended drop target.
-But real trading-day rows with occasional null `volume` or
-`average_price` (corporate-action edge cases) were also dropped,
-shrinking the universe invisibly.
-
-Post-fix: `drop_nulls(subset=["open"])` targets only the filled rows
-while preserving real rows with null volume/avg_price.
+Filled weekend rows (null open/high/low/volume, backward-filled close)
+must be dropped; real rows with null volume/avg_price must survive.
 """
 
 import os
@@ -55,9 +47,7 @@ def _base_row(epoch, close=100.0, open_=None, volume=1000, avg_price=None):
 class TestScannerDropNullsSubset(unittest.TestCase):
 
     def test_real_row_with_null_volume_retained(self):
-        """A real trading-day row with null volume/avg_price must survive
-        scanner processing post-fix. Pre-fix bare drop_nulls() would
-        silently drop it."""
+        """Real trading-day row with null volume/avg_price must survive."""
         start = 1_600_000_000
         rows = []
         for i in range(5):

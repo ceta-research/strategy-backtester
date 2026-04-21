@@ -210,17 +210,8 @@ def process(context, df_orders, epoch_wise_instrument_stats, current_snapshot, s
     max_positions = sim_config["max_positions"]
     max_positions_per_instrument = sim_config["max_positions_per_instrument"]
     exit_before_entry = sim_config.get("exit_before_entry", False)
-    # P2 L116: `slippage_rate` default 0.0005 (5 bps per side = 10 bps
-    # round-trip). Realistic for liquid large-cap NSE delivery trades;
-    # probably UNDERSTATED for:
-    #   - Small-cap / illiquid names (impact scales ~sqrt(size/ADV))
-    #   - Large position sizes (₹5M+ on mid-caps)
-    #   - Non-NSE/BSE exchanges with wider effective spreads
-    # Users running those scenarios should override via
-    # `context["slippage_rate"]` with a more conservative value (e.g. 15-25
-    # bps for small-cap, 20-50 bps for large institutional fills).
-    # A concave (sqrt) slippage model is tracked as a P3 follow-up; the
-    # current linear model is a reasonable first approximation.
+    # 5bps per side; override via context["slippage_rate"] for
+    # small-cap / large-size / non-NSE which see wider effective spreads.
     slippage_rate = context.get("slippage_rate", 0.0005)
     # Phase 2.2: policy for missing avg_txn when max_order_value uses
     # percentage_of_instrument_avg_txn. Default "no_cap" preserves pre-fix

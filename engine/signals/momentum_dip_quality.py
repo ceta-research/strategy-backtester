@@ -213,11 +213,7 @@ class MomentumDipQualitySignalGenerator:
             # scanner threshold.  This produces a FIXED set of instruments
             # (matches standalone's fetch_universe SQL approach).
             _turnover_threshold = 70_000_000  # default NSE threshold
-            # P2 L304: avg_close threshold was hardcoded ₹50 — INR-specific
-            # and breaks on USD universes where most stocks trade below $50.
-            # Now sourced from scanner_config.price_threshold (same key the
-            # scanner uses for per-bar filtering). Default 50 preserves
-            # historical NSE behavior for configs that don't set it.
+            # Default 50 preserves NSE behavior; override via scanner_config.
             _price_threshold = 50.0
             for scanner_cfg in get_scanner_config_iterator(context):
                 thresh_val = scanner_cfg.get("avg_day_transaction_threshold")

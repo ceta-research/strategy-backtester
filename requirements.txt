@@ -1,8 +1,4 @@
-# P2 L376: version pins for local dev must match lib/cloud_orchestrator.py
-# DEFAULT_DEPENDENCIES so local sweeps are reproducible with cloud sweeps.
-# Mismatched polars minor versions (e.g. 1.15 vs 1.37) can produce
-# different results due to group_by ordering or rolling-window NULL
-# handling changes. Keep this synced with cloud_orchestrator.py.
+# polars pin must match lib/cloud_orchestrator.py DEFAULT_DEPENDENCIES.
 pandas>=2.0
 numpy>=1.24
 polars==1.37.1

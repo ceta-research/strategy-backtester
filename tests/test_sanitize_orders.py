@@ -1,12 +1,4 @@
-"""Tests for engine.signals.base.sanitize_orders (P2 L74).
-
-Coverage:
-- Sub-penny entry price removal.
-- Non-positive exit price removal.
-- Extreme-return capping at max_return_mult.
-- L74 diagnostic counter fires at the tighter threshold without changing
-  the capped DataFrame (no behavior regression at max_return_mult=999).
-"""
+"""Tests for engine.signals.base.sanitize_orders."""
 
 import os
 import sys
@@ -60,7 +52,7 @@ class TestSanitizeFilters(unittest.TestCase):
 
 
 class TestDiagnosticThreshold(unittest.TestCase):
-    """P2 L74 — diagnostic fires without changing output when max_return_mult is permissive."""
+    """Diagnostic counter fires without changing output when max_return_mult is permissive."""
 
     def test_diagnostic_counts_extreme_orders(self):
         """Current pipeline passes max_return_mult=999, which lets 30×

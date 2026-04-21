@@ -111,11 +111,10 @@ def sanitize_orders(df_orders: pl.DataFrame, min_entry_price: float = 0.10,
         df_orders: DataFrame with entry_price, exit_price columns.
         min_entry_price: Minimum valid entry price (default $0.10).
         max_return_mult: Maximum allowed exit/entry ratio (default 5.0 = 500%).
-        diagnostic_threshold: P2 L74. If set (>0), counts how many orders
-            would exceed this tighter threshold WITHOUT capping them. The
-            count is logged as an informational advisory so users can see
-            how many suspicious orders slip through the current cap. Pass
-            0 to disable the diagnostic. Default 20.0 (i.e. 2000% return).
+        diagnostic_threshold: If > 0, log the count of orders that would
+            exceed this ratio without dropping them. Surfaces suspicious
+            orders when the cap is permissive (e.g. 999x). Pass 0 to
+            disable. Default 20.0 (2000%).
 
     Returns:
         Sanitized DataFrame with bad rows removed and extreme exits capped.
@@ -131,10 +130,8 @@ def sanitize_orders(df_orders: pl.DataFrame, min_entry_price: float = 0.10,
     # Filter out zero / negative exit prices
     df_orders = df_orders.filter(pl.col("exit_price") > 0)
 
-    # P2 L74 diagnostic: count extreme-return orders BEFORE capping so the
-    # log reflects raw signal-gen output, not the post-cap state. This
-    # surfaces data-quality issues (reverse splits, unit errors, etc.)
-    # even when the caller passes a permissive max_return_mult like 999.
+    # Count pre-cap so the log reflects raw signal-gen output, not the
+    # post-cap state.
     diag_count = 0
     if diagnostic_threshold and diagnostic_threshold > 0:
         diag_count = int(

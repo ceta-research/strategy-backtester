@@ -1,13 +1,4 @@
-"""Determinism tests (P2 L377 + L378).
-
-- L377: same YAML input → same config_ids across runs (config_sweep).
-- L378: static audit of engine/signals/*.py for `group_by` calls that
-  lack `maintain_order=True`. Polars `group_by` is ordering-unstable by
-  default; mixing two group_by outputs expecting aligned order is a
-  latent nondeterminism.
-
-These are cheap, fast, and run in CI on every commit.
-"""
+"""Determinism tests: sweep config_id stability + polars group_by audit."""
 
 import os
 import re
@@ -53,10 +44,10 @@ class TestConfigIteratorDeterminism(unittest.TestCase):
 
 
 class TestGroupByMaintainOrderAudit(unittest.TestCase):
-    """P2 L378 — all group_by calls in engine/signals/ must carry
-    `maintain_order=True` (or a comment explicitly opting out).
+    """All group_by calls in engine/ must carry `maintain_order=True`.
 
-    Static scan; catches future regressions where a dev forgets the kwarg.
+    Polars group_by is ordering-unstable by default; catches future
+    regressions where a dev forgets the kwarg.
     """
 
     def _scan_file(self, path):

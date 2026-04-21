@@ -60,11 +60,8 @@ def run_pipeline(config_path, data_provider=None):
 
     start_margin = static["start_margin"]
 
-    # Extract exchange(s) from scanner config for SweepResult tagging.
-    # P2 L75: previously only the FIRST scanner_cfg's FIRST exchange was
-    # captured, so multi-exchange sweeps (e.g. NSE + JPX) were mistagged
-    # with just one. Now: collect unique exchanges and join with "+" for
-    # the SweepResult label. "UNKNOWN" only when no instruments at all.
+    # Join unique exchanges with "+" so multi-exchange sweeps are tagged
+    # correctly in SweepResult (e.g. "NSE+JPX").
     exchange_set = set()
     for scanner_cfg in get_scanner_config_iterator(config):
         for inst in scanner_cfg["instruments"]:

@@ -202,13 +202,10 @@ class BacktestResult:
         Strips everything except summary, strategy, benchmark, comparison,
         and costs from the cached result. After compact(), to_dict() still
         returns a valid dict but equity_curve, trades, monthly/yearly
-        breakdowns will be empty.
+        breakdowns will be empty. Sets `compacted=True` in the dict so
+        consumers can distinguish compaction from a genuinely empty run.
 
         Call after sweep.add_config() in loops with 1000+ configs.
-
-        P2 L58: sets `_computed["compacted"] = True` so downstream readers
-        can distinguish a legitimately-empty run from a memory-compacted
-        one without silently reporting "0 trades" as a real result.
         """
         if self._computed is None:
             self.compute()
@@ -492,8 +489,7 @@ class BacktestResult:
             "summary": {}, "benchmark": {}, "comparison": {},
             "equity_curve": [], "trades": [],
             "monthly_returns": {}, "yearly_returns": [],
-            # Pre-populated so print_summary()'s c["total_cost"] access
-            # does not KeyError on an empty result.
+            # print_summary() reads costs.total_cost; keep keys populated.
             "costs": {
                 "total_charges": 0.0, "total_slippage": 0.0,
                 "total_cost": 0.0, "cost_pct_of_capital": 0.0,
@@ -610,42 +606,37 @@ class SweepResult:
             print(f"  {i+1:<3} {cagr:>+6.1f}% {mdd:>6.1f}% {cal:>6.2f} {sh:>6.2f} "
                   f"{so:>6.2f} {wr:>4.0f}% {tr:>4} {params}")
 
-    def _sorted(self, sort_by):
-        """Return configs sorted by `sort_by` metric (descending).
+    def _partition(self, sort_by):
+        """Partition configs into (scored_desc, unscored_insertion_order).
 
-        P2 L236: configs whose metric is None are placed in a separate
-        "unscored" group appended after the scored group. Pre-fix the key
-        function returned float('-inf') for None, which buried legitimately
-        zero-drawdown configs (calmar_ratio=None because MDD=0) at the
-        bottom of the leaderboard — reporting the *best* config as the
-        worst. Now the unscored bucket is visually distinct in
-        print_leaderboard() (prefixed with '?') and kept in insertion
-        order within the bucket.
+        Configs whose `sort_by` metric is None go to the unscored bucket
+        instead of being assigned float('-inf') — that previously buried
+        zero-drawdown configs (calmar_ratio=None from MDD=0) at the
+        bottom of the leaderboard.
         """
         scored = []
         unscored = []
         for item in self.configs:
-            d = item[1].to_dict()
-            v = d.get("summary", {}).get(sort_by)
+            v = item[1].to_dict().get("summary", {}).get(sort_by)
             if v is None:
                 unscored.append(item)
             else:
                 scored.append((v, item))
         scored.sort(key=lambda x: x[0], reverse=True)
-        return [it for _, it in scored] + unscored
+        return [it for _, it in scored], unscored
+
+    def _sorted(self, sort_by):
+        """Return configs sorted by `sort_by` metric (descending).
+
+        Unscored configs (metric=None) appended after scored configs in
+        insertion order — see `_partition` for rationale.
+        """
+        scored, unscored = self._partition(sort_by)
+        return scored + unscored
 
     def _unscored_configs(self, sort_by):
-        """Return only the configs whose `sort_by` metric is None.
-
-        Exposed for callers (print_leaderboard, diagnostics) that want to
-        surface unscored configs separately from the ranked list.
-        """
-        unscored = []
-        for item in self.configs:
-            d = item[1].to_dict()
-            v = d.get("summary", {}).get(sort_by)
-            if v is None:
-                unscored.append(item)
+        """Return only the configs whose `sort_by` metric is None."""
+        _, unscored = self._partition(sort_by)
         return unscored
 
 

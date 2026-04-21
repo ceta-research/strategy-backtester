@@ -1,12 +1,4 @@
-"""Tests for SweepResult._sorted None-metric handling (P2 L236).
-
-Pre-fix, configs with `calmar_ratio=None` (from MDD=0 divide-by-zero)
-were assigned `float("-inf")` and ranked last — a legitimately
-zero-drawdown config appeared as the *worst* config in the leaderboard.
-
-Post-fix (_sorted groups None-metric configs separately, appended after
-the scored configs in insertion order).
-"""
+"""Tests for SweepResult None-metric sorting and compact() flag."""
 
 import os
 import sys
@@ -57,8 +49,7 @@ class TestSweepSortingNoneHandling(unittest.TestCase):
         return sweep
 
     def test_unscored_is_not_ranked_worst(self):
-        """Pre-fix bug: unscored config was ranked last (treated as -inf).
-        Post-fix: scored configs ranked first, unscored appended after."""
+        """Scored configs ranked first (desc), unscored appended after."""
         sweep = self._build_sweep_with_unscored()
         sorted_ = sweep._sorted("calmar_ratio")
         ids = [p["id"] for p, _ in sorted_]
@@ -103,7 +94,7 @@ class TestSweepSortingNoneHandling(unittest.TestCase):
 
 
 class TestCompactFlag(unittest.TestCase):
-    """P2 L58 — compact() marks the result as compacted for downstream detection."""
+    """compact() marks the result as compacted for downstream detection."""
 
     def test_compact_sets_flag(self):
         r = _make_config(calmar_value=0.5)

@@ -16,12 +16,6 @@ def create_config_iterator(**kwargs) -> Tuple[int, Iterator]:
     if not kwargs:
         raise KeyError("No parameters provided")
 
-    # P2 L285: guard against silently-empty sweeps.
-    # Pre-fix, a commented-out YAML value (`- 1.0` → blank list) produced an
-    # empty param list, which made total_configs collapse to 0 via the
-    # product below and product(*kwargs.values()) yielded nothing — the
-    # pipeline ran with zero simulations and no error surfaced. Reject
-    # explicitly so the YAML typo is visible to the user.
     for key, param_list in kwargs.items():
         if not param_list:
             raise ValueError(

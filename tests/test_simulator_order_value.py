@@ -1,15 +1,7 @@
-"""Tests for engine.simulator order_value computation (P2 L93).
+"""Tests for engine.simulator order_value computation.
 
-Three order-sizing modes must yield the expected notional:
-    1. fixed: literal rupee amount
-    2. percentage_of_account_value: pct of (margin_available + invested_value)
-    3. percentage_of_available_margin: pct of cash only
-
-Also verifies order_value_multiplier scales the result.
-
-We test the sizing logic by invoking the simulator end-to-end on a tiny
-synthetic orders+ticks fixture and checking the first trade's resulting
-position value.
+Three order-sizing modes: fixed, percentage_of_account_value,
+percentage_of_available_margin. Plus order_value_multiplier scaling.
 """
 
 import os
@@ -113,36 +105,6 @@ class TestOrderValueTypes(unittest.TestCase):
         trades, _ = _run({"type": "fixed", "value": 100_000}, multiplier=2)
         self.assertEqual(len(trades), 1)
         self.assertEqual(trades[0]["quantity"], 2000)
-
-    def test_integer_truncation_documented(self):
-        """Integer-truncation semantics (matches CNC delivery): ₹99_900 at
-        ₹999/share → 100 shares × 999 = 99_900, residual 100 stays in cash.
-        Pre-audit line-item note. Covered by existing simulator tests but
-        repeated here as a sanity contract for the order_value pathway."""
-        entry_epoch = 1_600_000_000
-        exit_epoch = entry_epoch + 86400
-        context = {
-            "start_margin": 1_000_000,
-            "start_epoch": entry_epoch,
-            "end_epoch": exit_epoch,
-            "prefetch_days": 0,
-            "total_exit_configs": 1,
-            "slippage_rate": 0.0,
-        }
-        sim_cfg = {
-            "id": 1, "max_positions": 10, "max_positions_per_instrument": 1,
-            "order_value": {"type": "fixed", "value": 99_900},
-        }
-        df_orders = _build_orders(entry_epoch, exit_epoch,
-                                   entry_price=999.0, exit_price=999.0)
-        stats = _build_stats(entry_epoch, exit_epoch, 999.0, 999.0)
-        _d, _i, _s, _p, trade_log = simulator.process(
-            context, df_orders, stats, {}, sim_cfg, "cfg1"
-        )
-        # int(99_900 / 999) = 100 exactly (no fractional loss here), but
-        # the point is it's int-truncated, not rounded.
-        self.assertEqual(trade_log[0]["quantity"], 100)
-
 
 if __name__ == "__main__":
     unittest.main()
