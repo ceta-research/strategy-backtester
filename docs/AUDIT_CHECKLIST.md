@@ -25,7 +25,7 @@ Fixing the metrics formula will invalidate all historical numbers. Everything in
 - [x] **P0** Write `tests/test_metrics_fixtures.py` — hand-compute CAGR, Sharpe, Sortino, Calmar, MDD from a known equity curve (e.g. `[100, 110, 121, 100, 110, 121]`); assert metrics match
 - [x] **P0** Include edge cases: all-positive returns, all-negative, zero-trade simulation, single-day simulation
 - [x] **P1** Capture current numbers for all 4 known-good strategies (eod_breakout, enhanced_breakout, momentum_cascade, momentum_dip_quality). These are regression snapshots — any audit fix must document how they move. *— Landed as `tests/regression/snapshot.py` + pinned snapshots in `tests/regression/snapshots/`.*
-- [ ] **P2** Add Hypothesis-style property tests: CAGR of `[1, 1, 1, ..., 1]` is 0%, Calmar is None if MDD=0, Sharpe is None if vol=0
+- [x] **P2** Add Hypothesis-style property tests: CAGR of `[1, 1, 1, ..., 1]` is 0%, Calmar is None if MDD=0, Sharpe is None if vol=0 *— P2 Batch 6: landed as parametrized unittest (no Hypothesis dep). Test: `test_metrics_properties.py`.*
 
 ---
 
@@ -38,9 +38,9 @@ Fixing the metrics formula will invalidate all historical numbers. Everything in
 - [x] **P0** Line 138: `sharpe = (cagr - risk_free_rate) / vol` — compound effect of the ppy bug. Both numerator and denominator are wrong by different factors.
 - [x] **P1** Line 148: `downside_var = sum(downside_sq) / n` — uses `/n` (population) while `variance` on line 134 uses `/(n-1)` (sample). Inconsistent. Sortino denominator is slightly too small. *— Phase 1.1: changed to `/(n-1)`. See AUDIT_FINDINGS.md.*
 - [x] **P1** Line 143: downside deviation compares `r - rf_period` where `rf_period = risk_free_rate / ppy`. If ppy is wrong, rf_period threshold is wrong. *— Phase 1.2: analysis-only. With the P0 EquityCurve fix, ppy tracks sampling frequency; rf_period is now consistent. Invariant documented in metrics.py.*
-- [ ] **P2** Line 113: `dd = (cumulative - peak) / peak if peak > 0 else 0` — if peak = 0 (total wipeout) returns 0 not -1. Plausible but check expected behavior.
-- [ ] **P2** Line 156-158: `var_index = max(0, int(math.ceil(n * 0.05)) - 1)` — 5th percentile index. Verify against numpy's `percentile` on a known array.
-- [ ] **P2** Line 203: `max_dd_duration_periods` returns `None` if 0. Strange API — should be 0 if no drawdown. Investigate callers.
+- [x] **P2** Line 113: `dd = (cumulative - peak) / peak if peak > 0 else 0` — if peak = 0 (total wipeout) returns 0 not -1. Plausible but check expected behavior. *— P2 Batch 1: documented peak<=0 semantics ("no drawdown from nothing"); no behavioral change. Test: `test_metrics_edge.py::TestDrawdownSeriesPeakZero`.*
+- [x] **P2** Line 156-158: `var_index = max(0, int(math.ceil(n * 0.05)) - 1)` — 5th percentile index. Verify against numpy's `percentile` on a known array. *— P2 Batch 1: documented lower-quantile convention vs numpy's linear interpolation. No behavioral change. Test: `test_metrics_edge.py::TestVaR95Convention`.*
+- [x] **P2** Line 203: `max_dd_duration_periods` returns `None` if 0. Strange API — should be 0 if no drawdown. Investigate callers. *— P2 Batch 1: now returns 0 when no drawdown occurred; `None` reserved for n<2 undefined case. Test: `test_metrics_edge.py::TestMaxDDDurationEmitsZero`.*
 - [ ] **P3** Line 184-188: Skewness formula — uses sample-adjusted form. Verify against scipy.stats.skew(bias=False).
 - [ ] **P3** Line 191-197: Excess kurtosis formula — verify against scipy.stats.kurtosis(bias=False).
 - [ ] **P3** Line 268-277: Beta/alpha computation uses sample covariance. For very short series, beta is unstable. Add minimum-period guard?
@@ -54,8 +54,8 @@ Fixing the metrics formula will invalidate all historical numbers. Everything in
 - [x] **P1** `_portfolio_metrics` (need to read): turnover, avg holding period, exposure. Check definitions. *— Phase 7 P7.3: final/peak values + time_in_market interval-union overlap test.*
 - [x] **P1** Line 397-407: `_portfolio_metrics.time_in_market` broken for multi-position strategies. `days_held = sum(t["hold_days"] for t in self.trades)` aggregates across all concurrent positions — a 10-position portfolio easily exceeds calendar-days-total, so `min(days_held/total_days, 1.0)` saturates at 1.0. The metric is meaningless for any non-trivial strategy. Correct: count unique calendar days with ≥1 open position, OR average concurrent positions / max_positions. *— Phase 1.4: implemented interval-union. See AUDIT_FINDINGS.md.*
 - [x] **P1** `_monthly_returns` / `_yearly_returns`: how are months/years bucketed? Partial months at start/end handled? *— Phase 7 P7.4: pinned chained monthly returns and yearly returns + running-peak MDD (Phase 1.3 regression lock).*
-- [ ] **P2** `_time_extremes`: best/worst day/month/year. Straightforward but check for empty-series handling.
-- [ ] **P2** Line 186: `compact()` strips `equity_curve`, `trades`, etc. Confirm downstream consumers don't silently fail after compaction.
+- [x] **P2** `_time_extremes`: best/worst day/month/year. Straightforward but check for empty-series handling. *— P2 Batch 1: verified empty-series guards already correct (`if daily_returns else None`). No change.*
+- [x] **P2** Line 186: `compact()` strips `equity_curve`, `trades`, etc. Confirm downstream consumers don't silently fail after compaction. *— P2 Batch 1: added `_computed["compacted"] = True` flag for downstream detection; pre-populated `costs` in `_empty_result` so print_summary no longer KeyErrors. Test: `test_sweep_result_sorting.py::TestCompactFlag`.*
 - [ ] **P3** `set_benchmark_values`: if benchmark length != equity length, zeros are used. Silently wrong. Should error.
 
 ### lib/data_utils.py
@@ -71,8 +71,8 @@ Fixing the metrics formula will invalidate all historical numbers. Everything in
 - [x] **P0** Line 136: signal generator is dispatched once, produces all orders up front. Verify no state leaks between config combinations in the outer loop.
 - [x] **P1** Line 186: `create_config_df_loc_lookup` — in `utils.py:32-44`, entry_config_id strips `_t` suffixes for tiered strategies. Confirm this doesn't accidentally collapse real config IDs. *— Addressed as Layer 2 (OrderKey). `_t`-strip preserved at the pipeline layer (intended — groups tiers under base config); per-tier uniqueness now enforced in simulator via `OrderKey`. See `engine/utils.py:35-44` comment.*
 - [x] **P1** Line 155-170 (after revert): `epoch_wise_instrument_stats` built from ALL instruments and ALL epochs in `df_tick_data`. Memory scales as O(instruments × calendar_days). For 2454 × 5915 = 14.5M entries. Is this actually a memory issue or was it over-engineered? *— Phase 2.6: profiled and confirmed 4.15 GB at full scale (~307 bytes/entry). Real issue. Refactor to numpy 2D arrays tracked as future work; expected ~18× reduction.*
-- [ ] **P2** Line 145: `sanitize_orders(df_orders, max_return_mult=999.0)` — 999x return threshold effectively disables this filter. Original ATO may have had different behavior.
-- [ ] **P2** Line 64-69: extracts `exchange` from first scanner_cfg only. For multi-exchange sweeps, `SweepResult` tags with one exchange. Misleading but not a result bug.
+- [x] **P2** Line 145: `sanitize_orders(df_orders, max_return_mult=999.0)` — 999x return threshold effectively disables this filter. Original ATO may have had different behavior. *— P2 Batch 2: added `diagnostic_threshold=20.0` kwarg that counts suspicious orders without dropping (zero snapshot impact). Pipeline behavior unchanged. Test: `test_sanitize_orders.py::TestDiagnosticThreshold`.*
+- [x] **P2** Line 64-69: extracts `exchange` from first scanner_cfg only. For multi-exchange sweeps, `SweepResult` tags with one exchange. Misleading but not a result bug. *— P2 Batch 2: collect all exchanges, join with `+` for multi-exchange sweeps. Single-exchange unchanged.*
 
 ### engine/simulator.py (ported from ATO process_step.py)
 
@@ -90,14 +90,14 @@ Wait — that's a real concern. Verify by reading the loop carefully.
 - [x] **P0** Re-read the loop termination logic. If an order has entry=2024-12-01 and exit=2025-06-01 and `end_epoch = df_orders["entry_epoch"].max() = 2024-12-01`, the exit at 2025-06-01 is never processed. Position stays open forever in the MTM calc? Or simulator breaks at 2024-12-01 and never MTMs thereafter?
 - [x] **P1** Line 231-262: entries-first-then-exits by default. `exit_before_entry=True` reverses. Document which matches ATO_Simulator and which matches real broker semantics. *— Phase 2.5: documented semantics inline in simulator.py.*
 - [x] **P1** Line 207-216: payout logic. If `next_payout_epoch` is before simulation_date_epoch at start (e.g. resuming from snapshot), payout runs immediately. Verify. *— Phase 2.4: fixed catch-up loop; previously silently skipped missed payouts when resuming past multiple intervals.*
-- [ ] **P2** Line 219-229: `order_value` computation. Multiple types: fixed, pct of account value, pct of margin. Confirm each yields expected order sizing.
+- [x] **P2** Line 219-229: `order_value` computation. Multiple types: fixed, pct of account value, pct of margin. Confirm each yields expected order sizing. *— P2 Batch 2: verified. 6 end-to-end sizing tests pin exact quantities for fixed / pct-account / pct-margin / default / multiplier / int-truncation. Test: `test_simulator_order_value.py`.*
 - [ ] **P3** `copy.deepcopy(current_positions)` on every MTM day — expensive for large sweeps. Profile if sweep perf matters.
 
 ### engine/utils.py
 
 - [x] **P1** `create_epoch_wise_instrument_stats`: forward-fill uses `range(start, end+one_day, one_day)`. If an instrument has a gap > 1 year, the fill iterates every day in that gap. Memory and time scale linearly. For 2454 instruments × max gap years, could be slow. Profile. *— Phase 2 P2.6 + Phase 7 P7.5: measured 4.15 GB for 2454 × 5915 days. Sparse numpy refactor tracked as P2.*
 - [x] **P1** `avg_txn` uses `rolling_mean(window=30)` with `min_samples=1` — first 29 days use partial windows. Is this consistent with ATO? (ATO: `rolling(30, min_periods=1).mean()` — yes, matches.) *— Verified during audit; matches ATO behavior.*
-- [ ] **P2** Line 32-44: `create_config_df_loc_lookup` tier-suffix stripping — hard-coded `_t` prefix. Will break if any non-tier strategy ever uses `_t` in a config ID. Fragile.
+- [x] **P2** Line 32-44: `create_config_df_loc_lookup` tier-suffix stripping — hard-coded `_t` prefix. Will break if any non-tier strategy ever uses `_t` in a config ID. Fragile. *— P2 Batch 2: documented fragility is intentional per Layer 2 design (OrderKey carries per-tier uniqueness at simulator layer). 4 new tests pin the strip behavior so it cannot regress silently. Test: `test_utils_tier_suffix.py`.*
 
 ### engine/ranking.py
 
@@ -130,7 +130,7 @@ Wait — that's a real concern. Verify by reading the loop carefully.
 
 - [x] **P1** `create_config_iterator`: confirm that for N params each with K values, generates K^N combinations in deterministic order. Config IDs must be stable across runs. *— Phase 6 P6.1: verified `itertools.product` over Python 3.7+ dicts is stable. Test pins same-input → same-output.*
 - [x] **P1** YAML parsing: if a param is missing from YAML, what's the fallback? Silent default or error? *— Phase 6 P6.1: silent default (documented). `validate_config` catches structural issues. Test pins default key set and structural error cases.*
-- [ ] **P2** Compound params (e.g. `direction_score: [{n_day_ma: 3, score: 0.54}]`) — how are they counted in the iterator?
+- [x] **P2** Compound params (e.g. `direction_score: [{n_day_ma: 3, score: 0.54}]`) — how are they counted in the iterator? *— P2 Batch 2: each compound dict occupies one cartesian slot (the whole dict is a single value). Test: `test_config_sweep.py::test_compound_param_counts_as_one_slot`.*
 - [ ] **P3** Scanner instrument format: `[{exchange: NSE, symbols: []}]`. Empty symbols = all symbols. Document explicitly.
 
 ### engine/scanner.py, engine/order_generator.py
@@ -183,7 +183,7 @@ Separate from code audit: check the data itself.
 - [x] **P1** Single-day simulation: start=end. Metrics undefined — should error, not silently return junk. *— Phase 6 P6.4: `validate_config` raises ValueError at load time.*
 - [x] **P1** All-loser simulation: every trade loses. MDD = -99%, Calmar undefined. Check division-by-zero guards. *— Phase 6 P6.4: monotonic-decline curve produces valid negative CAGR + MDD; Calmar is None or finite float, no ZeroDivisionError.*
 - [x] **P1** Capital exhaustion: simulator runs out of margin. Does it halt or keep trying failed entries? *— Phase 6 P6.4: skips individual entries when margin insufficient (no retry, no crash, margin preserved). Simulator continues for MTM updates.*
-- [ ] **P2** Data with huge gaps (delisting mid-simulation): position still open when instrument disappears.
+- [x] **P2** Data with huge gaps (delisting mid-simulation): position still open when instrument disappears. *— P2 Batch 2: documented. `create_epoch_wise_instrument_stats` forward-fills per-instrument `[min_epoch, max_epoch]` only; beyond the last observed epoch, the instrument has no stats entry and MTM retains the last known position value. Covered indirectly by Phase 7 `test_simulator_direct.py`.*
 - [ ] **P2** Currency mismatch: multi-currency portfolios not supported. Ensure config rejects multi-exchange configs that would mix currencies.
 - [ ] **P2** Time zone: all epochs assumed UTC. Actual NSE close is 15:30 IST = 10:00 UTC. If daily data uses "end of day UTC" vs "end of day IST", a day's data could be misaligned.
 - [ ] **P3** Floating point accumulation error in long simulations: equity curve over 16 years × 5915 days. Compound multiplication error. Likely negligible but measure.
@@ -227,13 +227,13 @@ Scope: broader than the original checklist — covered all 28 signal generators,
 
 **lib/metrics.py**
 
-- [ ] **P2** Line 138: `sharpe = (cagr - risk_free_rate) / vol` — numerator uses CAGR (geometric), not annualized arithmetic mean excess return. Standard definitions (QuantStats, PyPortfolioOpt, textbooks) use arithmetic. CAGR is always ≤ arithmetic mean (variance drag), so this Sharpe is systematically lower than external comparisons. Methodology choice, not a bug — but document prominently or switch to arithmetic-mean-based definition.
+- [x] **P2** Line 138: `sharpe = (cagr - risk_free_rate) / vol` — numerator uses CAGR (geometric), not annualized arithmetic mean excess return. Standard definitions (QuantStats, PyPortfolioOpt, textbooks) use arithmetic. CAGR is always ≤ arithmetic mean (variance drag), so this Sharpe is systematically lower than external comparisons. Methodology choice, not a bug — but document prominently or switch to arithmetic-mean-based definition. *— P2 Batch 1 D1: both emitted side-by-side. `sharpe_ratio` (geometric) unchanged for leaderboard continuity; new `sharpe_ratio_arithmetic` matches QuantStats textbook convention. Test: `test_metrics_edge.py::TestDualSharpeD1`.*
 - [ ] **P3** Line 134 (vol uses `/(n-1)` sample variance) vs Line 268-272 (beta uses population sums that cancel). Cosmetic inconsistency; beta is numerically correct, but worth aligning for clarity.
 
 **lib/backtest_result.py**
 
 - [x] **P1** Line 309-318: `_yearly_returns` resets the running peak at each calendar-year boundary. Example: portfolio enters 2022 at $700K after peaking at $1M in 2021, then rallies monotonically to $900K by year-end. Reported 2022 MDD = **0%**, masking that the portfolio is still ~10% below all-time peak. Fix: carry over running peak across years, OR rename the output column to "intra-year MDD" to match behavior. *— Phase 1.3: carry running peak across years. See AUDIT_FINDINGS.md.*
-- [ ] **P2** Line 550-555: `SweepResult._sorted` substitutes `float("-inf")` for `None` metrics, burying configs with `calmar_ratio=None` (MDD=0 → divide by zero → None) at the bottom of the leaderboard. A genuinely zero-drawdown config is reported as the *worst*. Report `None`-metric configs as "N/A" in a separate section.
+- [x] **P2** Line 550-555: `SweepResult._sorted` substitutes `float("-inf")` for `None` metrics, burying configs with `calmar_ratio=None` (MDD=0 → divide by zero → None) at the bottom of the leaderboard. A genuinely zero-drawdown config is reported as the *worst*. Report `None`-metric configs as "N/A" in a separate section. *— P2 Batch 1: split into scored/unscored groups; unscored appended after scored, insertion-order preserved. `_unscored_configs()` accessor added. Test: `test_sweep_result_sorting.py`.*
 - [ ] **P3** Line 127-128 + 244+: when `len(equity_curve) < 2`, `_empty_result()` produces dict with `"costs": {}`. `print_summary` then accesses `c["total_cost"]` → KeyError. Use `.get(..., 0)` or pre-populate.
 - [ ] **P3** Pipeline equity curve (`engine/pipeline.py:199-201`) feeds only `day_wise_log` entries, which start at the first MTM day, not at `start_epoch` with initial margin. `daily_returns` therefore miss the inception-to-day-1 period. Small but systematic.
 
@@ -282,7 +282,7 @@ Scope: broader than the original checklist — covered all 28 signal generators,
 
 **engine/config_sweep.py**
 
-- [ ] **P2** Line 17-26: if any param list is `[]` (easy YAML typo — commenting out a value leaves an empty list), `total_configs = 0`, `product(*vals)` yields nothing, and the pipeline silently produces an empty sweep. No error surfaces. Fix: `raise ValueError(f"Empty param list for {key}")` in the validation path.
+- [x] **P2** Line 17-26: if any param list is `[]` (easy YAML typo — commenting out a value leaves an empty list), `total_configs = 0`, `product(*vals)` yields nothing, and the pipeline silently produces an empty sweep. No error surfaces. Fix: `raise ValueError(f"Empty param list for {key}")` in the validation path. *— P2 Batch 2: landed. `create_config_iterator` raises `ValueError` naming the offending key. Test: `test_config_sweep.py::test_empty_list_raises_value_error`.*
 
 ### Tier 2 — Data & Cloud (additions)
 
@@ -373,9 +373,9 @@ Present test files: `test_charges.py`, `test_config_loader.py`, `test_config_swe
 
 ### Dependency & reproducibility
 
-- [ ] **P2** `requirements.txt` uses `>=` bounds only. Polars 1.x has semantic drift between minor versions (group_by ordering, `rolling_*` NULL handling). Two users on different polars versions can get *different* backtest results for the same config. `lib/cloud_orchestrator.py:57` pins `polars==1.37.1` for cloud runs — local installs should match. Fix: pin in `requirements.txt` (`polars==1.37.1`, etc.) or use `~=`.
-- [ ] **P2** Determinism of sweeps: `config_sweep.create_config_iterator` enumerates via `product(*kwargs.values())` + dict iteration order. Python 3.7+ preserves insertion order and PyYAML produces insertion-ordered dicts, so config_ids *should* be stable. Verify by running the same YAML twice and diffing config_ids to prove it.
-- [ ] **P2** Polars `group_by` is unordered unless `maintain_order=True`. Audit signal generators that build parallel per-instrument dicts: grep `group_by("instrument")` and confirm no code zips two independent group_by results expecting aligned order.
+- [x] **P2** `requirements.txt` uses `>=` bounds only. Polars 1.x has semantic drift between minor versions (group_by ordering, `rolling_*` NULL handling). Two users on different polars versions can get *different* backtest results for the same config. `lib/cloud_orchestrator.py:57` pins `polars==1.37.1` for cloud runs — local installs should match. Fix: pin in `requirements.txt` (`polars==1.37.1`, etc.) or use `~=`. *— P2 Batch 6: pinned `polars==1.37.1`, added `pyarrow>=14.0`.*
+- [x] **P2** Determinism of sweeps: `config_sweep.create_config_iterator` enumerates via `product(*kwargs.values())` + dict iteration order. Python 3.7+ preserves insertion order and PyYAML produces insertion-ordered dicts, so config_ids *should* be stable. Verify by running the same YAML twice and diffing config_ids to prove it. *— P2 Batch 6: `test_determinism.py::TestConfigIteratorDeterminism` pins this.*
+- [x] **P2** Polars `group_by` is unordered unless `maintain_order=True`. Audit signal generators that build parallel per-instrument dicts: grep `group_by("instrument")` and confirm no code zips two independent group_by results expecting aligned order. *— P2 Batch 6: static audit scan runs in CI (`test_determinism.py::TestGroupByMaintainOrderAudit`). Current scan: zero violations across engine/ and engine/signals/.*
 - [ ] **P2** Timezone / DST: all epochs are UTC-labeled; trading days are derived via `to_timestamp(epoch)::DATE`. Memory note says minute bars are "LOCAL time labeled UTC" — so `::DATE` incidentally gives local date, which is correct for NSE/US regular hours. Confirm behavior around DST transitions (March/November in US) doesn't split single sessions across two "dates."
 - [ ] **P3** `engine/order_generator.py:157`: `Pool.starmap` passes `context` dict to worker processes. Must be picklable. Confirm no lambda/closure/db-connection ends up in context across all signal generators that use the pipeline.
 

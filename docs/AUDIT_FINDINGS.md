@@ -1505,3 +1505,123 @@ byte-identical.
 and the open strategy re-runs from Phase 3 revisit (non-IN/US
 cross-exchange) + Phase 5 follow-ups (momentum_top_gainers /
 momentum_dip_quality / momentum_rebalance bias fixes).
+
+---
+
+## P2 Batch 1 — Metrics definitions & edge cases — 2026-04-21
+
+Plan: `docs/P2_EXECUTION_PLAN.md` §3, Batch 1. Decisions: `docs/P2_EXECUTION_PLAN.md` §1.
+
+### Items closed
+
+| Line | File | Fix |
+|------|------|-----|
+| L41  | `lib/metrics.py:compute_drawdown_series` + `_compute_series_metrics_with_cagr` | Documented `peak<=0` semantics: returns 0 (no drawdown from nothing), not -1. No behavioral change. |
+| L42  | `lib/metrics.py:_compute_series_metrics_with_cagr` VaR | Documented lower-quantile convention vs numpy's `percentile(.., 5)` linear-interpolation. No behavioral change. |
+| L43  | `lib/metrics.py` max_dd_duration_periods | Returns `0` when no drawdown occurred (was `None`). `None` reserved for the `n<2` / truly undefined case. |
+| L57  | `lib/backtest_result.py:_time_extremes` | Already guards empty series via `if daily_returns else None`. Verified, no change. |
+| L58  | `lib/backtest_result.py:compact()` | Sets `_computed["compacted"] = True` so downstream readers can detect compacted results. Also pre-populates `costs` dict in `_empty_result()` so `print_summary` no longer KeyErrors on zero-point runs. |
+| L230 | `lib/metrics.py` | **D1: emit both Sharpe definitions.** New field `sharpe_ratio_arithmetic` = `(mean(r)*ppy - rf) / vol_ann`. Existing `sharpe_ratio` unchanged (geometric, CAGR-based). Added to `_empty_metrics`, `format_metrics`, `print_summary`, and `CATALOG_FIELDS`. |
+| L236 | `lib/backtest_result.py:SweepResult._sorted` | Split into `scored` + `unscored` buckets. Unscored (metric=None) appended after scored, insertion-order preserved. Pre-fix: `float("-inf")` key buried zero-drawdown configs (Calmar=None) at the bottom of the leaderboard. New `_unscored_configs(sort_by)` accessor. |
+
+### Tests added
+
+- `tests/test_metrics_edge.py` (18 tests): peak<=0 drawdown semantics; VaR lower-quantile convention; max_dd_duration=0 invariant; dual-Sharpe presence, zero-vol handling, hand-computed arithmetic formula, schema-complete empty/length-1 paths.
+- `tests/test_sweep_result_sorting.py` (7 tests): scored/unscored partitioning; unscored not ranked worst; insertion-order preservation; dual-Sharpe sort key works; compact() flag detection.
+
+**Full suite: 404 passing** (+23 new, 0 regressions).
+
+### Snapshot impact
+
+D1 adds a new key (`sharpe_ratio_arithmetic`) but does not modify any
+existing pinned metric. Regression snapshots (`tests/regression/snapshots/*.json`)
+pin `sharpe_ratio` and other fields — none are changed by this batch.
+L43 changes `max_dd_duration_periods` from `None` to `0` for
+no-drawdown runs; this field is not in `PINNED_FIELDS`.
+
+**Conclusion:** no snapshot update commit required. Downstream result
+JSON now includes the new `sharpe_ratio_arithmetic` key; legacy
+consumers that iterate known keys are unaffected.
+
+### What this does NOT change
+
+- `sharpe_ratio` values in historical `results_v2/*.json` are unchanged.
+  No migration required.
+- Formula change required if the team later decides `sharpe_arithmetic`
+  should replace `sharpe_ratio` as the primary leaderboard key.
+  Tracked as a potential future decision; no action this sprint.
+
+### Known cross-reference
+
+Per-period variance drag (`mean(r) >= geom(r)`) does not imply
+`sharpe_arithmetic >= sharpe_geometric` once each is annualized with a
+different convention (simple multiplication vs compounding). Short,
+high-return samples can invert the relationship. Documented in
+`test_metrics_edge.py::TestDualSharpeD1`.
+
+---
+
+## P2 Batch 2 — Pipeline & simulator hygiene — 2026-04-21
+
+### Items closed
+
+| Line | File | Fix |
+|------|------|-----|
+| L74  | `engine/signals/base.py:sanitize_orders` | Added `diagnostic_threshold` kwarg (default 20.0). Counts orders exceeding this tighter bound WITHOUT dropping them, logged as an advisory. Pipeline's permissive `max_return_mult=999.0` preserved (zero snapshot impact); the diagnostic surfaces data-quality signals that the cap hides. |
+| L75  | `engine/pipeline.py:~63-75` | Multi-exchange sweeps now tag `SweepResult` with `"NSE+JPX"` style joined names instead of the first exchange only. Single-exchange sweeps unchanged. |
+| L93  | `engine/simulator.py:~320-331` | Verified the three `order_value` types (fixed, percentage_of_account_value, percentage_of_available_margin) and the `order_value_multiplier` scaling. No code change. 6 new end-to-end sizing tests pin exact quantities. |
+| L100 | `engine/utils.py:32-44` | Tier-suffix strip (`_t` → base id) behavior already documented; new tests (`test_utils_tier_suffix.py`) pin it so the documented fragility cannot regress silently. |
+| L133 | `engine/config_sweep.py` | Compound dict params occupy ONE slot in the cartesian product — verified; test added. |
+| L285 | `engine/config_sweep.py` | `create_config_iterator` now raises `ValueError` naming the empty-list key. Pre-fix: commented-out YAML values (empty list) silently produced zero-config sweeps with no user-visible error. |
+| L186 | `engine/simulator.py` + `engine/utils.py` | Delisted / mid-sim missing instrument: existing forward-fill in `create_epoch_wise_instrument_stats` fills per-instrument `[min_epoch, max_epoch]` only. If an instrument's data ends mid-sim, later days have no stats entry for that instrument; MTM retains the last-known position value. Documented in this entry; no behavior change. Covered indirectly by Phase 7 simulator-direct tests. |
+
+### Tests added
+
+- `tests/test_sanitize_orders.py` (8 tests): entry/exit price filters, cap at max_return_mult, diagnostic counter fires without modifying DataFrame at `max_return_mult=999`.
+- `tests/test_simulator_order_value.py` (6 tests): three sizing modes, default `account_value / max_positions`, `order_value_multiplier` scaling, integer-truncation semantics.
+- `tests/test_utils_tier_suffix.py` (4 tests): plain IDs untouched, `_t` suffix collapse, mixed, comma-separated.
+- `tests/test_config_sweep.py` extensions: compound-param slot counting, empty-list ValueError (two variants).
+
+**Full suite: 421 passing** (+17 from Batch 2 on top of Batch 1's 404).
+
+### Snapshot impact
+
+Zero. No pinned regression metrics are modified. Sanitize_orders
+behavior is identical for `max_return_mult=999.0` — the diagnostic
+threshold only logs counts. The multi-exchange label change affects
+the `exchange` string in `SweepResult.meta` but not any pinned metric.
+`config_sweep` empty-list raise changes failure mode from silent to
+ValueError, which is a user-facing improvement with no impact on
+running configurations.
+
+---
+
+## P2 Batch 6 — Test hardening & property tests — 2026-04-21
+
+### Items closed
+
+| Line | File | Fix |
+|------|------|-----|
+| L28  | `tests/test_metrics_properties.py` (new) | Parametrized invariants across flat / monotone / zero-vol curves — without adding Hypothesis as a dep. |
+| L376 | `requirements.txt` | Pinned `polars==1.37.1` (matches `lib/cloud_orchestrator.py:57`); added `pyarrow>=14.0`. Prevents local-vs-cloud determinism drift from unpinned minor versions. |
+| L377 | `tests/test_determinism.py::TestConfigIteratorDeterminism` | Same YAML → same config_ids; compound dict params preserve equality across independent iterator calls. |
+| L378 | `tests/test_determinism.py::TestGroupByMaintainOrderAudit` | Static scan of `engine/*.py` and `engine/signals/*.py` rejects any `group_by()` call missing `maintain_order=True`. Pre-audit scan found **zero** violations — but the test locks that in so future commits cannot introduce one silently. |
+
+### Items deferred to a follow-up test-coverage sprint
+
+- **L187** currency-mismatch config rejection: requires a new validator upstream of `config_loader`; out of scope for batch of pure test hardening.
+- **L188** timezone/DST edge tests: requires a substantial fixture infrastructure around session-boundary tick data.
+- **L296** `cr_client._poll` retry/backoff mocks: retry behavior is not yet implemented in the client (only 429 is handled); the fix is a code change in Batch 3 scope, not a test-only change.
+- **L371** individual signal-generator spot-checks: Phase 5 static audits already covered the three reference signals (eod_breakout, momentum_top_gainers, earnings_dip); further coverage is rolled into Batch 4.
+- **L372** regression snapshot expansion: snapshot capture requires running full backtests on the 4-6 known-good strategies. Tracked as a separate operations task.
+
+### Tests added
+
+- `tests/test_metrics_properties.py` (10 tests + 4 subtests).
+- `tests/test_determinism.py` (5 tests).
+
+**Full suite: 440 passing** (+15 from Batch 6).
+
+### Snapshot impact
+
+Zero. Tests and dependency pin only.

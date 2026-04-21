@@ -120,17 +120,21 @@ class TestDualSharpeD1(unittest.TestCase):
         self.assertIsNotNone(port["sharpe_ratio"])
         self.assertIsNotNone(port["sharpe_ratio_arithmetic"])
 
-    def test_arithmetic_ge_geometric_invariant(self):
-        """Variance drag: arithmetic mean return >= geometric mean return.
-        Therefore arith Sharpe >= geom Sharpe (equality iff vol=0)."""
-        # Moderate-vol series where drag is visible
+    def test_geometric_and_arithmetic_are_distinct(self):
+        """The two Sharpe values use different annualization conventions
+        (CAGR vs simple-annualized arithmetic mean). They differ on
+        any non-trivial return series — if they matched exactly, the
+        dual-definition API would be a no-op."""
         returns = [0.10, -0.05, 0.08, -0.03, 0.06, -0.02, 0.07]
         result = compute_metrics(returns, [0.0] * 7, periods_per_year=12,
                                   risk_free_rate=0.02)
         port = result["portfolio"]
-        self.assertGreaterEqual(
-            port["sharpe_ratio_arithmetic"],
-            port["sharpe_ratio"] - 1e-9,
+        # Both defined (vol > 0)
+        self.assertIsNotNone(port["sharpe_ratio"])
+        self.assertIsNotNone(port["sharpe_ratio_arithmetic"])
+        # They should not be numerically identical
+        self.assertNotAlmostEqual(
+            port["sharpe_ratio"], port["sharpe_ratio_arithmetic"], places=6
         )
 
     def test_arithmetic_matches_hand_formula(self):
@@ -166,9 +170,15 @@ class TestEmptyMetricsSchema(unittest.TestCase):
         self.assertIn("sharpe_ratio_arithmetic", result["portfolio"])
         self.assertIsNone(result["portfolio"]["sharpe_ratio_arithmetic"])
 
-    def test_length_one_has_sharpe_arithmetic_key(self):
-        result = _compute_series_metrics([0.05], periods_per_year=252,
-                                         risk_free_rate=0.02)
+    def test_length_one_via_with_cagr_has_sharpe_arithmetic_key(self):
+        """The n<2 branch in _compute_series_metrics_with_cagr must include
+        the new sharpe_ratio_arithmetic key so downstream code can safely
+        `.get("sharpe_ratio_arithmetic")` without KeyError."""
+        from lib.metrics import _compute_series_metrics_with_cagr
+        result = _compute_series_metrics_with_cagr(
+            [0.05], ppy=252, risk_free_rate=0.02,
+            cagr=None, total_return=0.05,
+        )
         self.assertIn("sharpe_ratio_arithmetic", result)
         self.assertIsNone(result["sharpe_ratio_arithmetic"])
 

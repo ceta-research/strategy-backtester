@@ -95,7 +95,8 @@ def add_next_day_values(df_tick_data: pl.DataFrame) -> pl.DataFrame:
 
 
 def sanitize_orders(df_orders: pl.DataFrame, min_entry_price: float = 0.10,
-                     max_return_mult: float = 5.0) -> pl.DataFrame:
+                     max_return_mult: float = 5.0,
+                     diagnostic_threshold: float = 20.0) -> pl.DataFrame:
     """Remove bad orders caused by data quality issues (splits, zero prices, etc).
 
     Applied in pipeline after signal generation, before simulation.
@@ -110,6 +111,11 @@ def sanitize_orders(df_orders: pl.DataFrame, min_entry_price: float = 0.10,
         df_orders: DataFrame with entry_price, exit_price columns.
         min_entry_price: Minimum valid entry price (default $0.10).
         max_return_mult: Maximum allowed exit/entry ratio (default 5.0 = 500%).
+        diagnostic_threshold: P2 L74. If set (>0), counts how many orders
+            would exceed this tighter threshold WITHOUT capping them. The
+            count is logged as an informational advisory so users can see
+            how many suspicious orders slip through the current cap. Pass
+            0 to disable the diagnostic. Default 20.0 (i.e. 2000% return).
 
     Returns:
         Sanitized DataFrame with bad rows removed and extreme exits capped.
@@ -125,6 +131,18 @@ def sanitize_orders(df_orders: pl.DataFrame, min_entry_price: float = 0.10,
     # Filter out zero / negative exit prices
     df_orders = df_orders.filter(pl.col("exit_price") > 0)
 
+    # P2 L74 diagnostic: count extreme-return orders BEFORE capping so the
+    # log reflects raw signal-gen output, not the post-cap state. This
+    # surfaces data-quality issues (reverse splits, unit errors, etc.)
+    # even when the caller passes a permissive max_return_mult like 999.
+    diag_count = 0
+    if diagnostic_threshold and diagnostic_threshold > 0:
+        diag_count = int(
+            df_orders.filter(
+                pl.col("exit_price") > pl.col("entry_price") * diagnostic_threshold
+            ).height
+        )
+
     # Cap extreme returns (reverse splits, data errors)
     max_exit = pl.col("entry_price") * max_return_mult
     df_orders = df_orders.with_columns(
@@ -138,6 +156,12 @@ def sanitize_orders(df_orders: pl.DataFrame, min_entry_price: float = 0.10,
     if removed > 0:
         print(f"  Sanitized: removed {removed} bad orders ({removed/before*100:.1f}%), "
               f"capped returns at {max_return_mult:.0f}x")
+    if diag_count > 0:
+        print(
+            f"  Sanitize diagnostic: {diag_count} orders exceed "
+            f"{diagnostic_threshold:.0f}x return (current cap: "
+            f"{max_return_mult:.0f}x — not dropped). Review for data quality."
+        )
 
     return df_orders
 
