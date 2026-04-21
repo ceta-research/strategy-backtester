@@ -1,19 +1,19 @@
 # Phase 8A Bias Impact — momentum_dip_quality
 
-- **Config:** `strategies/momentum_dip_quality/config_phase_8a_local.yaml`
-- **Data provider:** `parquet`
+- **Config:** `strategies/momentum_dip_quality/config_nse_champion.yaml`
+- **Data provider:** `nse_charting`
 - **Flag:** `entry.universe_mode` (legacy=full_period, honest=point_in_time)
-- **Pipeline times:** legacy 0.1s · honest 0.2s
+- **Pipeline times:** legacy 56.8s · honest 62.4s
 
 | Metric | Legacy | Honest | Delta |
 |--------|-------:|-------:|------:|
-| CAGR | +30.88% | +30.88% | +0.00pp |
-| Total Return | +71.24% | +71.24% | +0.00pp |
-| Max Drawdown | -8.44% | -8.44% | +0.00pp |
-| Calmar | +3.6576 | +3.6576 | +0.0000 |
-| Sharpe | +2.1867 | +2.1867 | +0.0000 |
-| Total trades | 74 | 74 | — |
-| Win rate | +77.03% | +77.03% | +0.00pp |
+| CAGR | +22.71% | +5.08% | -17.63pp |
+| Total Return | +2660.20% | +123.41% | -2536.79pp |
+| Max Drawdown | -41.16% | -35.59% | +5.56pp |
+| Calmar | +0.5519 | +0.1428 | -0.4090 |
+| Sharpe | +1.1972 | +0.1940 | -1.0031 |
+| Total trades | 297 | 225 | — |
+| Win rate | +70.71% | +62.67% | -8.04pp |
 
 ## Decision guide
 

@@ -1,32 +1,32 @@
 {
   "strategy": "momentum_dip_quality",
-  "config": "strategies/momentum_dip_quality/config_phase_8a_local.yaml",
-  "provider": "parquet",
+  "config": "strategies/momentum_dip_quality/config_nse_champion.yaml",
+  "provider": "nse_charting",
   "flag_path": "entry.universe_mode",
   "legacy": {
     "value": "full_period",
-    "elapsed_sec": 0.1,
+    "elapsed_sec": 56.8,
     "summary": {
-      "cagr": 0.30884467600723475,
-      "total_return": 0.712443338448,
-      "max_drawdown": -0.0844391301118161,
-      "calmar_ratio": 3.657601346653572,
-      "sharpe_ratio": 2.186674093511182,
-      "total_trades": 74,
-      "win_rate": 0.7703
+      "cagr": 0.2271215153184991,
+      "total_return": 26.60195995073025,
+      "max_drawdown": -0.4115535129139472,
+      "calmar_ratio": 0.5518638723562264,
+      "sharpe_ratio": 1.1971744745012765,
+      "total_trades": 297,
+      "win_rate": 0.7071
     }
   },
   "honest": {
     "value": "point_in_time",
-    "elapsed_sec": 0.2,
+    "elapsed_sec": 62.4,
     "summary": {
-      "cagr": 0.30884467600723475,
-      "total_return": 0.712443338448,
-      "max_drawdown": -0.0844391301118161,
-      "calmar_ratio": 3.657601346653572,
-      "sharpe_ratio": 2.186674093511182,
-      "total_trades": 74,
-      "win_rate": 0.7703
+      "cagr": 0.05083645124454317,
+      "total_return": 1.2340967845271091,
+      "max_drawdown": -0.355933906209939,
+      "calmar_ratio": 0.14282553686964153,
+      "sharpe_ratio": 0.1940392109046912,
+      "total_trades": 225,
+      "win_rate": 0.6267
     }
   }
 }

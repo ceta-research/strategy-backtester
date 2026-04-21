@@ -29,6 +29,31 @@ delta.
 | `momentum_top_gainers` | +25.13% | +25.13% | +0.00pp | UNMEASURABLE on fixture | Re-run on full universe |
 | `momentum_dip_quality` | +30.88% | +30.88% | +0.00pp | UNMEASURABLE on fixture | Re-run on full universe |
 
+## Results: full NSE universe via nse_charting (2010-2026)
+
+**momentum_dip_quality named champion — `config_nse_champion.yaml`:**
+
+| Metric | Legacy (full_period) | Honest (point_in_time) | Δ |
+|--------|---------------------:|-----------------------:|----:|
+| CAGR | **+22.71%** | **+5.08%** | **−17.63pp** |
+| Total Return | +2660% | +123% | −2537pp |
+| Max Drawdown | −41.16% | −35.59% | +5.56pp |
+| Calmar | 0.552 | 0.143 | −0.41 |
+| Sharpe | 1.20 | 0.19 | −1.00 |
+| Win rate | 70.71% | 62.67% | −8.04pp |
+| Total trades | 297 | 225 | −72 |
+
+2454 instruments fetched, 887 in period-average universe, avg 36 per
+rebalance after quality + regime filters. Run time: 56.8s legacy +
+62.4s honest on local compute.
+
+**Verdict:** the champion's 17.2%/22.71% CAGR was almost entirely the
+look-ahead bias. Honest CAGR (5.08%) is lower than a naive buy-and-hold
+Nifty. This strategy is in the "retire or invert" zone.
+
+Same-day Dip Quality figures published anywhere should be treated as
+INVALID pending an honest re-optimization.
+
 ### Why the 0pp deltas are misleading
 
 `momentum_top_gainers` and `momentum_dip_quality` carry a

@@ -235,9 +235,10 @@ def _compute_series_metrics_with_cagr(returns, ppy, risk_free_rate, cagr, total_
             "cagr": cagr,
             "total_return": total_return,
             "max_drawdown": 0.0 if n == 0 else min(0.0, returns[0]),
-            "max_dd_duration_periods": None,
+            "max_dd_duration_periods": 0,
             "annualized_volatility": None,
             "sharpe_ratio": None,
+            "sharpe_ratio_arithmetic": None,
             "sortino_ratio": None,
             "calmar_ratio": None,
             "var_95": None, "cvar_95": None,
@@ -283,6 +284,12 @@ def _compute_series_metrics_with_cagr(returns, ppy, risk_free_rate, cagr, total_
                 current_dd_start = i
                 in_drawdown = True
 
+        # Defensive `peak > 0` guard is unreachable in this function (peak
+        # initializes to 1.0 and only grows), but retained for symmetry with
+        # compute_drawdown_series() which can receive user-supplied curves
+        # that start at 0. Semantics for peak<=0: "no positive equity peak
+        # ever recorded" → drawdown is undefined; returning 0 is a benign
+        # default (no drawdown from nothing). P2 item L41.
         dd = (cumulative - peak) / peak if peak > 0 else 0
         if dd < max_dd:
             max_dd = dd
@@ -300,8 +307,21 @@ def _compute_series_metrics_with_cagr(returns, ppy, risk_free_rate, cagr, total_
     variance = sum((r - mean_r) ** 2 for r in returns) / (n - 1)
     vol = math.sqrt(variance) * math.sqrt(ppy)
 
-    # Sharpe ratio (None if CAGR is not defined or vol is zero)
+    # Sharpe ratio — TWO definitions emitted (P2 decision D1):
+    #   sharpe_ratio            : geometric, (CAGR - rf) / ann_vol. Used by
+    #                             the existing leaderboard and regression
+    #                             snapshots. Systematically lower than
+    #                             external tools due to variance drag.
+    #   sharpe_ratio_arithmetic : textbook, (annualized arith mean excess) /
+    #                             ann_vol. Matches QuantStats / PyPortfolioOpt /
+    #                             most finance textbooks. For external
+    #                             comparison.
+    # Annual arith mean = mean(period_return) * ppy; excess = subtract
+    # annual risk-free rate. Invariant: arithmetic >= geometric (equality
+    # iff vol = 0).
     sharpe = (cagr - risk_free_rate) / vol if (vol > 0 and cagr is not None) else None
+    ann_arith_mean = mean_r * ppy
+    sharpe_arithmetic = (ann_arith_mean - risk_free_rate) / vol if vol > 0 else None
 
     # Sortino ratio (downside deviation)
     # Denominator uses (n - 1) to match `variance` above — both are sample
@@ -322,7 +342,14 @@ def _compute_series_metrics_with_cagr(returns, ppy, risk_free_rate, cagr, total_
     # Calmar ratio (None when MDD is zero or CAGR is not defined)
     calmar = cagr / abs(max_dd) if (max_dd != 0 and cagr is not None) else None
 
-    # VaR 95% (historical method - 5th percentile)
+    # VaR 95% (historical method - 5th percentile).
+    # Convention: "lower-quantile" — picks the return at sorted position
+    # ceil(n * 0.05) - 1, i.e. the worst 5th-percentile observed return.
+    # This is a discrete, observation-based VaR and differs from
+    # numpy.percentile(returns, 5) which uses linear interpolation between
+    # neighboring observations (convention "linear", default). For n=100
+    # uniform samples the two diverge by ≤ one observation-width.
+    # P2 item L42: documented; no behavioral change.
     sorted_returns = sorted(returns)
     var_index = max(0, int(math.ceil(n * 0.05)) - 1)
     var_95 = sorted_returns[var_index]
@@ -370,9 +397,12 @@ def _compute_series_metrics_with_cagr(returns, ppy, risk_free_rate, cagr, total_
         "cagr": cagr,
         "total_return": total_return,
         "max_drawdown": max_dd,
-        "max_dd_duration_periods": max_dd_duration if max_dd_duration > 0 else None,
+        # P2 L43: emit 0 (no drawdown occurred) rather than None. None is
+        # reserved for the n<2 / undefined case handled in _empty_metrics.
+        "max_dd_duration_periods": max_dd_duration,
         "annualized_volatility": vol,
         "sharpe_ratio": sharpe,
+        "sharpe_ratio_arithmetic": sharpe_arithmetic,
         "sortino_ratio": sortino,
         "calmar_ratio": calmar,
         "var_95": var_95,
@@ -487,6 +517,9 @@ def compute_drawdown_series(cumulative_values):
     for v in cumulative_values:
         if v > peak:
             peak = v
+        # Semantics for peak<=0 (undefined drawdown denominator): emit 0
+        # rather than -1/NaN. A curve that starts at 0 and never grows has
+        # no reference point to draw down from. P2 item L41.
         dd = (v - peak) / peak if peak > 0 else 0
         drawdowns.append(dd)
     return drawdowns
@@ -601,8 +634,11 @@ def format_metrics(metrics, strategy_name="Strategy", benchmark_name="S&P 500"):
     lines.append(f"  {'Volatility (ann.)':<28} {pct(p.get('annualized_volatility'))} {pct(b.get('annualized_volatility'))}")
     lines.append(f"  {'VaR 95%':<28} {pct(p.get('var_95'))} {pct(b.get('var_95'))}")
 
-    # Risk-adjusted
+    # Risk-adjusted. "Sharpe Ratio" is the geometric (CAGR-based) form for
+    # leaderboard continuity; "Sharpe (arith.)" is the textbook form for
+    # comparison with QuantStats / PyPortfolioOpt output.
     lines.append(f"  {'Sharpe Ratio':<28} {num(p.get('sharpe_ratio'))} {num(b.get('sharpe_ratio'))}")
+    lines.append(f"  {'Sharpe (arith.)':<28} {num(p.get('sharpe_ratio_arithmetic'))} {num(b.get('sharpe_ratio_arithmetic'))}")
     lines.append(f"  {'Sortino Ratio':<28} {num(p.get('sortino_ratio'))} {num(b.get('sortino_ratio'))}")
     lines.append(f"  {'Calmar Ratio':<28} {num(p.get('calmar_ratio'))} {num(b.get('calmar_ratio'))}")
 
@@ -627,7 +663,8 @@ def _empty_metrics():
     empty_series = {
         "cagr": None, "total_return": None, "max_drawdown": None,
         "max_dd_duration_periods": None, "annualized_volatility": None,
-        "sharpe_ratio": None, "sortino_ratio": None, "calmar_ratio": None,
+        "sharpe_ratio": None, "sharpe_ratio_arithmetic": None,
+        "sortino_ratio": None, "calmar_ratio": None,
         "var_95": None, "cvar_95": None, "best_period": None, "worst_period": None,
         "pct_negative_periods": None, "max_consecutive_losses": None,
         "skewness": None, "kurtosis": None,

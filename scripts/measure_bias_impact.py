@@ -103,7 +103,12 @@ def _make_provider(kind: str):
         return ParquetDataProvider(base_path=os.path.expanduser("~/ATO_DATA/tick_data"))
     if kind == "cr":
         from engine.data_provider import CRDataProvider
-        return CRDataProvider()
+        # format="parquet" is required — default JSON hits a 100MB
+        # artifact limit on full-universe / multi-year queries.
+        return CRDataProvider(format="parquet")
+    if kind == "nse_charting":
+        from engine.data_provider import NseChartingDataProvider
+        return NseChartingDataProvider()
     raise ValueError(f"Unknown provider kind: {kind}")
 
 
@@ -226,7 +231,8 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("strategy", choices=list(FLAG_BY_STRATEGY.keys()))
     p.add_argument("config_path")
-    p.add_argument("--provider", default="parquet", choices=["parquet", "cr"])
+    p.add_argument("--provider", default="parquet",
+                   choices=["parquet", "cr", "nse_charting"])
     p.add_argument("--out-dir", default="docs/audit_phase_8a")
     args = p.parse_args()
 

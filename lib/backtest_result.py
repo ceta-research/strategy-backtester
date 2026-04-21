@@ -205,6 +205,10 @@ class BacktestResult:
         breakdowns will be empty.
 
         Call after sweep.add_config() in loops with 1000+ configs.
+
+        P2 L58: sets `_computed["compacted"] = True` so downstream readers
+        can distinguish a legitimately-empty run from a memory-compacted
+        one without silently reporting "0 trades" as a real result.
         """
         if self._computed is None:
             self.compute()
@@ -218,6 +222,7 @@ class BacktestResult:
             self._computed["trades"] = []
             self._computed["monthly_returns"] = {}
             self._computed["yearly_returns"] = []
+            self._computed["compacted"] = True
         return self
 
     def save(self, path="result.json"):
@@ -258,7 +263,8 @@ class BacktestResult:
         print(f"{'='*60}")
         _print_metric("CAGR", s.get("cagr"), pct=True)
         _print_metric("Max Drawdown", s.get("max_drawdown"), pct=True)
-        _print_metric("Sharpe", s.get("sharpe_ratio"))
+        _print_metric("Sharpe (geom.)", s.get("sharpe_ratio"))
+        _print_metric("Sharpe (arith.)", s.get("sharpe_ratio_arithmetic"))
         _print_metric("Sortino", s.get("sortino_ratio"))
         _print_metric("Calmar", s.get("calmar_ratio"))
         _print_metric("Volatility", s.get("annualized_volatility"), pct=True)
@@ -485,7 +491,13 @@ class BacktestResult:
             "strategy": self.strategy,
             "summary": {}, "benchmark": {}, "comparison": {},
             "equity_curve": [], "trades": [],
-            "monthly_returns": {}, "yearly_returns": [], "costs": {},
+            "monthly_returns": {}, "yearly_returns": [],
+            # Pre-populated so print_summary()'s c["total_cost"] access
+            # does not KeyError on an empty result.
+            "costs": {
+                "total_charges": 0.0, "total_slippage": 0.0,
+                "total_cost": 0.0, "cost_pct_of_capital": 0.0,
+            },
         }
 
 
@@ -599,11 +611,42 @@ class SweepResult:
                   f"{so:>6.2f} {wr:>4.0f}% {tr:>4} {params}")
 
     def _sorted(self, sort_by):
-        def key(item):
+        """Return configs sorted by `sort_by` metric (descending).
+
+        P2 L236: configs whose metric is None are placed in a separate
+        "unscored" group appended after the scored group. Pre-fix the key
+        function returned float('-inf') for None, which buried legitimately
+        zero-drawdown configs (calmar_ratio=None because MDD=0) at the
+        bottom of the leaderboard — reporting the *best* config as the
+        worst. Now the unscored bucket is visually distinct in
+        print_leaderboard() (prefixed with '?') and kept in insertion
+        order within the bucket.
+        """
+        scored = []
+        unscored = []
+        for item in self.configs:
             d = item[1].to_dict()
             v = d.get("summary", {}).get(sort_by)
-            return v if v is not None else float("-inf")
-        return sorted(self.configs, key=key, reverse=True)
+            if v is None:
+                unscored.append(item)
+            else:
+                scored.append((v, item))
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return [it for _, it in scored] + unscored
+
+    def _unscored_configs(self, sort_by):
+        """Return only the configs whose `sort_by` metric is None.
+
+        Exposed for callers (print_leaderboard, diagnostics) that want to
+        surface unscored configs separately from the ranked list.
+        """
+        unscored = []
+        for item in self.configs:
+            d = item[1].to_dict()
+            v = d.get("summary", {}).get(sort_by)
+            if v is None:
+                unscored.append(item)
+        return unscored
 
 
 # ── Multi-Sweep Result ───────────────────────────────────────────────────
@@ -669,7 +712,8 @@ CATALOG_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__fi
                             "results", "catalog.jsonl")
 
 CATALOG_FIELDS = [
-    "cagr", "total_return", "max_drawdown", "sharpe_ratio", "sortino_ratio",
+    "cagr", "total_return", "max_drawdown", "sharpe_ratio",
+    "sharpe_ratio_arithmetic", "sortino_ratio",
     "calmar_ratio", "total_trades", "win_rate", "avg_hold_days", "profit_factor",
     "final_value", "worst_year",
 ]
