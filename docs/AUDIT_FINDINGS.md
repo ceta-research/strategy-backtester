@@ -1834,3 +1834,101 @@ should be investigated, not "justified."
 **Commits:** 4 (`0ebdd5d`, `696d3f0`, `ceebcac`, plus this one).
 **Decisions log:** `docs/P2_DECISIONS.md`.
 **Dep pin:** `polars==1.37.1` matches cloud.
+
+---
+
+## Phase 8B — eod_breakout regime port + sweep — 2026-04-22
+
+Post-retirement of `momentum_dip_quality` and post-block on
+`momentum_top_gainers` / `momentum_rebalance`, `eod_breakout` became
+the remaining ATO_Simulator-aligned candidate for the stated
+"20-30% CAGR" target. This phase measured the honest ceiling and
+extended the strategy's regime-filter capability.
+
+### Code change: regime filter port
+
+Added to `engine/signals/eod_breakout.py`:
+
+- `regime_instrument: [""]` (default disabled)
+- `regime_sma_period: [0]` (default disabled)
+- `force_exit_on_regime_flip: [False]` (option ii toggle)
+
+Empty defaults make the port byte-identical for all existing configs.
+Regression snapshot unchanged; test suite 440 passing.
+
+Pattern ported from `momentum_dip_quality` / `momentum_top_gainers`:
+pre-build `regime_cache` keyed by (instrument, period), per entry
+config pull `bull_epochs = regime_cache.get(...)`, conditionally AND
+the entry_filter with `date_epoch.is_in(bull_epochs)` when active.
+
+Option (ii) additionally passes `bull_epochs` into `_walk_forward_tsl`
+which checks each walked bar and force-exits at next-day open on the
+first epoch not in the bull set (past min_hold_days).
+
+### Measurement findings
+
+Parameter sweep (72 configs total, full NSE 2010-2026 via nse_charting,
+2454 instruments):
+
+- **Max CAGR champion candidate:** ndh=5, ndm=5, ds={5, 0.60},
+  tsl=12, pos=20, no regime — **19.0% CAGR, -29.9% MDD,
+  Calmar 0.636, Sharpe 1.07.** Saved as
+  `strategies/eod_breakout/config_candidate_max_cagr.yaml`.
+
+- **Max Calmar champion candidate:** same params + regime (ii)
+  NIFTYBEES SMA200 — **14.8% CAGR, -24.2% MDD, Calmar 0.609.**
+  Saved as `strategies/eod_breakout/config_candidate_max_calmar.yaml`.
+
+- **Regime option (i)** (entries-only gate) produced 14.5% CAGR /
+  -27.8% MDD / Calmar 0.52 — a strict Pareto loss vs both no-regime
+  and option (ii). Hypothesis that regime is universally beneficial
+  does NOT hold for breakout strategies.
+
+- **Published champion reproduction:** current code on
+  `config_champion.yaml` produces 15.2% / -34.1% / Calmar 0.45 vs
+  published 13.3% / -25.7% / 0.52. +1.9pp CAGR but significantly worse
+  MDD. Drift likely from Phase 3 charge schedule and determinism
+  fixes shifting trade timing; root cause deferred.
+
+### Key observation — regime filter is NOT universal
+
+| Strategy family | Regime (i) entries-only | Regime (ii) force-exit |
+|---|---|---|
+| Dip-buy / mean-reversion | Helps (catches falling knives) | Helps more |
+| Breakout / momentum | Hurts (gates post-pullback entries) | Neutral-to-helpful |
+
+Breakout signals already encode "strength"; adding market-regime on
+top is redundant-and-punitive. Exit-side regime (option ii) is the
+useful pattern for trend-following — cuts drawdowns without starving
+the entry channel.
+
+### Honesty caveats — do NOT treat 19% as production
+
+1. **Multiple-comparison inflation.** 72 configs swept; max-CAGR is
+   in-sample peak. OOS expectation ~14-16% after shrinkage.
+2. **No walk-forward validation.** Published 13.3% had 6/6 folds
+   (avg Calmar 0.736). Sweep winners have none.
+3. **Charge schedule tailwind.** Phase 3 lowered NSE_EXCHANGE_RATE
+   (0.0000345 → 0.0000297) — ~0.5-1pp CAGR from cheaper fees, not
+   signal improvement.
+4. **3 outlier trades flagged by sanitize diagnostic** (returns >2000%,
+   not dropped). If one contributes meaningfully, it's data noise.
+
+### Deferred follow-ups
+
+- Walk-forward validation on both candidates before promoting either
+  to `config_champion.yaml`.
+- Root cause the 13.3% → 15.2% CAGR / -25.7% → -34.1% MDD drift on
+  the existing published champion.
+- Data-quality pass on the 3 sanitize-flagged outliers.
+- Evaluate whether regime (ii) helps `enhanced_breakout` and
+  `momentum_cascade` (other trend-following candidates).
+
+### Artifacts
+
+- Code: `engine/signals/eod_breakout.py` (+62 / -3)
+- Configs: `strategies/eod_breakout/config_candidate_max_cagr.yaml`,
+  `strategies/eod_breakout/config_candidate_max_calmar.yaml`
+- Write-up: `docs/audit_phase_8a/eod_breakout_regime_sweep.md`
+- Commit: `e167e11`
+- Test suite: 440 passing (unchanged; regime port is additive).
