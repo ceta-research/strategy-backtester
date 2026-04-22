@@ -2,6 +2,12 @@
 
 Replaces ATO_Simulator's driver.py + simulator.py + simulate_step_loader.py.
 Dispatches to pluggable signal generators based on strategy_type in config.
+
+Multi-exchange limitation: the pipeline does not perform currency conversion.
+When a config specifies multiple exchanges (e.g. NSE + LSE), all equity
+values are summed as-is in the local currency of each exchange. Results are
+meaningful only when all exchanges share a currency (e.g. NSE + BSE, both INR)
+or when the user interprets results as "portfolio in mixed local currencies."
 """
 
 import sys
@@ -200,6 +206,12 @@ def run_pipeline(config_path, data_provider=None):
                     # Build BacktestResult
                     params = {"config_id": config_id}
                     br = BacktestResult(strategy_type, params, "PORTFOLIO", exchange, start_margin)
+
+                    # Anchor equity curve at simulation start so the first
+                    # period return captures inception-to-first-MTM-day.
+                    start_epoch = context["start_epoch"]
+                    if day_wise_log and day_wise_log[0]["log_date_epoch"] > start_epoch:
+                        br.add_equity_point(start_epoch, start_margin)
 
                     for day in day_wise_log:
                         br.add_equity_point(day["log_date_epoch"],

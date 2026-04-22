@@ -2,6 +2,18 @@
 
 Ported from ATO_Simulator/simulator/steps/simulate_step/process_step.py.
 Daily loop: entries, exits, MTM, position tracking with real broker charges.
+
+Limitations:
+  - **Long-only**: no short-selling infrastructure. All strategies assume
+    long equity positions. Short signals are not supported.
+  - **No T+1/T+2 settlement lag**: sale proceeds are available immediately.
+    Capital-constrained sweeps may overstate reinvestment speed.
+  - **Linear slippage**: ``slippage_rate`` (default 5 bps) scales linearly
+    with notional. Real slippage follows a concave (square-root) law;
+    large orders or illiquid names will understate actual slippage.
+  - **All epochs are UTC**: no timezone or DST conversion. NSE close
+    (15:30 IST = 10:00 UTC) and US close (16:00 ET) both map to
+    end-of-day UTC epochs. Daily granularity avoids DST edge cases.
 """
 
 import bisect
@@ -97,6 +109,15 @@ def _process_entries(orders, current_positions, current_positions_count, margin_
         if instrument_open_position_count >= max_positions_per_instrument:
             continue
 
+        # Order sizing pipeline:
+        #   1. Base: order_value = current_account_value / max_positions
+        #      (or sim_config["order_value"] if set — fixed, pct-account, or pct-margin)
+        #   2. Cap: sim_config["max_order_value"] caps _order_value via min()
+        #      (fixed, pct-account, pct-margin, or pct-of-avg-txn)
+        #   3. Multiplier: order_value_multiplier (default 1.0) scales AFTER cap
+        #      (applied at line ~140). A multiplier >1 means leverage; the cap
+        #      may silently truncate the intended leverage for instruments
+        #      whose avg_txn-based cap is smaller than base × multiplier.
         _order_value = order_value
         skip_this_order = False
         if "max_order_value" in sim_config:
@@ -316,6 +337,11 @@ def process(context, df_orders, epoch_wise_instrument_stats, current_snapshot, s
                 pay_out_sum = pay_out_config["value"]
             elif pay_out_config["type"] == "percentage":
                 pay_out_sum = pay_out_config["value"] * current_account_value / 100
+            else:
+                raise ValueError(
+                    f"Unknown payout type: {pay_out_config['type']!r}. "
+                    f"Supported: 'fixed', 'percentage'"
+                )
             margin_available -= min(margin_available, pay_out_sum)
             current_snapshot["next_payout_epoch"] += payout_interval
 

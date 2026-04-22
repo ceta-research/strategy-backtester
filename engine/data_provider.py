@@ -33,6 +33,26 @@ Missing-data handling (audit P4.4, 2026-04-21):
   for gap days, then backward-fills `close` across null rows. Signal
   generators downstream should never assume every calendar-day row exists
   unless they have gone through the scanner.
+
+Cache invalidation (audit P3):
+  EOD providers read from static local parquet files — no automatic
+  invalidation. Data is updated by re-running the data pipeline
+  (ts-data-pipeline) which overwrites the parquet files. CRDataProvider
+  always fetches fresh from the CR API, so caching is irrelevant there.
+
+Bhavcopy vs nse_charting epoch convention (audit P2, 2026-04-22):
+  nse_charting_day and nse_bhavcopy_historical contain IDENTICAL OHLCV
+  data (verified 0.00% difference across 10 liquid stocks, Jan-Mar 2024)
+  but use a 1-TRADING-day offset in ``date_epoch``:
+    - charting row N has the same OHLCV as bhavcopy row N-1
+  Bhavcopy stores its raw epoch at 18:30 UTC (midnight IST). For
+  Friday trades this is Sunday 18:30 UTC → floors to Sunday, so
+  bhavcopy has SUNDAY epochs for Friday data. Charting uses weekday-
+  only epochs (no weekends) but is shifted forward by one trading day
+  relative to bhavcopy.
+  This is harmless because the backtester uses a single provider per
+  run — it never mixes bhavcopy and charting data. But NEVER join
+  these two tables on ``date_epoch`` without applying the offset.
 """
 
 import io
@@ -704,6 +724,8 @@ class DuckDBParquetDataProvider:
         ]
 
         if symbols:
+            # Symbols come from scanner config (internal); f-string is safe here.
+            # Full parameterization is impractical with DuckDB read_parquet SQL.
             fmp_symbols = []
             for exchange in exchanges:
                 suffix = self.EXCHANGE_SUFFIX.get(exchange, "")

@@ -361,14 +361,14 @@ def _compute_series_metrics_with_cagr(returns, ppy, risk_free_rate, cagr, total_
         else:
             current_consec = 0
 
-    # Skewness
+    # Skewness — Fisher-Pearson adjusted (matches scipy.stats.skew(bias=False))
     if n >= 3 and variance > 0:
         std = math.sqrt(variance)
         skewness = (n / ((n - 1) * (n - 2))) * sum(((r - mean_r) / std) ** 3 for r in returns)
     else:
         skewness = None
 
-    # Kurtosis (excess)
+    # Excess kurtosis — Fisher adjusted (matches scipy.stats.kurtosis(bias=False))
     if n >= 4 and variance > 0:
         std = math.sqrt(variance)
         m4 = sum(((r - mean_r) / std) ** 4 for r in returns)
@@ -419,7 +419,7 @@ def _compute_comparison(port_returns, bench_returns, ppy, risk_free_rate,
     else:
         excess_cagr = None
 
-    # Win rate
+    # Win rate (ties where excess == 0 are counted as non-wins, i.e. losses).
     wins = sum(1 for e in excess if e > 0)
     win_rate = wins / n
 
@@ -454,22 +454,23 @@ def _compute_comparison(port_returns, bench_returns, ppy, risk_free_rate,
         if down_bench_mean != 0:
             down_capture = (sum(down_port) / len(down_port)) / down_bench_mean
 
-    # Beta and Alpha (CAPM)
-    port_mean = sum(port_returns) / n
-    bench_mean = sum(bench_returns) / n
-    cov_sum = sum((p - port_mean) * (b - bench_mean) for p, b in zip(port_returns, bench_returns))
-    bench_var_sum = sum((b - bench_mean) ** 2 for b in bench_returns)
+    # Beta and Alpha (CAPM) — requires >= 20 periods for statistical reliability.
+    # Note: cov_sum/bench_var_sum uses population sums (no /(n-1)) because the
+    # divisor cancels in the ratio. This differs cosmetically from the sample
+    # variance used in _compute_series_metrics, but is numerically identical
+    # to sample-cov / sample-var since both would divide by (n-1).
+    beta = None
+    alpha = None
+    if n >= 20:
+        port_mean = sum(port_returns) / n
+        bench_mean = sum(bench_returns) / n
+        cov_sum = sum((p - port_mean) * (b - bench_mean) for p, b in zip(port_returns, bench_returns))
+        bench_var_sum = sum((b - bench_mean) ** 2 for b in bench_returns)
 
-    if bench_var_sum > 0:
-        beta = cov_sum / bench_var_sum
-        # Jensen's alpha (annualized); None if either CAGR is undefined.
-        if port_cagr is not None and bench_cagr is not None:
-            alpha = port_cagr - (risk_free_rate + beta * (bench_cagr - risk_free_rate))
-        else:
-            alpha = None
-    else:
-        beta = None
-        alpha = None
+        if bench_var_sum > 0:
+            beta = cov_sum / bench_var_sum
+            if port_cagr is not None and bench_cagr is not None:
+                alpha = port_cagr - (risk_free_rate + beta * (bench_cagr - risk_free_rate))
 
     return {
         "excess_cagr": excess_cagr,

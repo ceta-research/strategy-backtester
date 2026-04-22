@@ -21,6 +21,10 @@ Rate vintage (audit P3.4/P3.5 revisit, 2026-04-21):
 
   The golden-value test suite in tests/test_charges.py pins every constant
   so any future rate update is a deliberate, reviewed change.
+
+  Rounding: all charge components are rounded to 2 decimal places (paise
+  precision for INR, cents for USD). This matches broker contract-note
+  practice. Sub-paise rounding error is negligible at backtest scale.
 """
 
 import logging

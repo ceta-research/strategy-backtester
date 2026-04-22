@@ -37,7 +37,7 @@ def compute_realized_vol(closes, window):
     for i in range(1, len(closes)):
         start = max(1, i - window + 1)
         rets = [math.log(closes[j] / closes[j - 1])
-                for j in range(start, i + 1) if closes[j - 1] > 0]
+                for j in range(start, i + 1) if closes[j - 1] > 0 and closes[j] > 0]
         if len(rets) >= 2:
             mean = sum(rets) / len(rets)
             var = sum((r - mean) ** 2 for r in rets) / (len(rets) - 1)

@@ -60,17 +60,6 @@ class TestKnownBiasWarningsInPlace(unittest.TestCase):
     known biases. Assert they stay — a silent removal should fail the
     test so a reviewer notices."""
 
-    def test_mtg_period_avg_bias_is_documented(self):
-        source = _read("momentum_top_gainers.py")
-        self.assertIn("AUDIT P5.2", source,
-                      "momentum_top_gainers.py must carry the P5.2 bias warning")
-        self.assertIn("LOOK-AHEAD", source)
-
-    def test_mdq_period_avg_bias_is_documented(self):
-        source = _read("momentum_dip_quality.py")
-        self.assertIn("AUDIT P5.2", source,
-                      "momentum_dip_quality.py must carry the P5.2 bias warning")
-
     def test_momentum_rebalance_same_bar_bias_is_documented(self):
         source = _read("momentum_rebalance.py")
         self.assertIn("AUDIT P5.4", source,

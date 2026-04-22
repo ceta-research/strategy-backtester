@@ -248,11 +248,7 @@ class EarningsDipSignalGenerator:
         shortlist_tracker, df_trimmed = run_scanner(context, df_tick_data)
 
         # ── Phase 2: Compute indicators ──
-        # Free df_tick_data reference early to reduce memory pressure.
-        # Pipeline keeps its own reference; we only need our indicator copy.
         df_ind = df_tick_data.clone()
-        del df_tick_data
-        import gc; gc.collect()
         df_ind = add_next_day_values(df_ind)
         df_ind = df_ind.sort(["instrument", "date_epoch"])
 

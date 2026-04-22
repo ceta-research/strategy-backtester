@@ -2,6 +2,12 @@
 
 Ported from ATO_Simulator/simulator/steps/simulate_step/util.py (lines 232-399)
 and simulate_step_loader.py sort_orders() dispatcher.
+
+All sort functions use ``join(how="inner")``, which silently drops orders
+for instruments missing from the rank data (e.g. mid-simulation IPOs that
+have no prior price history for scoring). This is intentional: unranked
+instruments cannot be meaningfully scored and would receive an arbitrary
+ordering if included.
 """
 
 import polars as pl
@@ -138,7 +144,7 @@ def calculate_daywise_instrument_score(df_orders: pl.DataFrame, instrument_day_w
             group = group.sort(["entry_epoch", "exit_epoch"])
             current_end = None
             for row in group.iter_rows(named=True):
-                if current_end and row["exit_epoch"] <= current_end:
+                if current_end is not None and row["exit_epoch"] <= current_end:
                     continue
                 current_end = row["exit_epoch"]
                 idx_to_keep.append(row)

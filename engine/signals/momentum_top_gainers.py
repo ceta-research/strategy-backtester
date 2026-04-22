@@ -101,70 +101,9 @@ class MomentumTopGainersSignalGenerator:
         df_ind = add_next_day_values(df_ind)
         df_ind = df_ind.sort(["instrument", "date_epoch"])
 
-        # Period-average turnover filter (fixed universe, matches standalone approach).
-        #
-        # AUDIT P5.2 (2026-04-21): KNOWN LOOK-AHEAD / SURVIVORSHIP BIAS.
-        # `period_avg` averages close * volume over the ENTIRE data range
-        # (start_epoch - prefetch through end_epoch) and produces ONE
-        # static universe used for every rebalance from day one. A stock
-        # that becomes liquid in 2020 is included in the 2015 universe;
-        # a stock that delists mid-sim may be excluded from all years.
-        # This matches the standalone reference implementation and is
-        # intentionally preserved here to keep engine parity, but it
-        # does overstate realized alpha vs a strict point-in-time universe.
-        # For honest live-equivalent backtests, prefer per-day scanner
-        # (see eod_breakout.py). Tracked as an open P1 follow-up.
-        _turnover_threshold = 70_000_000
-        for scanner_cfg in get_scanner_config_iterator(context):
-            thresh_val = scanner_cfg.get("avg_day_transaction_threshold")
-            if isinstance(thresh_val, dict):
-                _turnover_threshold = thresh_val.get("threshold", _turnover_threshold)
-            elif isinstance(thresh_val, (int, float)):
-                _turnover_threshold = thresh_val
-            break
-
-        period_avg = (
-            df_ind
-            .group_by("instrument", maintain_order=True)
-            .agg(
-                (pl.col("close") * pl.col("volume")).mean().alias("avg_turnover"),
-                pl.col("close").mean().alias("avg_close"),
-            )
-            .filter(
-                (pl.col("avg_turnover") > _turnover_threshold)
-                & (pl.col("avg_close") > 50)
-            )
-        )
-        period_universe_set = set(period_avg["instrument"].to_list())
-        print(f"  Period-avg turnover filter: {len(period_universe_set)} instruments")
-
-        # Point-in-time universe cache. Populated lazily on first rebalance
-        # when universe_mode='point_in_time' is in effect. Maps
-        # rebalance_epoch -> frozenset(instruments). See _pit_universe below.
-        _pit_universe_cache = {}
-
-        def _pit_universe(rebalance_epoch):
-            """Point-in-time universe: averages use only data strictly
-            BEFORE `rebalance_epoch`, so a stock that becomes liquid after
-            this rebalance is NOT included. This is the honest (audit P5.2)
-            alternative to the full-period static universe above."""
-            if rebalance_epoch in _pit_universe_cache:
-                return _pit_universe_cache[rebalance_epoch]
-            pit = (
-                df_ind.filter(pl.col("date_epoch") < rebalance_epoch)
-                .group_by("instrument", maintain_order=True)
-                .agg(
-                    (pl.col("close") * pl.col("volume")).mean().alias("avg_turnover"),
-                    pl.col("close").mean().alias("avg_close"),
-                )
-                .filter(
-                    (pl.col("avg_turnover") > _turnover_threshold)
-                    & (pl.col("avg_close") > 50)
-                )
-            )
-            result = frozenset(pit["instrument"].to_list())
-            _pit_universe_cache[rebalance_epoch] = result
-            return result
+        # Universe gate is the per-day scanner (`scanner_config_ids` not
+        # null). Replaces the old full-period `period_universe_set`
+        # (look-ahead bias) and its opt-in `point_in_time` variant.
 
         # Phase 3: Generate orders per entry/exit config
         t1 = time.time()
@@ -179,13 +118,6 @@ class MomentumTopGainersSignalGenerator:
             regime_sma_period = entry_config.get("regime_sma_period", 0)
             direction_n_day_ma = entry_config.get("direction_score_n_day_ma", 0)
             direction_threshold = entry_config.get("direction_score_threshold", 0)
-            # Phase 8A (audit P5.2): opt-in honest universe.
-            #   "full_period" (default, LEGACY): static universe using the
-            #       full-data averages. Contains look-ahead/survivorship bias.
-            #   "point_in_time" (HONEST): at each rebalance, recompute the
-            #       universe from data strictly BEFORE the rebalance day.
-            # Default is "full_period" for result parity with pre-audit runs.
-            universe_mode = entry_config.get("universe_mode", "full_period")
 
             bull_epochs = regime_cache.get(
                 (regime_instrument, regime_sma_period), set()
@@ -265,18 +197,10 @@ class MomentumTopGainersSignalGenerator:
                         if ds <= direction_threshold:
                             continue
 
-                    # Select the universe according to the universe_mode flag.
-                    # Full-period is the legacy default (look-ahead bias);
-                    # point-in-time uses only data before rb_epoch.
-                    if universe_mode == "point_in_time":
-                        universe = list(_pit_universe(rb_epoch))
-                    else:
-                        universe = list(period_universe_set)
-
-                    # Get scanner-eligible stocks with momentum at this epoch
+                    # Per-day scanner is the universe gate.
                     day_data = df_signals.filter(
                         (pl.col("date_epoch") == rb_epoch)
-                        & (pl.col("instrument").is_in(universe))
+                        & pl.col("scanner_config_ids").is_not_null()
                         & (pl.col("momentum_return").is_not_null())
                         & (pl.col("close") > 0)
                         & (pl.col("next_epoch").is_not_null())
@@ -333,14 +257,6 @@ class MomentumTopGainersSignalGenerator:
                         if exit_epoch is None or exit_price is None:
                             continue
 
-                        # AUDIT P5.2: the `or "1"` fallback means stocks that
-                        # didn't pass per-day scanner on `rb_epoch` still get
-                        # assigned to scanner config 1 and enter the
-                        # simulator. This is intentional (the strategy uses
-                        # period_avg_turnover as its universe filter, not
-                        # per-day scanner) but silently bypasses the scanner
-                        # step. Documented, not fixed — fixing would
-                        # invalidate existing backtest numbers.
                         all_order_rows.append({
                             "instrument": inst,
                             "entry_epoch": entry_epoch,
@@ -349,7 +265,7 @@ class MomentumTopGainersSignalGenerator:
                             "exit_price": exit_price,
                             "entry_volume": row.get("next_volume") or 0,
                             "exit_volume": 0,
-                            "scanner_config_ids": row.get("scanner_config_ids") or "1",
+                            "scanner_config_ids": row["scanner_config_ids"],
                             "entry_config_ids": str(entry_config["id"]),
                             "exit_config_ids": str(exit_config["id"]),
                         })
@@ -374,9 +290,6 @@ class MomentumTopGainersSignalGenerator:
             "regime_sma_period": entry_cfg.get("regime_sma_period", [0]),
             "direction_score_n_day_ma": entry_cfg.get("direction_score_n_day_ma", [0]),
             "direction_score_threshold": entry_cfg.get("direction_score_threshold", [0]),
-            # Phase 8A: "full_period" (default, legacy) or "point_in_time"
-            # (honest, no look-ahead). See generate_orders for the semantics.
-            "universe_mode": entry_cfg.get("universe_mode", ["full_period"]),
         }
 
     @staticmethod

@@ -3,6 +3,7 @@
 Collects equity curve, trades, and benchmark data during simulation,
 then computes all metrics and outputs a standardized JSON file.
 
+
 Single config:
     result = BacktestResult("buy_2day_high", {"tsl": 5}, "NIFTYBEES", "NSE", 10_000_000)
     for day in simulation:
@@ -26,11 +27,14 @@ See docs/BACKTEST_GUIDE.md for full schema and usage.
 """
 
 import json
+import logging
 import os
 from datetime import datetime, timezone
 
 from lib.metrics import compute_metrics_from_curve
 from lib.equity_curve import EquityCurve, Frequency
+
+_logger = logging.getLogger(__name__)
 
 
 class BacktestResult:
@@ -123,6 +127,12 @@ class BacktestResult:
 
     def set_benchmark_values(self, epochs, values):
         """Set benchmark equity curve (e.g. buy-and-hold). Same length as equity_curve."""
+        if self.equity_curve and len(epochs) != len(self.equity_curve):
+            _logger.warning(
+                "Benchmark length (%d) != equity_curve length (%d); "
+                "benchmark comparison metrics will be skipped.",
+                len(epochs), len(self.equity_curve),
+            )
         self.benchmark_values = list(zip(
             [int(e) for e in epochs],
             [float(v) for v in values],
@@ -484,8 +494,9 @@ class BacktestResult:
 
     def _empty_result(self):
         return {
-            "version": "1.0", "type": "single",
+            "version": "1.1", "type": "single",
             "strategy": self.strategy,
+            "equity_curve_frequency": self._frequency.name,
             "summary": {}, "benchmark": {}, "comparison": {},
             "equity_curve": [], "trades": [],
             "monthly_returns": {}, "yearly_returns": [],

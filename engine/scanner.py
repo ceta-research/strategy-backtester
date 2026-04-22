@@ -1,6 +1,14 @@
 """Scanner step: filter instruments by price, avg turnover, and n-day gain.
 
 Ported from ATO_Simulator/simulator/steps/scanner_step/process_step.py.
+
+Instrument format: ``{exchange}:{symbol}`` (e.g. ``NSE:RELIANCE``).
+Scanner config ``instruments`` field is a list of dicts::
+
+    [{"exchange": "NSE", "symbols": ["RELIANCE", "TCS"]}]
+
+When ``symbols`` is an empty list ``[]``, all symbols for that exchange
+present in the tick-data DataFrame are included.
 """
 
 import polars as pl

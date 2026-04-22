@@ -174,17 +174,23 @@ class CetaResearch:
                 print(f"  Rate limited on submit, waiting {wait}s (attempt {attempt+1}/5)...")
                 time.sleep(wait)
                 continue
+            if 500 <= resp.status_code < 600 and attempt < 4:
+                wait = 2 ** (attempt + 1)  # 2, 4, 8, 16s
+                print(f"  Server error {resp.status_code} on submit, retrying in {wait}s (attempt {attempt+1}/5)...")
+                time.sleep(wait)
+                continue
             if resp.status_code not in (200, 201, 202):
                 raise CetaResearchError(f"Submit failed ({resp.status_code}): {resp.text[:500]}")
             data = resp.json()
             return data.get("taskId") or resp.headers.get("X-Task-ID")
 
-        raise CetaResearchError("Rate limited on submit after 5 retries")
+        raise CetaResearchError("Submit failed after 5 retries (rate limit or server error)")
 
     def _poll(self, task_id, timeout=300, verbose=False):
         """Poll task status until completion or timeout."""
         deadline = time.time() + timeout + 30  # extra buffer for poll overhead
         backoff = DEFAULT_POLL_INTERVAL
+        consecutive_5xx = 0
         while time.time() < deadline:
             resp = self.session.get(f"{self.base_url}/data-explorer/tasks/{task_id}")
             if resp.status_code == 429:
@@ -193,7 +199,18 @@ class CetaResearch:
                     print(f"  Rate limited on poll, waiting {wait}s...")
                 time.sleep(wait)
                 backoff = min(backoff * 2, 30)  # increase poll interval after rate limit
+                consecutive_5xx = 0
                 continue
+            if 500 <= resp.status_code < 600:
+                consecutive_5xx += 1
+                if consecutive_5xx >= 5:
+                    raise CetaResearchError(f"Poll failed: {consecutive_5xx} consecutive server errors ({resp.status_code})")
+                wait = min(backoff * 2, 30)
+                if verbose:
+                    print(f"  Server error {resp.status_code} on poll, retrying in {wait}s ({consecutive_5xx}/5)...")
+                time.sleep(wait)
+                continue
+            consecutive_5xx = 0
             if resp.status_code != 200:
                 raise CetaResearchError(f"Poll failed ({resp.status_code}): {resp.text[:500]}")
             task = resp.json()
@@ -237,6 +254,11 @@ class CetaResearch:
         for attempt in range(max_retries):
             resp = self.session.get(url)
 
+            if 500 <= resp.status_code < 600 and attempt < max_retries - 1:
+                wait = min(2 ** (attempt + 1), 30)
+                print(f"  Server error {resp.status_code} on download, retrying in {wait}s (attempt {attempt+1}/{max_retries})...")
+                time.sleep(wait)
+                continue
             if resp.status_code != 200:
                 raise CetaResearchError(f"Download failed ({resp.status_code}): {resp.text[:500]}")
 

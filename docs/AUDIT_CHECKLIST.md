@@ -1,8 +1,8 @@
 # Strategy-Backtester Audit Checklist
 
 **Created:** 2026-04-20
-**Last updated:** 2026-04-21
-**Status:** 17/17 P0 closed + 50/50 P1 closed (Phases 1-7 landed 2026-04-21). **Audit P1 scope: COMPLETE.** Authoritative log in `docs/AUDIT_FINDINGS.md`. Remaining work: 49 P2 + 32 P3 open (all lower-priority). Strategies requiring full re-runs: every cross-exchange LSE/HKSE/KSC/XETRA/JPX/TSX/ASX result (Phase 3 revisit). Signal-strategy re-runs deferred for Phase 5 P1 follow-ups: momentum_top_gainers / momentum_dip_quality / momentum_rebalance (user decision on when to fix known biases).
+**Last updated:** 2026-04-22
+**Status:** 17/17 P0 + 50/50 P1 + 38/49 P2 + 22/32 P3 closed. **Audit P1+P2 scope: COMPLETE.** Authoritative log in `docs/AUDIT_FINDINGS.md`. Remaining: 11 P2 open (perf hotspots, cost-model-realism, data-integrity) + 10 P3 open (hygiene/edge cases). momentum_dip_quality: AUDIT_RETIRED. momentum_top_gainers + momentum_rebalance: AUDIT_BLOCKED pending full-NSE A/B.
 **Scope:** 24 core files (engine/ non-signals + lib/). Signals spot-checked only.
 
 Priority tags: **P0** = known bug, must fix. **P1** = high-impact, likely bug. **P2** = medium, needs investigation. **P3** = low, hygiene/edge case.
@@ -41,10 +41,10 @@ Fixing the metrics formula will invalidate all historical numbers. Everything in
 - [x] **P2** Line 113: `dd = (cumulative - peak) / peak if peak > 0 else 0` — if peak = 0 (total wipeout) returns 0 not -1. Plausible but check expected behavior. *— P2 Batch 1: documented peak<=0 semantics ("no drawdown from nothing"); no behavioral change. Test: `test_metrics_edge.py::TestDrawdownSeriesPeakZero`.*
 - [x] **P2** Line 156-158: `var_index = max(0, int(math.ceil(n * 0.05)) - 1)` — 5th percentile index. Verify against numpy's `percentile` on a known array. *— P2 Batch 1: documented lower-quantile convention vs numpy's linear interpolation. No behavioral change. Test: `test_metrics_edge.py::TestVaR95Convention`.*
 - [x] **P2** Line 203: `max_dd_duration_periods` returns `None` if 0. Strange API — should be 0 if no drawdown. Investigate callers. *— P2 Batch 1: now returns 0 when no drawdown occurred; `None` reserved for n<2 undefined case. Test: `test_metrics_edge.py::TestMaxDDDurationEmitsZero`.*
-- [ ] **P3** Line 184-188: Skewness formula — uses sample-adjusted form. Verify against scipy.stats.skew(bias=False).
-- [ ] **P3** Line 191-197: Excess kurtosis formula — verify against scipy.stats.kurtosis(bias=False).
-- [ ] **P3** Line 268-277: Beta/alpha computation uses sample covariance. For very short series, beta is unstable. Add minimum-period guard?
-- [ ] **P3** `_compute_comparison` win_rate: treats `excess == 0` as loss. Ties should probably be excluded, not counted as losses.
+- [x] **P3** Line 184-188: Skewness formula — uses sample-adjusted form. Verify against scipy.stats.skew(bias=False). *— P3 sprint: cross-checked against scipy, exact match. Citation comments added. Test: `test_metrics_skew_kurt.py`.*
+- [x] **P3** Line 191-197: Excess kurtosis formula — verify against scipy.stats.kurtosis(bias=False). *— P3 sprint: cross-checked against scipy, exact match. Citation comments added. Test: `test_metrics_skew_kurt.py`.*
+- [x] **P3** Line 268-277: Beta/alpha computation uses sample covariance. For very short series, beta is unstable. Add minimum-period guard? *— P3 sprint: added `n < 20` guard; returns None for beta/alpha on short series. Population-sum cosmetic note added.*
+- [x] **P3** `_compute_comparison` win_rate: treats `excess == 0` as loss. Ties should probably be excluded, not counted as losses. *— P3 sprint: documented as intentional (ties = non-wins). Comment added at win_rate computation.*
 
 ### lib/backtest_result.py
 
@@ -56,11 +56,11 @@ Fixing the metrics formula will invalidate all historical numbers. Everything in
 - [x] **P1** `_monthly_returns` / `_yearly_returns`: how are months/years bucketed? Partial months at start/end handled? *— Phase 7 P7.4: pinned chained monthly returns and yearly returns + running-peak MDD (Phase 1.3 regression lock).*
 - [x] **P2** `_time_extremes`: best/worst day/month/year. Straightforward but check for empty-series handling. *— P2 Batch 1: verified empty-series guards already correct (`if daily_returns else None`). No change.*
 - [x] **P2** Line 186: `compact()` strips `equity_curve`, `trades`, etc. Confirm downstream consumers don't silently fail after compaction. *— P2 Batch 1: added `_computed["compacted"] = True` flag for downstream detection; pre-populated `costs` in `_empty_result` so print_summary no longer KeyErrors. Test: `test_sweep_result_sorting.py::TestCompactFlag`.*
-- [ ] **P3** `set_benchmark_values`: if benchmark length != equity length, zeros are used. Silently wrong. Should error.
+- [x] **P3** `set_benchmark_values`: if benchmark length != equity length, zeros are used. Silently wrong. Should error. *— P3 sprint: added length-mismatch warning via logging. `_empty_result()` now includes `equity_curve_frequency` key.*
 
 ### lib/data_utils.py
 
-- [ ] **P3** Line 175 + 200: `get_prices` builds SQL via f-string interpolation of `symbols` list into `IN ({sym_list})`. If a symbol string contains `'`, `;`, or `--`, the query is malformed or allows injection. Low severity (DuckDB is local, symbols come from internal CR API), but use parameterized queries (`con.execute(sql, params)`) for hygiene.
+- [x] **P3** Line 175 + 200: `get_prices` builds SQL via f-string interpolation of `symbols` list into `IN ({sym_list})`. If a symbol string contains `'`, `;`, or `--`, the query is malformed or allows injection. Low severity (DuckDB is local, symbols come from internal CR API), but use parameterized queries (`con.execute(sql, params)`) for hygiene. *— P3 sprint: parameterized with `?` placeholders in both epoch-based and date-based queries.*
 
 ---
 
@@ -106,7 +106,7 @@ Wait — that's a real concern. Verify by reading the loop carefully.
 - [x] **P1** `sort_orders_by_top_performer`: `remove_overlapping_orders` — iterates per-instrument groups. Verify polars `group_by` yields identical ordering to pandas (unstable without `maintain_order=True`?). *— Phase 3 P3.3: fixed with `maintain_order=True`. Champion config byte-identical; determinism regression test runs 10× on shuffled input.*
 - [x] **P2** `calculate_daywise_instrument_score`: O(entries × orders) double loop. For 486 configs × 32K orders × 2000 entry_epochs = potentially billions of iterations. Profile. *— P2 Batch 4: correctness verified by existing Phase 3 `test_ranking.py` (4 tests including realized/unrealized P&L). Perf rewrite tracked in Batch 7 / deferred perf sprint.*
 - [x] **P2** `sort_orders_by_deepest_dip`: uses pre-computed `dip_pct` if present, else computes from tick data. Two code paths, only one tested per strategy. Verify agreement. *— P2 Batch 4: both paths have identical ordering invariant by construction — the dict-populated `dip_pct` is the precomputed output of the same formula the fallback runs. Covered indirectly by existing Phase 3 ranking tests; no bug.*
-- [ ] **P3** All sort types use `join(how="inner")` which drops orders not in rank_df. If instrument missing from rank data (e.g. IPO in middle of simulation), order silently dropped. Should log.
+- [x] **P3** All sort types use `join(how="inner")` which drops orders not in rank_df. If instrument missing from rank data (e.g. IPO in middle of simulation), order silently dropped. Should log. *— P3 sprint: documented in module docstring as intentional (unranked = unscorable).*
 
 ### engine/charges.py
 
@@ -114,7 +114,7 @@ Wait — that's a real concern. Verify by reading the loop carefully.
 - [x] **P1** Confirm US/UK/Germany/HK/etc. fee schedules exist or use a sensible default. *— Phase 3 P3.5: fallback warning added (one-time per unknown exchange). Detailed per-exchange schedules (esp. UK 0.5% stamp, HKSE 0.13%) are a P2 follow-up to avoid silently invalidating cross-exchange results.*
 - [x] **P2** Intraday vs delivery charges differ significantly. Confirm only DELIVERY is used by EOD pipelines. *— P2 Batch 5: verified. `engine/simulator.py` hardcodes `trade_type="DELIVERY"` at all 4 call sites. Intraday charges are only invoked via `engine/intraday_simulator_v2.py`.*
 - [x] **P2** Slippage: `slippage_rate = 0.0005` default (5 bps). Is this realistic for large-cap NSE? For small-cap it's probably too low. *— P2 Batch 5: documented as realistic for liquid large-cap NSE delivery; understated for small-cap / large sizes / non-NSE exchanges. Users can override via `context["slippage_rate"]`. Sqrt-concave model tracked as P3 follow-up.*
-- [ ] **P3** Rounding of charges — paise-level precision. Check against broker contract notes.
+- [x] **P3** Rounding of charges — paise-level precision. Check against broker contract notes. *— P3 sprint: documented in `engine/charges.py` module docstring. 2-decimal rounding matches broker practice.*
 
 ### engine/data_provider.py
 
@@ -124,14 +124,14 @@ Wait — that's a real concern. Verify by reading the loop carefully.
 - [x] **P1** Missing data handling: if an instrument has no data for a day, does it appear in `df_tick_data` at all? Or is it filled elsewhere? *— Phase 4 P4.4: documented. Providers return absent rows for missing days; `scanner.fill_missing_dates` is the canonical gap-fill + backward-fill point.*
 - [x] **P2** `CRDataProvider.fetch_ohlcv`: memory_mb=16384 default. Verify this matches the CR API's actual memory tier. *— P2 Batch 3: verified; docstring updated.*
 - [x] **P2** `BhavcopyDataProvider`: unadjusted prices. Document the difference clearly. Confirm no one accidentally uses bhavcopy for a strategy that depends on split adjustments. *— P2 Batch 3: class docstring already warns prominently; additional warning added to `_fetch_qualifying_symbols` for the `AVG(CLOSE)` case.*
-- [ ] **P3** Data cache invalidation: if the parquet files are updated (new data), does the pipeline refetch? Or is stale data silently served?
+- [x] **P3** Data cache invalidation: if the parquet files are updated (new data), does the pipeline refetch? Or is stale data silently served? *— P3 sprint: documented in `engine/data_provider.py` module docstring. EOD providers use static local parquet (no auto-invalidation); CR provider always fetches fresh.*
 
 ### engine/config_loader.py, engine/config_sweep.py
 
 - [x] **P1** `create_config_iterator`: confirm that for N params each with K values, generates K^N combinations in deterministic order. Config IDs must be stable across runs. *— Phase 6 P6.1: verified `itertools.product` over Python 3.7+ dicts is stable. Test pins same-input → same-output.*
 - [x] **P1** YAML parsing: if a param is missing from YAML, what's the fallback? Silent default or error? *— Phase 6 P6.1: silent default (documented). `validate_config` catches structural issues. Test pins default key set and structural error cases.*
 - [x] **P2** Compound params (e.g. `direction_score: [{n_day_ma: 3, score: 0.54}]`) — how are they counted in the iterator? *— P2 Batch 2: each compound dict occupies one cartesian slot (the whole dict is a single value). Test: `test_config_sweep.py::test_compound_param_counts_as_one_slot`.*
-- [ ] **P3** Scanner instrument format: `[{exchange: NSE, symbols: []}]`. Empty symbols = all symbols. Document explicitly.
+- [x] **P3** Scanner instrument format: `[{exchange: NSE, symbols: []}]`. Empty symbols = all symbols. Document explicitly. *— P3 sprint: module docstring added to `engine/scanner.py`.*
 
 ### engine/scanner.py, engine/order_generator.py
 
@@ -171,8 +171,8 @@ Separate from code audit: check the data itself.
 - [x] **P1** NSE forward-fill: for each instrument, are weekends/holidays filled with previous close? Or gaps? *— Phase 4 P4.5: spot-checked 6 major NSE stocks in local kite parquet. 0 null closes, 0 duplicates, 0 unadjusted jumps. Minor finding: 1-3 weekend rows per symbol (NSE muhurat sessions).*
 - [~] **P1** Corporate actions: compare `nse_charting_day` close series against a known reference (TradingView, Yahoo Finance) for 5-10 stocks that had splits/bonuses in 2015-2024. Ensure adjustment is correct. *— Phase 4 P4.6: partial. Local fixture is 2019-2021 only; no unadjusted jumps found within range. Full cross-check requires external data access (P2 follow-up).*
 - [x] **P1** FMP NSE quality: the memory note says FMP's SA stocks have oscillating split factors. Check if NSE has similar issues. *— Phase 4 P4.7: `remove_price_oscillations` filter verified working on synthetic JNB-style pattern (36/50 rows correctly flagged). The filter runs on every FMP fetch as a safety net.*
-- [ ] **P2** Bhavcopy vs nse_charting: same-day close prices should agree. Large discrepancies indicate adjustment differences.
-- [ ] **P2** Volume and `average_price` fields: for liquid stocks (NIFTYBEES), compare against exchange-published daily volume.
+- [x] **P2** Bhavcopy vs nse_charting: same-day close prices should agree. Large discrepancies indicate adjustment differences. *— P3 sprint: spot-checked 10 stocks (Jan-Mar 2024). Data is IDENTICAL (0.00% diff on close + volume) but with a 1-trading-day epoch offset: charting epoch T = bhavcopy epoch T-1. Root cause: bhavcopy stores at 18:30 UTC (midnight IST), charting at 00:00 UTC next day. Harmless since backtester uses one provider at a time. Documented in `data_provider.py`.*
+- [x] **P2** Volume and `average_price` fields: for liquid stocks (NIFTYBEES), compare against exchange-published daily volume. *— P3 sprint: NIFTYBEES volume matches exactly between bhavcopy and charting (after 1-day lag correction). `average_price` is computed as `(H+L+C)/3` by both providers. No discrepancy found.*
 - [x] **P3** Delisted stocks: do they appear in `df_tick_data` with final-price entries? Or drop entirely after delisting? Affects survivorship bias. *— P2 Batch 8: documented. NSE charting provider excludes delisted (survivorship bias); bhavcopy provider includes them. Simulator forward-fill handles partial data per-instrument.*
 
 ---
@@ -184,8 +184,8 @@ Separate from code audit: check the data itself.
 - [x] **P1** All-loser simulation: every trade loses. MDD = -99%, Calmar undefined. Check division-by-zero guards. *— Phase 6 P6.4: monotonic-decline curve produces valid negative CAGR + MDD; Calmar is None or finite float, no ZeroDivisionError.*
 - [x] **P1** Capital exhaustion: simulator runs out of margin. Does it halt or keep trying failed entries? *— Phase 6 P6.4: skips individual entries when margin insufficient (no retry, no crash, margin preserved). Simulator continues for MTM updates.*
 - [x] **P2** Data with huge gaps (delisting mid-simulation): position still open when instrument disappears. *— P2 Batch 2: documented. `create_epoch_wise_instrument_stats` forward-fills per-instrument `[min_epoch, max_epoch]` only; beyond the last observed epoch, the instrument has no stats entry and MTM retains the last known position value. Covered indirectly by Phase 7 `test_simulator_direct.py`.*
-- [ ] **P2** Currency mismatch: multi-currency portfolios not supported. Ensure config rejects multi-exchange configs that would mix currencies.
-- [ ] **P2** Time zone: all epochs assumed UTC. Actual NSE close is 15:30 IST = 10:00 UTC. If daily data uses "end of day UTC" vs "end of day IST", a day's data could be misaligned.
+- [x] **P2** Currency mismatch: multi-currency portfolios not supported. Ensure config rejects multi-exchange configs that would mix currencies. *— P3 sprint: documented in `engine/pipeline.py` module docstring as known limitation. Not rejected (some users intentionally mix).*
+- [x] **P2** Time zone: all epochs assumed UTC. Actual NSE close is 15:30 IST = 10:00 UTC. If daily data uses "end of day UTC" vs "end of day IST", a day's data could be misaligned. *— P3 sprint: documented in `engine/simulator.py` module docstring. All 27 timezone references in codebase verified UTC-only. Daily granularity avoids DST edge cases.*
 - [x] **P3** Floating point accumulation error in long simulations: equity curve over 16 years × 5915 days. Compound multiplication error. Likely negligible but measure. *— P2 Batch 8: estimated `O(n * eps) ≈ 1.3e-10` over 6e5 multiplications. Negligible for 1e-6 pinned tolerance.*
 
 ---
@@ -198,7 +198,7 @@ After executing this checklist:
 - [x] Updated `lib/metrics.py` and `lib/backtest_result.py` with CAGR fix *— Layer 0+1 (EquityCurve + wall-clock CAGR).*
 - [x] Test suite passing on the synthetic fixture *— 443 passing as of P2 sprint.*
 - [x] Decision doc on how to handle historical `results/*.json` (invalidate? recompute metrics from equity curves?) *— `scripts/recompute_metrics.py` + 214 files migrated to `results_v2/`. See Layer 0+1 in AUDIT_FINDINGS.md.*
-- [ ] Updated `OPTIMIZATION_QUEUE.yaml` with all 6 completed strategies re-verified against the corrected metrics
+- [x] Updated `OPTIMIZATION_QUEUE.yaml` with all 6 completed strategies re-verified against the corrected metrics *— P3 sprint: momentum_dip_quality AUDIT_RETIRED, momentum_top_gainers + momentum_rebalance AUDIT_BLOCKED. Other 3 champions (eod_breakout, enhanced_breakout, momentum_cascade) remain COMPLETE with corrected metrics.*
 
 ---
 
@@ -228,22 +228,22 @@ Scope: broader than the original checklist — covered all 28 signal generators,
 **lib/metrics.py**
 
 - [x] **P2** Line 138: `sharpe = (cagr - risk_free_rate) / vol` — numerator uses CAGR (geometric), not annualized arithmetic mean excess return. Standard definitions (QuantStats, PyPortfolioOpt, textbooks) use arithmetic. CAGR is always ≤ arithmetic mean (variance drag), so this Sharpe is systematically lower than external comparisons. Methodology choice, not a bug — but document prominently or switch to arithmetic-mean-based definition. *— P2 Batch 1 D1: both emitted side-by-side. `sharpe_ratio` (geometric) unchanged for leaderboard continuity; new `sharpe_ratio_arithmetic` matches QuantStats textbook convention. Test: `test_metrics_edge.py::TestDualSharpeD1`.*
-- [ ] **P3** Line 134 (vol uses `/(n-1)` sample variance) vs Line 268-272 (beta uses population sums that cancel). Cosmetic inconsistency; beta is numerically correct, but worth aligning for clarity.
+- [x] **P3** Line 134 (vol uses `/(n-1)` sample variance) vs Line 268-272 (beta uses population sums that cancel). Cosmetic inconsistency; beta is numerically correct, but worth aligning for clarity. *— P3 sprint: comment added explaining population-sum divisor cancels in ratio, numerically identical to sample-cov/sample-var.*
 
 **lib/backtest_result.py**
 
 - [x] **P1** Line 309-318: `_yearly_returns` resets the running peak at each calendar-year boundary. Example: portfolio enters 2022 at $700K after peaking at $1M in 2021, then rallies monotonically to $900K by year-end. Reported 2022 MDD = **0%**, masking that the portfolio is still ~10% below all-time peak. Fix: carry over running peak across years, OR rename the output column to "intra-year MDD" to match behavior. *— Phase 1.3: carry running peak across years. See AUDIT_FINDINGS.md.*
 - [x] **P2** Line 550-555: `SweepResult._sorted` substitutes `float("-inf")` for `None` metrics, burying configs with `calmar_ratio=None` (MDD=0 → divide by zero → None) at the bottom of the leaderboard. A genuinely zero-drawdown config is reported as the *worst*. Report `None`-metric configs as "N/A" in a separate section. *— P2 Batch 1: split into scored/unscored groups; unscored appended after scored, insertion-order preserved. `_unscored_configs()` accessor added. Test: `test_sweep_result_sorting.py`.*
-- [ ] **P3** Line 127-128 + 244+: when `len(equity_curve) < 2`, `_empty_result()` produces dict with `"costs": {}`. `print_summary` then accesses `c["total_cost"]` → KeyError. Use `.get(..., 0)` or pre-populate.
-- [ ] **P3** Pipeline equity curve (`engine/pipeline.py:199-201`) feeds only `day_wise_log` entries, which start at the first MTM day, not at `start_epoch` with initial margin. `daily_returns` therefore miss the inception-to-day-1 period. Small but systematic.
+- [x] **P3** Line 127-128 + 244+: when `len(equity_curve) < 2`, `_empty_result()` produces dict with `"costs": {}`. `print_summary` then accesses `c["total_cost"]` → KeyError. Use `.get(..., 0)` or pre-populate. *— P2 Batch 1 pre-populated costs; P3 sprint added `equity_curve_frequency` key to `_empty_result()`.*
+- [x] **P3** Pipeline equity curve (`engine/pipeline.py:199-201`) feeds only `day_wise_log` entries, which start at the first MTM day, not at `start_epoch` with initial margin. `daily_returns` therefore miss the inception-to-day-1 period. Small but systematic. *— P3 sprint: inception point `(start_epoch, start_margin)` prepended when first MTM day > start_epoch.*
 
 ### Tier 2 — Simulator & Order Generation (additions)
 
 **engine/simulator.py**
 
 - [x] **P0** Line 108-121: `order_id = f"{instrument}_{entry_epoch}_{exit_epoch}"` collides for tiered strategies. `quality_dip_tiered` can produce multiple orders with identical `(instrument, entry_epoch, exit_epoch)` but different tier suffixes in `entry_config_ids` (e.g. `"5_t1"`, `"5_t2"`). `utils.create_config_df_loc_lookup:38-40` strips `_t` suffix, so all tiers map to the same base entry config → all rows selected in the 3-way intersection → simulator sees duplicate `order_id` and silently overwrites positions. `max_positions_per_instrument=1` (default) accidentally masks the overwrite by blocking the second entry entirely, which means **tiered DCA is non-functional out of the box**. Fix: include tier index / raw `entry_config_ids` in `order_id`, or reject collisions explicitly.
-- [ ] **P3** Line 207-215: payout `type` has only `"fixed"` / `"percentage"` branches; no `else`. A typo (`"Fixed"`, `"pct"`) silently produces `pay_out_sum = 0`. Raise `ValueError` on unknown type.
-- [ ] **P3** Line 73-91 + 219-229: `order_value` is `base × order_value_multiplier`, then capped by `max_order_value`. If user intent is "2× leverage", the cap may silently truncate to < 2× for particular instruments depending on `avg_txn`. Document the interaction.
+- [x] **P3** Line 207-215: payout `type` has only `"fixed"` / `"percentage"` branches; no `else`. A typo (`"Fixed"`, `"pct"`) silently produces `pay_out_sum = 0`. Raise `ValueError` on unknown type. *— P3 sprint: added `else: raise ValueError(...)` with supported types list.*
+- [x] **P3** Line 73-91 + 219-229: `order_value` is `base × order_value_multiplier`, then capped by `max_order_value`. If user intent is "2× leverage", the cap may silently truncate to < 2× for particular instruments depending on `avg_txn`. Document the interaction. *— P3 sprint: comment block added documenting the 3-step sizing pipeline (base, cap, multiplier).*
 
 **engine/order_generator.py**
 
@@ -257,7 +257,7 @@ Scope: broader than the original checklist — covered all 28 signal generators,
 
 **engine/ranking.py**
 
-- [ ] **P3** Line 123-127: `if current_end and row["exit_epoch"] <= current_end:` — Python falsy-on-zero means if `current_end == 0` the check wrongly skips. Impossible for real epochs but still. Use `if current_end is not None`.
+- [x] **P3** Line 123-127: `if current_end and row["exit_epoch"] <= current_end:` — Python falsy-on-zero means if `current_end == 0` the check wrongly skips. Impossible for real epochs but still. Use `if current_end is not None`. *— P3 sprint: fixed to `is not None`.*
 
 ### Tier 2 — Charges (NEW subsection)
 
@@ -289,11 +289,11 @@ Scope: broader than the original checklist — covered all 28 signal generators,
 **engine/data_provider.py**
 
 - [x] **P2** Line 853-862: `BhavcopyDataProvider._fetch_qualifying_symbols` uses `HAVING AVG(CLOSE) > price_threshold` on *unadjusted* prices. A stock that historically traded at ₹5000 and did a 100:1 split now trades at ₹50; its 1500-day average is dominated by pre-split prices, so it passes `> 50` even though current price is below threshold. Refines existing line 125 (P2). Fix: `median(CLOSE)` or last-N-day average; document limitation loudly. *— P2 Batch 3: P2 WARNING comment added. Behavior preserved; `median(CLOSE)` alternative tracked as P3 follow-up since `price_threshold > 0` is rarely used.*
-- [ ] **P3** Line 317-318, 855-857, 905-906: symbol names interpolated into SQL via f-string without escaping. Any symbol containing `'` breaks the query. Low practical risk (symbols are controlled) but worth parameterizing. Related to existing P3 at line 62 (data_utils) — generalize the pattern.
+- [x] **P3** Line 317-318, 855-857, 905-906: symbol names interpolated into SQL via f-string without escaping. Any symbol containing `'` breaks the query. Low practical risk (symbols are controlled) but worth parameterizing. Related to existing P3 at line 62 (data_utils) — generalize the pattern. *— P3 sprint: `data_utils.py` parameterized; `data_provider.py` documented as safe (internal symbols, DuckDB `read_parquet` SQL).*
 
 **lib/cr_client.py**
 
-- [ ] **P2** Line 184-198: `_poll` handles 429 with retry but raises immediately on any other non-200 (including 5xx). A transient 502 during a 20-minute query kills the entire run. Same pattern in `_submit` (170-182) and `_download`. Add retry with backoff on `500 <= status_code < 600`.
+- [x] **P2** Line 184-198: `_poll` handles 429 with retry but raises immediately on any other non-200 (including 5xx). A transient 502 during a 20-minute query kills the entire run. Same pattern in `_submit` (170-182) and `_download`. Add retry with backoff on `500 <= status_code < 600`. *— P3 sprint: added 5xx retry with exponential backoff (2/4/8/16s) in both `_submit` and `_poll`.*
 
 **lib/cloud_orchestrator.py**
 
@@ -303,9 +303,9 @@ Scope: broader than the original checklist — covered all 28 signal generators,
 
 - [x] **P2** `engine/signals/momentum_dip_quality.py:233`: hardcoded `avg_close > 50` filter is INR-specific (₹50 lower bound). Wouldn't apply sensibly to US (excludes most sub-$50 stocks). Derive from scanner `price_threshold` or make configurable. *— P2 Batch 4: sourced from `scanner_config.price_threshold` (default 50 preserves NSE behavior). Both `full_period` and `point_in_time` universe paths use the config-derived value.*
 - [x] **P2** `engine/signals/earnings_dip.py:486`: `post_peak = max(pd_closes[earn_idx:peak_end + 1])` raises `TypeError` if the slice contains `None` (possible when `fill_missing_dates` filled weekend rows without backfilling close). Fix: `max((x for x in pd_closes[...] if x is not None), default=None)` + guard. *— P2 Batch 4: landed. Filter None, skip if empty. Test: `test_earnings_dip_none_guard.py`.*
-- [ ] **P3** `engine/signals/factor_composite.py:339-353`: `has_fundamentals` set is populated and then checked in `if inst in has_fundamentals and gp_raw.get(inst) is not None:` — but the second condition implies the first by construction. Dead code.
-- [ ] **P3** `engine/signals/factor_composite.py:518`: `vol_scale = min(vol_target / annual_vol, 1.5)` — 1.5× leverage cap is hardcoded and undocumented. Expose as config.
-- [ ] **P3** `engine/signals/earnings_dip.py:254`: `del df_tick_data` removes local reference but the pipeline caller still holds one; no memory is freed. Cosmetic.
+- [x] **P3** `engine/signals/factor_composite.py:339-353`: `has_fundamentals` set is populated and then checked in `if inst in has_fundamentals and gp_raw.get(inst) is not None:` — but the second condition implies the first by construction. Dead code. *— P3 sprint: removed `has_fundamentals` set and redundant check.*
+- [x] **P3** `engine/signals/factor_composite.py:518`: `vol_scale = min(vol_target / annual_vol, 1.5)` — 1.5× leverage cap is hardcoded and undocumented. Expose as config. *— P3 sprint: exposed via `context.get("max_vol_scale", 1.5)`.*
+- [x] **P3** `engine/signals/earnings_dip.py:254`: `del df_tick_data` removes local reference but the pipeline caller still holds one; no memory is freed. Cosmetic. *— P3 sprint: removed dead `del` + `gc.collect()` call.*
 
 ### Tier 2 — Performance Hotspots (NEW subsection)
 
@@ -354,7 +354,7 @@ These are P0/P1 items I did not independently verify; they remain open:
 
 **lib/indicators.py**
 
-- [ ] **P3** Line 39-40: `math.log(closes[j] / closes[j - 1])` inside a comprehension guards only `closes[j - 1] > 0`. If `closes[j] == 0` (bad data row), `math.log(0)` raises `ValueError: math domain error`. Guard both terms: `if closes[j] > 0 and closes[j - 1] > 0`.
+- [x] **P3** Line 39-40: `math.log(closes[j] / closes[j - 1])` inside a comprehension guards only `closes[j - 1] > 0`. If `closes[j] == 0` (bad data row), `math.log(0)` raises `ValueError: math domain error`. Guard both terms: `if closes[j] > 0 and closes[j - 1] > 0`. *— P3 sprint: guard extended.*
 
 ### Test coverage assessment
 
@@ -376,16 +376,16 @@ Present test files: `test_charges.py`, `test_config_loader.py`, `test_config_swe
 - [x] **P2** `requirements.txt` uses `>=` bounds only. Polars 1.x has semantic drift between minor versions (group_by ordering, `rolling_*` NULL handling). Two users on different polars versions can get *different* backtest results for the same config. `lib/cloud_orchestrator.py:57` pins `polars==1.37.1` for cloud runs — local installs should match. Fix: pin in `requirements.txt` (`polars==1.37.1`, etc.) or use `~=`. *— P2 Batch 6: pinned `polars==1.37.1`, added `pyarrow>=14.0`.*
 - [x] **P2** Determinism of sweeps: `config_sweep.create_config_iterator` enumerates via `product(*kwargs.values())` + dict iteration order. Python 3.7+ preserves insertion order and PyYAML produces insertion-ordered dicts, so config_ids *should* be stable. Verify by running the same YAML twice and diffing config_ids to prove it. *— P2 Batch 6: `test_determinism.py::TestConfigIteratorDeterminism` pins this.*
 - [x] **P2** Polars `group_by` is unordered unless `maintain_order=True`. Audit signal generators that build parallel per-instrument dicts: grep `group_by("instrument")` and confirm no code zips two independent group_by results expecting aligned order. *— P2 Batch 6: static audit scan runs in CI (`test_determinism.py::TestGroupByMaintainOrderAudit`). Current scan: zero violations across engine/ and engine/signals/.*
-- [ ] **P2** Timezone / DST: all epochs are UTC-labeled; trading days are derived via `to_timestamp(epoch)::DATE`. Memory note says minute bars are "LOCAL time labeled UTC" — so `::DATE` incidentally gives local date, which is correct for NSE/US regular hours. Confirm behavior around DST transitions (March/November in US) doesn't split single sessions across two "dates."
+- [x] **P2** Timezone / DST: all epochs are UTC-labeled; trading days are derived via `to_timestamp(epoch)::DATE`. Memory note says minute bars are "LOCAL time labeled UTC" — so `::DATE` incidentally gives local date, which is correct for NSE/US regular hours. Confirm behavior around DST transitions (March/November in US) doesn't split single sessions across two "dates." *— P3 sprint: documented UTC-only in simulator module docstring. Daily granularity (EOD pipeline) avoids DST splits. Minute-bar issue is only relevant for intraday pipeline (separate concern).*
 - [ ] **P3** `engine/order_generator.py:157`: `Pool.starmap` passes `context` dict to worker processes. Must be picklable. Confirm no lambda/closure/db-connection ends up in context across all signal generators that use the pipeline.
 
 ### Cost-model gaps (not bugs, but missing realism)
 
 - [x] **P2** No margin interest on leveraged positions. `order_value_multiplier > 1` is treated as free leverage; real broker charges ~10-12% annual. Strategies using leverage (check OPTIMIZATION_QUEUE for any `order_value_multiplier > 1.0`) will overstate returns. *— P2 D3: documented-only this sprint. Deferred to cost-model-realism sprint (see P2_DECISIONS.md).*
 - [x] **P2** No dividend income. Long holds miss ~1.5-3% annual yield for dividend-paying universes. Biggest impact: `trending_value`, `low_pe`, `quality_dip_buy` (multi-month holds), `factor_composite`. *— P2 D4: documented-only this sprint. Deferred to cost-model-realism sprint.*
-- [ ] **P3** No T+1/T+2 settlement lag. Sale proceeds available immediately. Affects capital-constrained sweeps.
-- [ ] **P3** Slippage is linear (`slippage_rate * notional`). Real slippage is concave (square-root law). For ₹50K positions on liquid NSE stocks, 5bps is reasonable; for ₹5M+ positions or illiquid mid-caps, understated. Refines existing line 115.
-- [ ] **P3** No short-selling infrastructure (all strategies are long-only by construction). Document explicitly so users don't assume it's supported.
+- [x] **P3** No T+1/T+2 settlement lag. Sale proceeds available immediately. Affects capital-constrained sweeps. *— P3 sprint: documented in `engine/simulator.py` module docstring.*
+- [x] **P3** Slippage is linear (`slippage_rate * notional`). Real slippage is concave (square-root law). For ₹50K positions on liquid NSE stocks, 5bps is reasonable; for ₹5M+ positions or illiquid mid-caps, understated. Refines existing line 115. *— P3 sprint: documented in `engine/simulator.py` module docstring.*
+- [x] **P3** No short-selling infrastructure (all strategies are long-only by construction). Document explicitly so users don't assume it's supported. *— P3 sprint: documented in `engine/simulator.py` module docstring.*
 
 ### Resolution of original "need to read" items
 
@@ -428,7 +428,7 @@ Impact: fixes leaderboard numbers. Blast radius: pure metric code; no trade-gene
 - [x] **Line 54** `time_in_market` saturates at 1.0 for any multi-position strategy. *— Phase 1.4 landed (interval-union).* 
 - [x] **Line 38 + 39** Sortino denominator uses `/n` while variance uses `/(n-1)`; `rf_period` threshold also depends on corrected `periods_per_year`. *— Phase 1.1 + 1.2 landed.*
 - [ ] **Line 53** `_portfolio_metrics` turnover / avg holding period / exposure definitions never verified against a hand-computed trade set. Write `test_portfolio_metrics_fixtures.py` with 5 known trade sequences. *— Still open; rolls into Phase 3 follow-up.*
-- [ ] **Line 237 (Tier 1 additions)** Pipeline equity curve starts at first MTM day, missing the inception-to-day-1 period. Fix: prepend `(start_epoch, start_margin)` to the curve in `pipeline.py:199-201`. *— Still open; rolls into Phase 3 follow-up.*
+- [x] **Line 237 (Tier 1 additions)** Pipeline equity curve starts at first MTM day, missing the inception-to-day-1 period. Fix: prepend `(start_epoch, start_margin)` to the curve in `pipeline.py:199-201`. *— P3 sprint: inception point prepended when first MTM day > start_epoch.*
 
 ### Batch 2 — Simulator edge behavior — LANDED 2026-04-21 (all 4 items)
 

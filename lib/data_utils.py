@@ -172,18 +172,18 @@ def get_prices(con, symbols, target_date, window_days=10):
     from datetime import datetime
     target_epoch = int(datetime.combine(target_date, datetime.min.time()).timestamp())
     end_epoch = int(datetime.combine(target_date + timedelta(days=window_days), datetime.min.time()).timestamp())
-    sym_list = ",".join(f"'{s}'" for s in symbols)
+    placeholders = ", ".join(["?"] * len(symbols))
 
     # Try epoch-based schema first (used by most backtests)
     try:
         rows = con.execute(f"""
             SELECT symbol, trade_epoch, adjClose
             FROM prices_cache
-            WHERE symbol IN ({sym_list})
-              AND trade_epoch >= {target_epoch}
-              AND trade_epoch <= {end_epoch}
+            WHERE symbol IN ({placeholders})
+              AND trade_epoch >= ?
+              AND trade_epoch <= ?
             QUALIFY ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY trade_epoch ASC) = 1
-        """).fetchall()
+        """, [*symbols, target_epoch, end_epoch]).fetchall()
         return {r[0]: r[2] for r in rows}
     except Exception:
         pass
@@ -195,11 +195,11 @@ def get_prices(con, symbols, target_date, window_days=10):
         rows = con.execute(f"""
             SELECT symbol, trade_date, adjClose
             FROM prices_cache
-            WHERE symbol IN ({sym_list})
-              AND trade_date >= '{target_str}'
-              AND trade_date <= '{end_str}'
+            WHERE symbol IN ({placeholders})
+              AND trade_date >= ?
+              AND trade_date <= ?
             QUALIFY ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY trade_date ASC) = 1
-        """).fetchall()
+        """, [*symbols, target_str, end_str]).fetchall()
         return {r[0]: r[2] for r in rows}
     except Exception:
         return {}

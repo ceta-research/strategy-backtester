@@ -40,22 +40,22 @@
   notes: "Champion: a=15,s=42,b=252,r=200,tsl=15,h=378,gainer,p=15. 9.7%/Cal0.366 (2010-2026). OOS Cal 0.541, WF 5/6+, deflated Sharpe 0.307. NSE-dominant."
 
 - strategy: momentum_top_gainers
-  status: IN_PROGRESS
+  status: AUDIT_BLOCKED
   priority: 4
   current_round: 4
   best_calmar: 0.820
   best_cagr: 0.202
-  session: 2026-04-20
-  notes: "REGRESSION: optimized on broken engine (Cal 1.016 invalid). Correct champion Cal 0.820, CAGR 20.2%. Needs R2-R4 re-run with corrected engine."
+  session: 2026-04-22
+  notes: "BLOCKED 2026-04-22: same full-period universe bias as momentum_dip_quality. Local fixture A/B showed 0pp delta (fixture artifact). Must re-run with CR API to get real honest delta before deciding retire/re-optimize. See docs/audit_phase_8a/momentum_top_gainers.md."
 
 - strategy: momentum_dip_quality
-  status: COMPLETE
+  status: AUDIT_RETIRED
   priority: 5
   current_round: 4
   best_calmar: 0.645
   best_cagr: 0.172
-  session: 2026-04-20
-  notes: "Champion: m=63,p=0.20,d=3,TSL=3,hold=189,pos=15. 17.2%/Cal0.645 (2010-2026). OOS 16.7%/Cal0.696. WF 5/5+. Engine reverted after regression (pipeline.py+utils.py). Cross-exchange: US 0.271, UK 0.328."
+  session: 2026-04-22
+  notes: "RETIRED 2026-04-22: honest CAGR 5.08% (point_in_time universe) < NIFTYBEES ~12%. Legacy 22.7% was inflated by full-period universe look-ahead. See docs/audit_phase_8a/momentum_dip_quality.md."
 
 # ── Medium priority (known strategies, never optimized) ──
 
@@ -123,13 +123,13 @@
   notes: "Original ATO strategy. Similar to eod_breakout but different signal gen."
 
 - strategy: momentum_rebalance
-  status: PENDING
+  status: AUDIT_BLOCKED
   priority: 13
   current_round: null
   best_calmar: null
   best_cagr: null
-  session: null
-  notes: "Pure Jegadeesh-Titman momentum. Exit at next rebalance."
+  session: 2026-04-22
+  notes: "BLOCKED 2026-04-22: same-bar entry bias (moc_signal_lag_days=0). Local A/B: legacy 12.1% vs honest 6.6% CAGR (-5.5pp). Must re-run with full NSE via CR/nse_charting to confirm. See docs/audit_phase_8a/momentum_rebalance.md."
 
 - strategy: momentum_dip
   status: PENDING

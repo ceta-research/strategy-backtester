@@ -208,72 +208,11 @@ class MomentumDipQualitySignalGenerator:
             ).unique(subset=["uid"])
             df_signals = df_signals.join(scanner_ids_df, on="uid", how="left")
 
-            # Period-average turnover filter: compute avg(close * volume) per
-            # instrument across the ENTIRE sim range, keep only those above the
-            # scanner threshold.  This produces a FIXED set of instruments
-            # (matches standalone's fetch_universe SQL approach).
-            _turnover_threshold = 70_000_000  # default NSE threshold
-            # Default 50 preserves NSE behavior; override via scanner_config.
-            _price_threshold = 50.0
-            for scanner_cfg in get_scanner_config_iterator(context):
-                thresh_val = scanner_cfg.get("avg_day_transaction_threshold")
-                if isinstance(thresh_val, dict):
-                    _turnover_threshold = thresh_val.get("threshold", _turnover_threshold)
-                elif isinstance(thresh_val, (int, float)):
-                    _turnover_threshold = thresh_val
-                pt_val = scanner_cfg.get("price_threshold")
-                if isinstance(pt_val, (int, float)):
-                    _price_threshold = float(pt_val)
-                break
-
-            # AUDIT P5.2 (2026-04-21): KNOWN LOOK-AHEAD / SURVIVORSHIP BIAS.
-            # Full-period average is used as a static universe across every
-            # entry day. Same pattern as momentum_top_gainers.py. See
-            # docs/AUDIT_FINDINGS.md Phase 5 for the rationale and impact.
-            period_avg = (
-                df_ind  # Use full data range (incl. prefetch) to match standalone
-                .group_by("instrument", maintain_order=True)
-                .agg(
-                    (pl.col("close") * pl.col("volume")).mean().alias("avg_turnover"),
-                    pl.col("close").mean().alias("avg_close"),
-                )
-                .filter(
-                    (pl.col("avg_turnover") > _turnover_threshold)
-                    & (pl.col("avg_close") > _price_threshold)
-                )
-            )
-            period_universe_set = set(period_avg["instrument"].to_list())
-            print(f"  Period-avg turnover filter: {len(period_universe_set)} instruments")
-
-            # Phase 8A (audit P5.2): opt-in honest universe.
-            # "full_period" (default) uses the static set above.
-            # "point_in_time" recomputes averages per rebalance using only
-            # data strictly before that epoch. Cached for reuse.
-            universe_mode = entry_config.get("universe_mode", "full_period")
-            _pit_cache = {}
-
-            def _universe_at(epoch):
-                """Return the eligible instrument set at `epoch` under the
-                active universe_mode."""
-                if universe_mode != "point_in_time":
-                    return period_universe_set
-                if epoch in _pit_cache:
-                    return _pit_cache[epoch]
-                pit = (
-                    df_ind.filter(pl.col("date_epoch") < epoch)
-                    .group_by("instrument", maintain_order=True)
-                    .agg(
-                        (pl.col("close") * pl.col("volume")).mean().alias("avg_turnover"),
-                        pl.col("close").mean().alias("avg_close"),
-                    )
-                    .filter(
-                        (pl.col("avg_turnover") > _turnover_threshold)
-                        & (pl.col("avg_close") > 50)
-                    )
-                )
-                result = frozenset(pit["instrument"].to_list())
-                _pit_cache[epoch] = result
-                return result
+            # Universe gate is the per-day scanner: `scanner_config_ids`
+            # is not null iff the stock passed the scanner's rolling
+            # liquidity / price / gain thresholds on that epoch. This
+            # replaces the old full-period `period_universe_set`
+            # (look-ahead bias) and its opt-in `point_in_time` variant.
 
             # Build quality universe (re-screen periodically)
             epochs = sorted(df_signals["date_epoch"].unique().to_list())
@@ -291,7 +230,7 @@ class MomentumDipQualitySignalGenerator:
                     continue
                 day_data = df_signals.filter(
                     (pl.col("date_epoch") == epoch)
-                    & (pl.col("instrument").is_in(list(_universe_at(epoch))))
+                    & pl.col("scanner_config_ids").is_not_null()
                     & (pl.col("is_quality") == True)  # noqa: E712
                 )
                 quality_universe[epoch] = set(day_data["instrument"].to_list())
@@ -311,7 +250,7 @@ class MomentumDipQualitySignalGenerator:
                 day_data = (
                     df_signals.filter(
                         (pl.col("date_epoch") == epoch)
-                        & (pl.col("instrument").is_in(list(_universe_at(epoch))))
+                        & pl.col("scanner_config_ids").is_not_null()
                         & (pl.col("momentum_return").is_not_null())
                     )
                     .sort("momentum_return", descending=True)
@@ -359,13 +298,15 @@ class MomentumDipQualitySignalGenerator:
                 f"  Universe: avg {avg_pool:.0f} stocks ({', '.join(extras)})"
             )
 
-            # Entry filter: dip + period universe + optional regime
+            # Entry filter: dip + per-day scanner universe + quality∩momentum
+            # ever-eligible set + optional regime.
             all_universe_instruments = set()
             for u in combined_universe.values():
                 all_universe_instruments |= u
 
             entry_filter = (
                 (pl.col("dip_pct") >= dip_threshold)
+                & pl.col("scanner_config_ids").is_not_null()
                 & (pl.col("instrument").is_in(list(all_universe_instruments)))
                 & (pl.col("next_epoch").is_not_null())
                 & (pl.col("next_open").is_not_null())
@@ -494,7 +435,7 @@ class MomentumDipQualitySignalGenerator:
                         "exit_price": exit_price,
                         "entry_volume": entry["next_volume"] or 0,
                         "exit_volume": 0,
-                        "scanner_config_ids": entry.get("scanner_config_ids") or "1",
+                        "scanner_config_ids": entry["scanner_config_ids"],
                         "entry_config_ids": str(entry_config["id"]),
                         "exit_config_ids": str(exit_config["id"]),
                         "dip_pct": entry.get("dip_pct", 0),
@@ -537,9 +478,6 @@ class MomentumDipQualitySignalGenerator:
             "regime_sma_period": entry_cfg.get("regime_sma_period", [0]),
             "direction_score_n_day_ma": entry_cfg.get("direction_score_n_day_ma", [0]),
             "direction_score_threshold": entry_cfg.get("direction_score_threshold", [0]),
-            # Phase 8A: "full_period" (default, legacy) or "point_in_time"
-            # (honest). See generate_orders / _universe_at.
-            "universe_mode": entry_cfg.get("universe_mode", ["full_period"]),
         }
 
     @staticmethod

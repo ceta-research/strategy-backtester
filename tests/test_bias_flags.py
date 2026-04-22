@@ -54,42 +54,6 @@ class TestMomentumRebalanceMocLagFlag(unittest.TestCase):
         self.assertIn('"moc_signal_lag_days", [0]', source)
 
 
-class TestMomentumTopGainersUniverseModeFlag(unittest.TestCase):
-    """momentum_top_gainers gained `universe_mode` (default 'full_period')."""
-
-    def test_flag_is_registered_in_build_entry_config(self):
-        source = _read("engine/signals/momentum_top_gainers.py")
-        self.assertIn("universe_mode", source)
-        self.assertIn('"universe_mode", ["full_period"]', source)
-
-    def test_pit_function_exists(self):
-        source = _read("engine/signals/momentum_top_gainers.py")
-        self.assertIn("_pit_universe", source)
-        # Key guard: PIT filter uses strict-less-than to avoid using
-        # rebalance-day data (which would be same-bar look-ahead).
-        self.assertIn('pl.col("date_epoch") < rebalance_epoch', source)
-
-    def test_legacy_mode_still_references_period_universe_set(self):
-        source = _read("engine/signals/momentum_top_gainers.py")
-        # Legacy path: period_universe_set must still be computed and used.
-        self.assertIn("period_universe_set", source)
-
-
-class TestMomentumDipQualityUniverseModeFlag(unittest.TestCase):
-    """momentum_dip_quality gained the same flag."""
-
-    def test_flag_is_registered_in_build_entry_config(self):
-        source = _read("engine/signals/momentum_dip_quality.py")
-        self.assertIn("universe_mode", source)
-        self.assertIn('"universe_mode", ["full_period"]', source)
-
-    def test_pit_helper_exists(self):
-        source = _read("engine/signals/momentum_dip_quality.py")
-        self.assertIn("_universe_at", source)
-        # Strict-less-than guard.
-        self.assertIn('pl.col("date_epoch") < epoch', source)
-
-
 class TestBiasFlagsSemanticProbe(unittest.TestCase):
     """Semantic probe: on a crafted synthetic price series, the legacy
     and honest settings for `moc_signal_lag_days` must produce different

@@ -306,14 +306,11 @@ def compute_composite_scores(
     gp_raw = {}
     ebitda_ev_raw = {}
     inv_pb_raw = {}
-    has_fundamentals = set()  # track which instruments have fundamental data
     for inst in all_instruments:
         fs = fund_scores.get(inst, {})
         gp_raw[inst] = fs.get("gp_ta")
         ebitda_ev_raw[inst] = fs.get("ebitda_ev")
         inv_pb_raw[inst] = fs.get("inv_pb")
-        if gp_raw[inst] is not None or ebitda_ev_raw[inst] is not None or inv_pb_raw[inst] is not None:
-            has_fundamentals.add(inst)
 
     # Z-score each factor independently (including value sub-factors)
     z_mom = zscore(mom_scores)
@@ -339,7 +336,7 @@ def compute_composite_scores(
     composite = {}
     for inst in all_instruments:
         score = w_mom * z_mom.get(inst, 0.0)
-        if inst in has_fundamentals and gp_raw.get(inst) is not None:
+        if gp_raw.get(inst) is not None:
             score += w_gp * z_gp.get(inst, 0.0)
         else:
             # No GP data: upweight momentum
@@ -446,6 +443,7 @@ class FactorCompositeSignalGenerator:
                     "closes": g["close"].to_list(),
                 }
 
+            max_vol_scale = context.get("max_vol_scale", 1.5)
             for exit_config in get_exit_config_iterator(context):
                 vol_target = exit_config["vol_target_annual"]
                 vol_lookback = exit_config["vol_lookback_days"]
@@ -515,7 +513,7 @@ class FactorCompositeSignalGenerator:
                                 daily_vol = (sum(r ** 2 for r in vol_rets) / len(vol_rets)) ** 0.5
                                 annual_vol = daily_vol * (252 ** 0.5)
                                 if annual_vol > 0:
-                                    vol_scale = min(vol_target / annual_vol, 1.5)  # cap leverage at 1.5x
+                                    vol_scale = min(vol_target / annual_vol, max_vol_scale)
 
                     # Get prices for selected instruments
                     n_positions = max(1, int(len(selected) * vol_scale))
