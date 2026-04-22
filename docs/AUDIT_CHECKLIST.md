@@ -2,7 +2,7 @@
 
 **Created:** 2026-04-20
 **Last updated:** 2026-04-22
-**Status:** 17/17 P0 + 50/50 P1 + 38/49 P2 + 22/32 P3 closed. **Audit P1+P2 scope: COMPLETE.** Authoritative log in `docs/AUDIT_FINDINGS.md`. Remaining: 11 P2 open (perf hotspots, cost-model-realism, data-integrity) + 10 P3 open (hygiene/edge cases). momentum_dip_quality: AUDIT_RETIRED. momentum_top_gainers + momentum_rebalance: AUDIT_BLOCKED pending full-NSE A/B.
+**Status:** 17/17 P0 + 50/50 P1 + 46/48 P2 + 26/32 P3 closed. **Audit P1+P2 scope: COMPLETE.** Authoritative log in `docs/AUDIT_FINDINGS.md`. Remaining: 2 P2 open (`intraday_pipeline` spot-audit, synthetic regression snapshot fixture) + 6 P3 open (hygiene/perf/edge cases). momentum_dip_quality: AUDIT_RETIRED. momentum_top_gainers + momentum_rebalance: AUDIT_BLOCKED pending full-NSE A/B.
 **Scope:** 24 core files (engine/ non-signals + lib/). Signals spot-checked only.
 
 Priority tags: **P0** = known bug, must fix. **P1** = high-impact, likely bug. **P2** = medium, needs investigation. **P3** = low, hygiene/edge case.
