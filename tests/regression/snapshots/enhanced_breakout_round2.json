@@ -1,0 +1,27 @@
+{
+  "strategy": "enhanced_breakout",
+  "params": {
+    "config_id": "1_6_11_1"
+  },
+  "instrument": "PORTFOLIO",
+  "exchange": "NSE",
+  "pinned_metrics": {
+    "cagr": 0.15086223661066267,
+    "total_return": 7.22351935,
+    "max_drawdown": -0.25408521884445934,
+    "annualized_volatility": 0.17787996090738245,
+    "sharpe_ratio": 0.7356772283011649,
+    "sortino_ratio": 1.0123321070596627,
+    "calmar_ratio": 0.5937466071295332,
+    "total_trades": 396,
+    "win_rate": 0.5152,
+    "profit_factor": 2.0003,
+    "final_value": 8223519.35,
+    "peak_value": 8710798.44
+  },
+  "tolerance": {
+    "abs": 1e-06,
+    "rel": 0.0001
+  },
+  "source_result": "results_v2/enhanced_breakout/round2.json"
+}

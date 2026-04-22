@@ -1,0 +1,27 @@
+{
+  "strategy": "momentum_cascade",
+  "params": {
+    "config_id": "1_1_1_1"
+  },
+  "instrument": "PORTFOLIO",
+  "exchange": "NSE",
+  "pinned_metrics": {
+    "cagr": 0.12215900597531903,
+    "total_return": 10.449392588,
+    "max_drawdown": -0.27663684560637164,
+    "annualized_volatility": 0.17711935937955922,
+    "sharpe_ratio": 0.576780575162293,
+    "sortino_ratio": 0.7645069635173607,
+    "calmar_ratio": 0.4415861730477504,
+    "total_trades": 671,
+    "win_rate": 0.4605,
+    "profit_factor": 1.8557,
+    "final_value": 114493925.88,
+    "peak_value": 145770977.65
+  },
+  "tolerance": {
+    "abs": 1e-06,
+    "rel": 0.0001
+  },
+  "source_result": "results_v2/momentum_cascade/champion_2005_2026.json"
+}
