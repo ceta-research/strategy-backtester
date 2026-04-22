@@ -30,6 +30,7 @@ from engine.signals.base import (
     add_next_day_values,
     run_scanner,
     finalize_orders,
+    build_regime_filter,
 )
 from engine.exits import anomalous_drop
 
@@ -54,6 +55,17 @@ class EodBreakoutSignalGenerator:
         df_ind = add_next_day_values(df_ind)
         df_ind = df_ind.sort(["instrument", "date_epoch"])
 
+        # Pre-build regime filters for all (instrument, period) combos
+        # used across entry configs. Empty tuple means disabled.
+        regime_cache = {}
+        for entry_config in get_entry_config_iterator(context):
+            ri = entry_config.get("regime_instrument", "")
+            rp = entry_config.get("regime_sma_period", 0)
+            if ri and rp > 0 and (ri, rp) not in regime_cache:
+                regime_cache[(ri, rp)] = build_regime_filter(
+                    df_tick_data, ri, rp
+                )
+
         # Phase 3: Generate orders per entry/exit config
         t1 = time.time()
         all_order_rows = []
@@ -64,6 +76,16 @@ class EodBreakoutSignalGenerator:
             ds_config = entry_config["direction_score"]
             ds_n_day_ma = ds_config["n_day_ma"]
             ds_threshold = ds_config["score"]
+            regime_instrument = entry_config.get("regime_instrument", "")
+            regime_sma_period = entry_config.get("regime_sma_period", 0)
+            force_exit_on_regime_flip = entry_config.get(
+                "force_exit_on_regime_flip", False
+            )
+
+            bull_epochs = regime_cache.get(
+                (regime_instrument, regime_sma_period), set()
+            )
+            use_regime = bool(bull_epochs)
 
             df_signals = df_ind.clone()
 
@@ -124,6 +146,10 @@ class EodBreakoutSignalGenerator:
                 & (pl.col("next_epoch").is_not_null())
                 & (pl.col("next_open").is_not_null())
             )
+            if use_regime:
+                entry_filter = entry_filter & pl.col("date_epoch").is_in(
+                    list(bull_epochs)
+                )
 
             entry_rows = (
                 df_signals.filter(entry_filter)
@@ -134,9 +160,13 @@ class EodBreakoutSignalGenerator:
                 .to_dicts()
             )
 
+            regime_str = (
+                f", regime={regime_instrument}>SMA{regime_sma_period}"
+                if use_regime else ""
+            )
             print(f"  Entry candidates: {len(entry_rows)} "
                   f"(n_day_high={n_day_high_window}, n_day_ma={n_day_ma_window}, "
-                  f"ds_threshold={ds_threshold})")
+                  f"ds_threshold={ds_threshold}{regime_str})")
 
             # Build per-instrument exit data for walk-forward
             exit_data = {}
@@ -174,12 +204,18 @@ class EodBreakoutSignalGenerator:
                     except ValueError:
                         continue
 
-                    # Walk forward: TSL exit matching ATO_Simulator logic
+                    # Walk forward: TSL exit matching ATO_Simulator logic.
+                    # When regime is active AND force_exit_on_regime_flip is
+                    # set, also exit on the first bar where the regime turns
+                    # bearish (epoch not in bull_epochs).
                     exit_epoch, exit_price = _walk_forward_tsl(
                         ed["epochs"], ed["closes"], ed["opens"],
                         ed["next_opens"], ed["next_epochs"],
                         start_idx, entry_epoch,
                         trailing_stop_pct, min_hold_days,
+                        bull_epochs=bull_epochs if (
+                            use_regime and force_exit_on_regime_flip
+                        ) else None,
                     )
 
                     if exit_epoch is None or exit_price is None:
@@ -213,6 +249,14 @@ class EodBreakoutSignalGenerator:
             "direction_score": entry_cfg.get("direction_score", [
                 {"n_day_ma": 3, "score": 0.54}
             ]),
+            # Optional regime gate (entries only). Empty string / 0 = disabled.
+            "regime_instrument": entry_cfg.get("regime_instrument", [""]),
+            "regime_sma_period": entry_cfg.get("regime_sma_period", [0]),
+            # When True AND regime is active, force-exit positions on first
+            # bar where regime turns bearish (option ii).
+            "force_exit_on_regime_flip": entry_cfg.get(
+                "force_exit_on_regime_flip", [False]
+            ),
         }
 
     @staticmethod
@@ -224,12 +268,18 @@ class EodBreakoutSignalGenerator:
 
 
 def _walk_forward_tsl(epochs, closes, opens, next_opens, next_epochs,
-                      start_idx, entry_epoch, trailing_stop_pct, min_hold_days):
+                      start_idx, entry_epoch, trailing_stop_pct, min_hold_days,
+                      bull_epochs=None):
     """Walk forward from entry to find TSL exit, matching ATO_Simulator logic.
 
     TSL: exit at next-day open when drawdown from max price > trailing_stop_pct.
     Price gap >20%: forced exit at 80% of last close.
     Last bar: exit at close.
+
+    If `bull_epochs` is provided (a set of epochs where the regime is bullish),
+    positions are force-exited at next-day open on the first bar past
+    `min_hold_days` where the epoch is NOT in bull_epochs (regime flipped
+    bearish). This is option (ii) from the bias audit.
 
     Returns (exit_epoch, exit_price) or (None, None).
     """
@@ -259,6 +309,15 @@ def _walk_forward_tsl(epochs, closes, opens, next_opens, next_epochs,
         if hold_days < min_hold_days:
             last_close = c
             continue
+
+        # Regime flip check: exit if regime turned bearish past min_hold.
+        if bull_epochs is not None and epochs[j] not in bull_epochs:
+            if j + 1 < len(epochs):
+                next_open = next_opens[j]
+                next_ep = next_epochs[j]
+                if next_open is not None and next_open > 0 and next_ep is not None:
+                    return next_ep, next_open
+            return epochs[j], c
 
         # TSL check
         if max_price > 0:
