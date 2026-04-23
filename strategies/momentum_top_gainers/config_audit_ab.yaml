@@ -1,12 +1,6 @@
-# Champion configs after 2100+ config sweep across full parameter ranges
-#
-# Three profiles found (all share: mom=189d, rebal=42d, hold=378d, regime=NIFTYBEES>SMA200):
-#
-# AGGRESSIVE: TSL=35% pos=12 dir>0.45 -> CAGR=20.2% MDD=-24.6% Cal=0.82 (134 trades)
-# BALANCED:   TSL=22% pos=12 dir>0.45 -> CAGR=17.8% MDD=-22.6% Cal=0.79 (186 trades)
-# CONSERVATIVE: TSL=22% pos=30 dir>0.50 -> CAGR=15.3% MDD=-19.3% Cal=0.79 (408 trades)
-#
-# This file runs all 3 profiles in one sweep (3 configs)
+# Audit 2026-04-23 A/B — single AGGRESSIVE champion.
+# TSL=35, pos=12, dir>0.45 → reported Cal 0.82 pre-audit.
+# Used ONLY by scripts/measure_bias_impact.py for legacy-vs-honest delta.
 
 static:
   strategy_type: momentum_top_gainers
@@ -15,7 +9,6 @@ static:
   end_epoch: 1773878400         # 2026-03-17
   prefetch_days: 600
   data_granularity: day
-  data_provider: nse_charting
 
 scanner:
   instruments:
@@ -32,22 +25,23 @@ entry:
   rebalance_interval_days: [42]
   min_momentum_pct: [5]
   direction_score_n_day_ma: [3]
-  direction_score_threshold: [0.45, 0.50]
+  direction_score_threshold: [0.45]
   regime_instrument: ['NSE:NIFTYBEES']
   regime_sma_period: [200]
+  universe_mode: ["full_period"]   # overridden by harness
 
 exit:
-  trailing_stop_pct: [22, 35]
+  trailing_stop_pct: [35]
   max_hold_days: [378]
 
 simulation:
   default_sorting_type: [top_gainer]
   order_sorting_type: [top_gainer]
   order_ranking_window_days: [30]
-  max_positions: [12, 30]
+  max_positions: [12]
   max_positions_per_instrument: [1]
   order_value_multiplier: [1.0]
   max_order_value:
     - {type: fixed, value: 1000000000}
 
-# Total: 2 entry x 2 exit x 2 sim = 8 configs (covers all 3 profiles + neighbors)
+# Total: 1 config. Harness runs it twice (legacy + honest).

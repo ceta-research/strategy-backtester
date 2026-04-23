@@ -1,13 +1,13 @@
-# Jegadeesh-Titman cross-sectional momentum rebalance on NSE
-# Sweep: 3 lookback x 3 rebalance x 3 positions = 27 entry
-#        x 1 exit x 1 sim = 27 configs
+# Audit 2026-04-23 A/B — single representative Jegadeesh-Titman config on full NSE.
+# One config is sufficient for flag-bias measurement; multi-config sweep adds noise.
+# Pick: lookback=126, rebalance=21, num_positions=10 (classic J-T 12-1 approximation).
 
 static:
   strategy_type: momentum_rebalance
   start_margin: 10000000
   start_epoch: 1262304000   # 2010-01-01
   end_epoch: 1773878400     # 2026-03-17
-  prefetch_days: 600        # ~2.4 years: need 252 trading days for longest lookback + buffer
+  prefetch_days: 600
   data_granularity: day
   data_provider: nse_charting
 
@@ -20,20 +20,17 @@ scanner:
   n_day_gain_threshold:
     - {n: 360, threshold: -999}
 
-# Entry: 3 x 3 x 3 = 27 combos
 entry:
-  momentum_lookback_days: [63, 126, 252]
-  rebalance_interval_days: [21, 42, 63]
-  num_positions: [5, 10, 20]
+  momentum_lookback_days: [126]
+  rebalance_interval_days: [21]
+  num_positions: [10]
   regime_instrument: ['NSE:NIFTYBEES']
   regime_sma_period: [200]
-  moc_signal_lag_days: [1]   # honest (confirmed cosmetic vs 0 on full NSE)
+  moc_signal_lag_days: [0]   # overridden by measure_bias_impact.py
 
-# Exit: 1 combo (exits at next rebalance, max_hold_days=0 means no override)
 exit:
   max_hold_days: [0]
 
-# Simulation: 1 combo
 simulation:
   default_sorting_type: [top_gainer]
   order_sorting_type: [top_gainer]
@@ -44,4 +41,4 @@ simulation:
   max_order_value:
     - {type: fixed, value: 1000000000}
 
-# Total: 27 x 1 x 1 = 27 configs
+# 1 config per pass. Harness runs it twice.

@@ -40,13 +40,13 @@
   notes: "Champion: a=15,s=42,b=252,r=200,tsl=15,h=378,gainer,p=15. 9.7%/Cal0.366 (2010-2026). OOS Cal 0.541, WF 5/6+, deflated Sharpe 0.307. NSE-dominant."
 
 - strategy: momentum_top_gainers
-  status: AUDIT_BLOCKED
+  status: AUDIT_RETIRED
   priority: 4
   current_round: 4
-  best_calmar: 0.820
-  best_cagr: 0.202
-  session: 2026-04-22
-  notes: "BLOCKED 2026-04-22: same full-period universe bias as momentum_dip_quality. Local fixture A/B showed 0pp delta (fixture artifact). Must re-run with CR API to get real honest delta before deciding retire/re-optimize. See docs/audit_phase_8a/momentum_top_gainers.md."
+  best_calmar: 0.373
+  best_cagr: 0.107
+  session: 2026-04-23
+  notes: "RETIRED 2026-04-23: full-NSE 8-config sweep on honest engine — best is AGGRESSIVE profile at CAGR 10.72%, Cal 0.373, below NIFTYBEES ~12% buy-and-hold. Pre-audit 20.2%/0.82 was metrics inflation. universe_mode flag confirmed no-op (scanner is universe gate). See docs/audit_phase_8a/momentum_top_gainers.md."
 
 - strategy: momentum_dip_quality
   status: AUDIT_RETIRED
@@ -123,13 +123,13 @@
   notes: "Original ATO strategy. Similar to eod_breakout but different signal gen."
 
 - strategy: momentum_rebalance
-  status: AUDIT_BLOCKED
+  status: AUDIT_RETIRED
   priority: 13
-  current_round: null
-  best_calmar: null
-  best_cagr: null
-  session: 2026-04-22
-  notes: "BLOCKED 2026-04-22: same-bar entry bias (moc_signal_lag_days=0). Local A/B: legacy 12.1% vs honest 6.6% CAGR (-5.5pp). Must re-run with full NSE via CR/nse_charting to confirm. See docs/audit_phase_8a/momentum_rebalance.md."
+  current_round: 4
+  best_calmar: 0.254
+  best_cagr: 0.070
+  session: 2026-04-23
+  notes: "RETIRED 2026-04-23: full-NSE 27-config sweep on honest engine — best CAGR 7.0%, best Calmar 0.254 @ 3.2% CAGR, both below NIFTYBEES ~12% buy-and-hold. moc_signal_lag_days bias confirmed cosmetic (-0.07pp CAGR on full data, local-fixture -5.5pp was artifact of tiny 30-stock 2020-2021 universe). See docs/audit_phase_8a/momentum_rebalance.md."
 
 - strategy: momentum_dip
   status: PENDING

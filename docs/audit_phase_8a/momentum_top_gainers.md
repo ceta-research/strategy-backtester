@@ -1,23 +1,57 @@
-# Phase 8A Bias Impact — momentum_top_gainers
+# Phase 8A Bias Impact — momentum_top_gainers (RE-RUN 2026-04-23)
 
-- **Config:** `strategies/momentum_top_gainers/config_phase_8a_local.yaml`
-- **Data provider:** `parquet`
+## Finding: RETIRE
+
+The A/B on `entry.universe_mode` is a **no-op** — the flag was removed from the
+signal generator when the per-day scanner became the universe gate. See
+`engine/signals/momentum_top_gainers.py:104-106`:
+
+> Universe gate is the per-day scanner (`scanner_config_ids` not null).
+> Replaces the old full-period `period_universe_set` (look-ahead bias) and its
+> opt-in `point_in_time` variant.
+
+So the delta table below is identical by construction, not by genuine test.
+The real question was whether the POST-AUDIT champion still clears NIFTYBEES
+buy-and-hold (~12% CAGR, 2010-2026). Answer: **no**.
+
+## Full 8-config champion sweep, honest engine, nse_charting_day (2010-2026)
+
+| Profile       | TSL | pos | dir  | CAGR  | MaxDD | Calmar | Pre-audit claim |
+|---------------|----:|----:|-----:|------:|------:|-------:|-----------------|
+| AGGRESSIVE    | 35% |  12 | 0.45 | **10.72%** | -28.8% | **0.373** | 20.2% / 0.82 |
+| BALANCED      | 22% |  12 | 0.45 |  4.54% | -35.0% | 0.13   | 17.8% / 0.79 |
+| CONSERVATIVE* | 22% |  30 | 0.50 |  7.57% | -38.8% | 0.20   | 15.3% / 0.79 |
+
+Best honest CAGR 10.72% < NIFTYBEES ~12%. Advertised Calmar 0.82 was ~55%
+metrics-audit inflation (ppy=252 vs calendar-day equity curve + stale exit
+semantics). No profile clears the buy-and-hold bar.
+
+*CONSERVATIVE profile not literally in the 8-config sweep but its closest
+neighbor (TSL=22%, pos=30, dir>0.50) is.
+
+## Single-config A/B (kept for the record)
+
+- **Config:** `strategies/momentum_top_gainers/config_audit_ab.yaml`
+- **Data provider:** `nse_charting`
 - **Flag:** `entry.universe_mode` (legacy=full_period, honest=point_in_time)
-- **Pipeline times:** legacy 0.1s · honest 0.1s
+- **Pipeline times:** legacy 29.9s · honest 26.8s
 
 | Metric | Legacy | Honest | Delta |
 |--------|-------:|-------:|------:|
-| CAGR | +25.13% | +25.13% | +0.00pp |
-| Total Return | +56.52% | +56.52% | +0.00pp |
-| Max Drawdown | -17.98% | -17.98% | +0.00pp |
-| Calmar | +1.3979 | +1.3979 | +0.0000 |
-| Sharpe | +1.4112 | +1.4112 | +0.0000 |
-| Total trades | 87 | 87 | — |
-| Win rate | +57.47% | +57.47% | +0.00pp |
+| CAGR | +10.72% | +10.72% | +0.00pp |
+| Total Return | +421.45% | +421.45% | +0.00pp |
+| Max Drawdown | -28.78% | -28.78% | +0.00pp |
+| Calmar | +0.3726 | +0.3726 | +0.0000 |
+| Sharpe | +0.4985 | +0.4985 | +0.0000 |
+| Total trades | 140 | 140 | — |
+| Win rate | +50.71% | +50.71% | +0.00pp |
 
-## Decision guide
+## Decision
 
-- `|ΔCAGR| < 2pp`: bias is cosmetic. Flip default to `honest` and
-  re-run optimization once; move on.
-- `|ΔCAGR| 2-5pp`: meaningful. Fix + re-run optimization (Rounds 2+3).
-- `|ΔCAGR| > 5pp`: the strategy was mostly bias. Retire or invert.
+- **Status:** AUDIT_RETIRED.
+- **Reason:** Honest champion 10.72% CAGR falls below NIFTYBEES buy-and-hold
+  (~12%). Pre-audit Calmar 0.82 was metrics inflation.
+- **Next steps:** none. `universe_mode` flag can be dropped from the config
+  schema in a later cleanup (it's a no-op).
+- **Consolation:** if momentum-top-gainers is to be revived, it needs a new
+  parameter search on honest metrics — not a retune of the pre-audit champion.
