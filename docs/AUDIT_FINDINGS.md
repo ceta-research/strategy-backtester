@@ -59,6 +59,11 @@ existing entries are never edited (only corrected by a new dated entry below).
   result.json and diffs against a later run with configurable tolerance.
   Baseline snapshots captured for eod_breakout, enhanced_breakout,
   momentum_cascade, momentum_dip_quality under `tests/regression/snapshots/*_pre_fix.json`.
+  *(Update 2026-04-22: snapshots re-pinned in commit `1b572ce` for the 3
+  COMPLETE strategies — `eod_breakout_champion.json`,
+  `enhanced_breakout_round2.json`, `momentum_cascade_champion.json`. The
+  `_pre_fix` suffix is gone; `momentum_dip_quality` dropped with its
+  AUDIT_RETIRED status.)*
 - `scripts/recompute_metrics.py` — migration tool. Re-derives metrics from
   the `equity_curve` embedded in each historical result.json using the
   corrected path, with automatic frequency detection by point density.
@@ -1179,6 +1184,14 @@ implementation. Left as-is to avoid invalidating existing
 optimization results — documented with a prominent AUDIT P5.2
 warning at the call site in both files.
 
+*(Update 2026-04-22: this decision was reversed. Commit `08f4857`
+("Remove period_universe_set from mdq/mtg; use scanner_config_ids
+gate") replaced the full-period universe with the per-day scanner
+gate in both files. `momentum_dip_quality` performance collapsed on
+the honest universe → AUDIT_RETIRED. `momentum_top_gainers` is
+AUDIT_BLOCKED pending full-NSE A/B. See strategy status in
+AUDIT_CHECKLIST.md banner.)*
+
 **Finding B: scanner_config_ids fallback to "1".**
 
 `momentum_top_gainers.py:289`: `"scanner_config_ids": row.get(
@@ -1831,6 +1844,10 @@ should be investigated, not "justified."
 
 **Total:** 49 P2 items; 41 actioned (34 closed + 7 deferred with rationale); 4 deferred to perf sprint.
 **Test suite growth:** 334 → 448 (+114 new tests, 0 regressions).
+*(Correction 2026-04-22: post-sprint cleanup commit `dd2a78d` trimmed ~8
+tests during comment-strip / code-consolidation; effective post-sprint
+count is 440, which is what Phase 8B below reports as "unchanged". The
+`+114` delta is accurate for the P2 sprint's gross additions.)*
 **Commits:** 4 (`0ebdd5d`, `696d3f0`, `ceebcac`, plus this one).
 **Decisions log:** `docs/P2_DECISIONS.md`.
 **Dep pin:** `polars==1.37.1` matches cloud.

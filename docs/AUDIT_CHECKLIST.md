@@ -2,7 +2,7 @@
 
 **Created:** 2026-04-20
 **Last updated:** 2026-04-22
-**Status:** 17/17 P0 + 50/50 P1 + 46/48 P2 + 26/32 P3 closed. **Audit P1+P2 scope: COMPLETE.** Authoritative log in `docs/AUDIT_FINDINGS.md`. Remaining: 2 P2 open (`intraday_pipeline` spot-audit, synthetic regression snapshot fixture) + 6 P3 open (hygiene/perf/edge cases). momentum_dip_quality: AUDIT_RETIRED. momentum_top_gainers + momentum_rebalance: AUDIT_BLOCKED pending full-NSE A/B.
+**Status:** 17/17 P0 + 49/50 P1 + 43/48 P2 + 26/32 P3 fully closed; +3 P1 and +3 P2 are `[~]` partial (deferred with explicit rationale inline). **Audit P1+P2 scope: COMPLETE** (all items triaged; deferrals documented). Authoritative log in `docs/AUDIT_FINDINGS.md`. Remaining `[ ]` open: 1 P1 (`_portfolio_metrics` hand-computed fixture — partial coverage in `test_backtest_result.py::TestPortfolioMetrics`), 2 P2 (`intraday_pipeline` spot-audit, synthetic regression snapshot fixture), 6 P3 (hygiene/perf/edge cases). momentum_dip_quality: AUDIT_RETIRED. momentum_top_gainers + momentum_rebalance: AUDIT_BLOCKED pending full-NSE A/B.
 **Scope:** 24 core files (engine/ non-signals + lib/). Signals spot-checked only.
 
 Priority tags: **P0** = known bug, must fix. **P1** = high-impact, likely bug. **P2** = medium, needs investigation. **P3** = low, hygiene/edge case.
@@ -22,7 +22,7 @@ Fixing the metrics formula will invalidate all historical numbers. Everything in
 ## Test Harness (build FIRST, before any fix lands)
 
 - [x] **P0** Create `tests/fixtures/synthetic_backtest.yaml` — a tiny, deterministic config with hand-computed expected outputs
-- [x] **P0** Write `tests/test_metrics_fixtures.py` — hand-compute CAGR, Sharpe, Sortino, Calmar, MDD from a known equity curve (e.g. `[100, 110, 121, 100, 110, 121]`); assert metrics match
+- [x] **P0** Hand-compute CAGR, Sharpe, Sortino, Calmar, MDD from a known equity curve (e.g. `[100, 110, 121, 100, 110, 121]`); assert metrics match. *— Landed across `tests/test_metrics.py`, `tests/test_metrics_edge.py`, `tests/test_metrics_properties.py`, and `tests/test_equity_curve.py` (CAGR invariance locks). The originally proposed single file `test_metrics_fixtures.py` was never created; coverage ended up split by concern.*
 - [x] **P0** Include edge cases: all-positive returns, all-negative, zero-trade simulation, single-day simulation
 - [x] **P1** Capture current numbers for all 4 known-good strategies (eod_breakout, enhanced_breakout, momentum_cascade, momentum_dip_quality). These are regression snapshots — any audit fix must document how they move. *— Landed as `tests/regression/snapshot.py` + pinned snapshots in `tests/regression/snapshots/`.*
 - [x] **P2** Add Hypothesis-style property tests: CAGR of `[1, 1, 1, ..., 1]` is 0%, Calmar is None if MDD=0, Sharpe is None if vol=0 *— P2 Batch 6: landed as parametrized unittest (no Hypothesis dep). Test: `test_metrics_properties.py`.*
