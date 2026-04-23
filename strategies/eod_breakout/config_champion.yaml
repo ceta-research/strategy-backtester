@@ -1,10 +1,17 @@
 # Champion config: optimized eod_breakout (final, validated)
 # ndh=7, ndm=5, ds={3, 0.54}, tsl=8, pos=15, top_gainer
 #
+# HONEST (post-audit, commit fbcd36a+, re-run 2026-04-23):
+# Full-period (2010-2026): 15.20% CAGR, -34.1% MDD, Cal 0.446
+#
+# PRE-AUDIT (buggy metrics, kept for traceability):
 # Full period (2010-2026): 13.3% CAGR, -25.7% MDD, Cal 0.516, Sharpe 0.928
 # ATO window (2015-2025): 18.1% CAGR (tsl=15) or 13.3% CAGR (tsl=8)
 # OOS (2020-2026): 22.8% CAGR, Cal 0.856
 # Walk-forward: 6/6 positive, avg Cal 0.736
+#
+# CAGR went up post-audit (ppy fix) but MDD deeper (NSE data correction
+# around 2024 drawdown). Still clears NIFTYBEES ~12% comfortably.
 
 static:
   strategy_type: eod_breakout

@@ -1,5 +1,11 @@
 # Enhanced Breakout: Champion Config
-# Optimized from Round 0-3: Cal 0.499, CAGR 11.85%, MDD -23.8%
+# Optimized from Round 0-3, re-verified on post-audit engine 2026-04-23.
+#
+# HONEST (post-audit, commit fbcd36a+):
+# Full-period (2010-2025): CAGR=16.40%, MDD=-25.0%, Calmar=0.656
+#
+# PRE-AUDIT (buggy metrics): Cal 0.499, CAGR 11.85%, MDD -23.8%
+#
 # Changes from baseline: quality 2→3, pctile 0.30→0.25, TSL 12→18,
 #   hold 252→126, lookback 63→21, pos 10 (unchanged)
 

@@ -1,8 +1,16 @@
 # momentum_cascade champion config
-# Optimized via Rounds 0-4 (2026-04-15)
+# Optimized via Rounds 0-4 (2026-04-15), re-verified on post-audit engine 2026-04-23.
+#
+# HONEST (post-audit, commit fbcd36a+):
+# Full-period (2010-2026): CAGR=13.75%, MDD=-29.9%, Calmar=0.460
+#
+# PRE-AUDIT (buggy metrics, kept for traceability):
 # Full-period (2010-2026): CAGR=9.7%, MDD=-26.5%, Calmar=0.366, Sharpe=0.551
 # OOS (2020-2026): CAGR=14.7%, Calmar=0.541
 # Walk-forward: 5/6 positive, avg Calmar 0.569
+#
+# The post-audit CAGR went UP because the ppy=252 bug in the old formula
+# under-estimated calendar-day equity curves. Same curve, corrected math.
 
 static:
   strategy_type: momentum_cascade
