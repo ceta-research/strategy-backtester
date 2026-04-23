@@ -1,0 +1,55 @@
+# Champion config for quality_dip_buy (2026-04-24, post-audit engine fbcd36a+).
+#
+# Full-period (2010-2025): CAGR=11.63%, MDD=-37.9%, Calmar=0.307
+# Selected by best Calmar from R3 (96-config fine grid; robust across ±20% perturbations).
+#
+# Params:
+#   consecutive_positive_years: 3
+#   dip_threshold: 5%
+#   peak_lookback: 63 days
+#   regime: NSE:NIFTYBEES > SMA(200)
+#   TSL: 15%
+#   max_hold: 504d
+#   sort: top_gainer
+#   positions: 15
+
+static:
+  strategy_type: quality_dip_buy
+  start_margin: 10000000
+  start_epoch: 1262304000      # 2010-01-01
+  end_epoch: 1741219200        # 2025-03-06
+  prefetch_days: 1500
+  data_granularity: day
+  data_provider: nse_charting
+
+scanner:
+  instruments:
+    - [{exchange: NSE, symbols: []}]
+  price_threshold: [50]
+  avg_day_transaction_threshold:
+    - {period: 125, threshold: 70000000}
+  n_day_gain_threshold:
+    - {n: 360, threshold: -999}
+
+entry:
+  consecutive_positive_years: [3]
+  min_yearly_return_pct: [0]
+  dip_threshold_pct: [5]
+  peak_lookback_days: [63]
+  rescreen_interval_days: [63]
+  regime_instrument: ['NSE:NIFTYBEES']
+  regime_sma_period: [200]
+
+exit:
+  trailing_stop_pct: [15]
+  max_hold_days: [504]
+
+simulation:
+  default_sorting_type: [top_gainer]
+  order_sorting_type: [top_gainer]
+  order_ranking_window_days: [30]
+  max_positions: [15]
+  max_positions_per_instrument: [1]
+  order_value_multiplier: [0.95]
+  max_order_value:
+    - {type: percentage_of_instrument_avg_txn, value: 4.5}

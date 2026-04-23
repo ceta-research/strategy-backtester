@@ -69,13 +69,13 @@
   notes: "REGRESSION: optimized on broken engine (Cal 0.638 invalid). Correct champion Cal 0.292, CAGR 4.6%. Needs R2-R4 re-run with corrected engine."
 
 - strategy: quality_dip_buy
-  status: PENDING
+  status: COMPLETE
   priority: 7
-  current_round: null
-  best_calmar: null
-  best_cagr: null
-  session: null
-  notes: "Base dip-buy. Simpler than momentum_dip_quality."
+  current_round: 4
+  best_calmar: 0.307
+  best_cagr: 0.116
+  session: 2026-04-24
+  notes: "Champion: yr=3,dip=5,peak=63,regime=NIFTYBEES>SMA200,tsl=15,pos=15,top_gainer. Full 11.63%/Cal0.307 (2010-2025). OOS 2020-2025: 17.20%/0.581. WF 4/5+, std Cal 0.530 (FRAGILE). Deflated Sharpe ~0.35. Barely clears NIFTYBEES. R4c+R4d deferred. See strategies/quality_dip_buy/OPTIMIZATION.md."
 
 - strategy: quality_dip_tiered
   status: PENDING

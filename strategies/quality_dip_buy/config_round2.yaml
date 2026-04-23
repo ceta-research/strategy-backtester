@@ -1,0 +1,51 @@
+# Round 2 — cross 6 params. Scope informed by R1:
+#   - top_gainer beat top_dipper consistently → locked
+#   - Best R1 CAGR 11.2% (dip=7, no-regime, tsl=5)
+#   - Best R1 Calmar 0.24 (dip=10, regime, tsl=10)
+#   - MDDs all 40%+ — test whether stricter quality or more positions helps
+#
+# Total: 3 dip x 2 peak x 3 tsl x 2 pos x 2 years x 2 regime = 144 configs.
+
+static:
+  strategy_type: quality_dip_buy
+  start_margin: 10000000
+  start_epoch: 1262304000      # 2010-01-01
+  end_epoch: 1741219200        # 2025-03-06
+  prefetch_days: 1500
+  data_granularity: day
+  data_provider: nse_charting
+
+scanner:
+  instruments:
+    - [{exchange: NSE, symbols: []}]
+  price_threshold: [50]
+  avg_day_transaction_threshold:
+    - {period: 125, threshold: 70000000}
+  n_day_gain_threshold:
+    - {n: 360, threshold: -999}
+
+entry:
+  consecutive_positive_years: [3, 4]
+  min_yearly_return_pct: [0]
+  dip_threshold_pct: [5, 7, 10]
+  peak_lookback_days: [63, 126]
+  rescreen_interval_days: [63]
+  regime_instrument: ['', 'NSE:NIFTYBEES']
+  regime_sma_period: [200]
+
+exit:
+  trailing_stop_pct: [5, 10, 15]
+  max_hold_days: [504]
+
+simulation:
+  default_sorting_type: [top_gainer]
+  order_sorting_type: [top_gainer]
+  order_ranking_window_days: [30]
+  max_positions: [15, 25]
+  max_positions_per_instrument: [1]
+  order_value_multiplier: [0.95]
+  max_order_value:
+    - {type: percentage_of_instrument_avg_txn, value: 4.5}
+
+# Total: 2 years x 3 dip x 2 peak x 2 regime = 24 entry
+#        x 3 exit x 2 sim = 144 configs

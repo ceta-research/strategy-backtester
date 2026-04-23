@@ -1,0 +1,50 @@
+# Round 1 — cross 4 high-priority params, everything else at baseline.
+# Rationale:
+#   regime: R0 had MDD -44% — market filter is hypothesized most-impactful
+#   dip_threshold: core entry mechanism; must sweep
+#   trailing_stop_pct: core exit; TSL=0 is peak-recovery-only
+#   order_sorting_type: dip-buy should use top_dipper but top_gainer is a baseline peer
+# Total: 2 regime x 4 dip x 3 tsl x 2 sort = 48 configs.
+
+static:
+  strategy_type: quality_dip_buy
+  start_margin: 10000000
+  start_epoch: 1262304000      # 2010-01-01
+  end_epoch: 1741219200        # 2025-03-06
+  prefetch_days: 1500
+  data_granularity: day
+  data_provider: nse_charting
+
+scanner:
+  instruments:
+    - [{exchange: NSE, symbols: []}]
+  price_threshold: [50]
+  avg_day_transaction_threshold:
+    - {period: 125, threshold: 70000000}
+  n_day_gain_threshold:
+    - {n: 360, threshold: -999}
+
+entry:
+  consecutive_positive_years: [3]
+  min_yearly_return_pct: [0]
+  dip_threshold_pct: [5, 7, 10, 15]
+  peak_lookback_days: [126]
+  rescreen_interval_days: [63]
+  regime_instrument: ['', 'NSE:NIFTYBEES']
+  regime_sma_period: [200]        # harness auto-pairs with '' (no-op when regime_instrument='')
+
+exit:
+  trailing_stop_pct: [0, 5, 10]
+  max_hold_days: [504]
+
+simulation:
+  default_sorting_type: [top_gainer]      # single; order_sorting_type is what drives ranking
+  order_sorting_type: [top_dipper, top_gainer]
+  order_ranking_window_days: [30]
+  max_positions: [15]
+  max_positions_per_instrument: [1]
+  order_value_multiplier: [0.95]
+  max_order_value:
+    - {type: percentage_of_instrument_avg_txn, value: 4.5}
+
+# Total: 4 dip * 2 regime * 3 tsl * 2 sort = 48 configs

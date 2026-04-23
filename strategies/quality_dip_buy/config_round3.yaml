@@ -1,0 +1,50 @@
+# Round 3 — fine grid around R2 Calmar winner (1_2_3_1: yr=3, dip=5, peak=63, regime=on, tsl=15, pos=15).
+# Robustness check: perturb ±20% around each key param.
+#
+# Holds from R2: consecutive_positive_years=3, regime=NSE:NIFTYBEES>SMA200,
+#                rescreen_interval=63, min_yearly_return=0.
+#
+# Total: 4 dip x 2 peak x 4 tsl x 3 pos = 96 configs.
+
+static:
+  strategy_type: quality_dip_buy
+  start_margin: 10000000
+  start_epoch: 1262304000      # 2010-01-01
+  end_epoch: 1741219200        # 2025-03-06
+  prefetch_days: 1500
+  data_granularity: day
+  data_provider: nse_charting
+
+scanner:
+  instruments:
+    - [{exchange: NSE, symbols: []}]
+  price_threshold: [50]
+  avg_day_transaction_threshold:
+    - {period: 125, threshold: 70000000}
+  n_day_gain_threshold:
+    - {n: 360, threshold: -999}
+
+entry:
+  consecutive_positive_years: [3]
+  min_yearly_return_pct: [0]
+  dip_threshold_pct: [3, 5, 7, 10]
+  peak_lookback_days: [63, 126]
+  rescreen_interval_days: [63]
+  regime_instrument: ['NSE:NIFTYBEES']
+  regime_sma_period: [200]
+
+exit:
+  trailing_stop_pct: [10, 12, 15, 20]
+  max_hold_days: [504]
+
+simulation:
+  default_sorting_type: [top_gainer]
+  order_sorting_type: [top_gainer]
+  order_ranking_window_days: [30]
+  max_positions: [10, 15, 20]
+  max_positions_per_instrument: [1]
+  order_value_multiplier: [0.95]
+  max_order_value:
+    - {type: percentage_of_instrument_avg_txn, value: 4.5}
+
+# Total: 4 dip x 2 peak = 8 entry x 4 tsl = 32 exit-cross-entry x 3 pos = 96 configs.
