@@ -114,13 +114,13 @@
   notes: "Champion: dta=1.0,roe=0.10,lb=1,top_n=75,quarterly,mh=365,tsl=20,pos=15. Full 16.89%/Cal0.481 (2010-2026). OOS 2020-2026: 23.49%/Cal0.529. WF 5/5 positive but Std Cal 0.745 FAILS (regime-dependent: 2019+ Cal 1.35-1.82, 2010-19 Cal 0.17-0.34). NOT overfitting (OOS~=IS 1.10x) — FMP NSE fundamentals coverage drives outcome. Similar caveat to earnings_dip: effectively valid 2018+. Very low turnover (181 trades in 16yr ~11/yr). Deflated Sharpe 0.508. COMPLETE with data-window caveat. See strategies/trending_value/OPTIMIZATION.md."
 
 - strategy: eod_technical
-  status: PENDING
+  status: COMPLETE
   priority: 12
-  current_round: null
-  best_calmar: null
-  best_cagr: null
-  session: null
-  notes: "Original ATO strategy. Similar to eod_breakout but different signal gen."
+  current_round: 4
+  best_calmar: 0.757
+  best_cagr: 0.196
+  session: 2026-04-24
+  notes: "Champion: ndma=3,ndh=5,ds={3,0.54},mh=3,tsl=10,top_gainer,pos=15. Full 19.63%/Cal0.757/Sharpe1.07 (2010-2026). OOS 2020-2026: 38.31%/Cal1.347 (regime-specific mid-cap bull). WF 5/5 positive but Std Cal 0.723 FAILS (regime-dependent: 2019-25 Cal 1.26-1.81, 2010-19 Cal 0.11-0.66). Deflated Sharpe 0.805 (very strong). No bias detected (next_open entry, post-audit charges). Uses legacy engine/scanner.py + engine/order_generator.py path with post-audit simulator. Simpler than eod_breakout (no quality/percentile filters) = more signals, higher CAGR. Best Sharpe (1.07) among COMPLETE strategies. See strategies/eod_technical/OPTIMIZATION.md."
 
 - strategy: momentum_rebalance
   status: AUDIT_RETIRED
