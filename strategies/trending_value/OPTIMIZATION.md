@@ -56,6 +56,11 @@ they're not.
 **Verdict:** COMPLETE with regime/data-window caveat. **Only trust for 2018+ data.**
 Parallel to `earnings_dip` which has a similar caveat.
 
+**Post-hoc check: alt-champion comparison.** The best-Calmar R3 config (roe=0.08, top_n=100,
+tsl=15, pos=20 → Cal 0.491 vs champion's 0.481) was run through the same walk-forward.
+Std Cal came out **0.848** (worse than champion's 0.745). The fragility is structural to
+the strategy, not to the specific param choice.
+
 ### Deflated Sharpe
 
 658 configs, 192 months. SR = 0.753. Var(SR) = (1 + 0.5·0.753²)/192 = 0.0067, √Var = 0.082,
