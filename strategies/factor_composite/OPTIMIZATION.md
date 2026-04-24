@@ -46,9 +46,19 @@ conditions. Post-2013 all folds strong.
 
 ### Deflated Sharpe
 
-~758 configs tested, 192 months. SR_deflated ≈ 0.505 − 0.230 ≈ **0.275** — marginally below
-0.3 threshold. Result is on the edge of statistical significance, but WF 5/5 positive and
-OOS > IS support the finding.
+~758 configs tested, 192 months. SR_observed = 0.549, Var(SR) = (1 + 0.5·0.549²)/192 = 0.006,
+√Var = 0.0774, Z(1 − 1/758) ≈ 3.00. SR_deflated ≈ 0.549 − 0.232 ≈ **0.317** — just above
+0.3 threshold. Combined with WF 5/5 positive and OOS > IS, the result is statistically
+defensible.
+
+### Additional metrics
+
+- Sortino 0.736, annualized vol 23.3% (above NIFTYBEES ~18%)
+- MDD duration **1194 days (~4.7 years)** — long drawdown; strategy would be emotionally
+  brutal to trade live.
+- Win rate 52.6%, profit factor 1.338 (modest but consistent edge)
+- Best year +97% / worst year -22% — high-variance years, typical momentum signature.
+- Time-in-market 94.3% (no regime filter = always invested)
 
 ## vs baseline
 

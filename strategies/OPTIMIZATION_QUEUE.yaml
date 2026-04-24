@@ -102,7 +102,7 @@
   best_calmar: 0.319
   best_cagr: 0.148
   session: 2026-04-24
-  notes: "Champion: lookback=350,skip=21,weights={0.6/0.2/0.2},regime=0,top_n=30,vol_tgt=0.25,sl=0.30,top_gainer,pos=15. Full 14.78%/Cal0.319 (2010-2026). OOS 2020-2026: 18.43%/Cal0.491 (>IS, robust). WF 5/5 positive, Std Cal 0.301 (PASSES). Deflated Sharpe ~0.275 (borderline). Strategy is effectively long-horizon momentum with small fundamental tilt — fund weights only marginally improve over pure_mom. Regime filter hurts (internal equal-weight SMA is noisy). Tight stops kill performance. Deepest MDD among COMPLETE strategies (-46%). See strategies/factor_composite/OPTIMIZATION.md."
+  notes: "Champion: lookback=350,skip=21,weights={0.6/0.2/0.2},regime=0,top_n=30,vol_tgt=0.25,sl=0.30,top_gainer,pos=15. Full 14.78%/Cal0.319 (2010-2026). OOS 2020-2026: 18.43%/Cal0.491 (>IS, robust). WF 5/5 positive, Std Cal 0.301 (PASSES). Deflated Sharpe ~0.317 (just above 0.3). Effectively long-horizon momentum with small fundamental tilt — fund weights only marginally improve over pure_mom. Regime filter hurts (internal equal-weight SMA is noisy). Tight stops kill performance. Deepest MDD (-46%) and longest DD duration (~4.7yr) among COMPLETE strategies. See strategies/factor_composite/OPTIMIZATION.md."
 
 - strategy: trending_value
   status: PENDING
