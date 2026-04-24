@@ -150,13 +150,13 @@
   notes: "Champion: pe=8,roe=0.08,de=1.0,ms=50,sl=0.10,pos=50 (modern 2018-2026). Full-period 2010-2026 best CAGR 7.25% < NIFTYBEES 10.45% (FMP pre-2018 sparse). Modern 2018-2026: 12.26%/MDD-12.08%/Cal1.016/Sharpe1.002. OOS 2020-2026: 17.76%/Cal1.471. WF 6 folds: 5/6 positive, Mean Cal 1.72, Std Cal 1.34 FAILS. 2018-2020 fold negative (-3.23%, value drought). Deflated Sharpe 0.195 BELOW 0.3. COMPLETE with data-window + regime caveats (similar to earnings_dip, trending_value). Only valid 2018+ in value-friendly regime. See strategies/low_pe/OPTIMIZATION.md."
 
 - strategy: ml_supertrend
-  status: PENDING
+  status: COMPLETE
   priority: 16
-  current_round: null
-  best_calmar: null
-  best_cagr: null
-  session: null
-  notes: "SuperTrend indicator with quality gate."
+  current_round: 4
+  best_calmar: 0.415
+  best_cagr: 0.132
+  session: 2026-04-24
+  notes: "Champion: mpy=6/10,dip=3%,osc<0.25,reversal ST(20,2.5),flip=10,tsl=15,hold=252,pos=15. Full 13.20%/MDD-31.8%/Cal0.415/Sharpe0.653 (2010-2026). OOS 2020-2026: 23.58%/Cal0.883 (1.79× IS, regime-favorable). WF 5/5 positive, Mean Cal 0.753, Std Cal 0.387 (PASSES 0.5 threshold). Deflated Sharpe ~0.006 (BELOW 0.3 from 108 R2 configs multiple-test penalty). Key findings: mpy=6 loose better than strict; near-peak mild dips (osc<0.25) much better than deep; 'reversal' mode beats 'trend'/'breakout'/'off'; SuperTrend exit cuts CAGR by half. See strategies/ml_supertrend/OPTIMIZATION.md."
 
 # ── Lower priority (mean reversion / niche) ──
 

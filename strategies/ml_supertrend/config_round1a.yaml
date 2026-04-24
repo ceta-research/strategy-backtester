@@ -1,0 +1,46 @@
+# R1a: quality + dip + osc screening. 3 x 3 x 3 = 27 configs.
+static:
+  strategy_type: ml_supertrend
+  start_margin: 10000000
+  start_epoch: 1262304000
+  end_epoch: 1773878400
+  prefetch_days: 4000
+  data_granularity: day
+  data_provider: nse_charting
+
+scanner:
+  instruments:
+    - [{exchange: NSE, symbols: []}]
+  price_threshold: [50]
+  avg_day_transaction_threshold:
+    - {period: 125, threshold: 70000000}
+  n_day_gain_threshold:
+    - {n: 360, threshold: -999}
+
+entry:
+  lookback_years: [10]
+  min_positive_years: [6, 7, 8]
+  dip_threshold_pct: [5, 10, 15]
+  peak_lookback_days: [252]
+  max_osc_position: [0.35, 0.50, 0.75]
+  supertrend_mode: [reversal]
+  atr_period: [20]
+  atr_multiplier: [2.5]
+  bounce_threshold_pct: [2.0]
+  st_flip_lookback: [10]
+  rescreen_interval_days: [63]
+
+exit:
+  trailing_stop_pct: [15]
+  max_hold_days: [252]
+  supertrend_exit: [false]
+
+simulation:
+  default_sorting_type: [top_gainer]
+  order_sorting_type: [top_gainer]
+  order_ranking_window_days: [30]
+  max_positions: [15]
+  max_positions_per_instrument: [1]
+  order_value_multiplier: [1.0]
+  max_order_value:
+    - {type: fixed, value: 1000000000}
