@@ -78,13 +78,13 @@
   notes: "Champion: yr=3,dip=5,peak=63,regime=NIFTYBEES>SMA200,tsl=15,pos=15,top_gainer. Full 11.63%/Cal0.307 (2010-2025). OOS 2020-2025: 17.20%/0.581. WF 4/5+, std Cal 0.530 (FRAGILE). Deflated Sharpe ~0.35. Barely clears NIFTYBEES. R4c+R4d deferred. See strategies/quality_dip_buy/OPTIMIZATION.md."
 
 - strategy: quality_dip_tiered
-  status: PENDING
+  status: COMPLETE
   priority: 8
-  current_round: null
-  best_calmar: null
-  best_cagr: null
-  session: null
-  notes: "Tiered entry variant of quality_dip_buy."
+  current_round: 4
+  best_calmar: 0.388
+  best_cagr: 0.184
+  session: 2026-04-24
+  notes: "Champion: yr=2,n_tiers=2,tier_mult=1.5,dip=4,peak=30,regime=NIFTYBEES>200,tsl=8,pos=15,ppi=3. Full 18.39%/Cal0.388 (2010-2026). OOS 2020-2026: 27.18%/Cal0.718 (1.85× IS, regime-specific). WF 5/5 positive, Std Cal 0.494 (borderline PASS). Deflated Sharpe 0.536 (strong). DCA thesis confirmed: n_tiers=2 at tighter 4% dip beats single-tier qdb (11.63%) decisively. Win rate 70.8% is structural (walk_forward_exit require_peak_recovery=True), not bias. Deep MDD (-47%, 4.5yr duration). See strategies/quality_dip_tiered/OPTIMIZATION.md."
 
 - strategy: forced_selling_dip
   status: COMPLETE

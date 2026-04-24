@@ -1,0 +1,45 @@
+# R2: Full cross. n_tiers=2 fixed (confirmed winner in R1a).
+# tier_mult × dip × peak × yr × tsl × pos = 2 × 3 × 2 × 2 × 3 × 2 = 144 configs
+
+static:
+  strategy_type: quality_dip_tiered
+  start_margin: 10000000
+  start_epoch: 1262304000
+  end_epoch: 1773878400
+  prefetch_days: 1500
+  data_granularity: day
+  data_provider: nse_charting
+
+scanner:
+  instruments:
+    - [{exchange: NSE, symbols: []}]
+  price_threshold: [50]
+  avg_day_transaction_threshold:
+    - {period: 125, threshold: 70000000}
+  n_day_gain_threshold:
+    - {n: 360, threshold: -999}
+
+entry:
+  consecutive_positive_years: [2, 3]
+  min_yearly_return_pct: [0]
+  n_tiers: [2]
+  tier_multiplier: [1.3, 1.5]
+  base_dip_threshold_pct: [4, 5, 7]
+  peak_lookback_days: [30, 63]
+  rescreen_interval_days: [63]
+  regime_instrument: ['NSE:NIFTYBEES']
+  regime_sma_period: [200]
+
+exit:
+  trailing_stop_pct: [8, 10, 12]
+  max_hold_days: [504]
+
+simulation:
+  default_sorting_type: [top_gainer]
+  order_sorting_type: [top_gainer]
+  order_ranking_window_days: [30]
+  max_positions: [15, 20]
+  max_positions_per_instrument: [3]
+  order_value_multiplier: [1.0]
+  max_order_value:
+    - {type: fixed, value: 1000000000}
