@@ -40,6 +40,24 @@ modules (predates `eod_breakout`'s modern framework).
 **Positive folds:** 5/5
 **Mean Calmar:** 0.810  **Std Calmar:** 0.723 → FAILS fragility threshold (>0.5)
 
+### Regime dependency (post-hoc sanity check)
+
+The full-period 19.63% CAGR hides significant regime dependency:
+
+| Period | CAGR | Cal | MDD |
+|---|---|---|---|
+| Pre-2019 (2010-2019) | **8.62%** | 0.310 | -27.8% |
+| Full (2010-2026) | 19.63% | 0.757 | -25.9% |
+| OOS (2020-2026) | 38.31% | 1.347 | -28.4% |
+
+**The 2010-2019 period is BELOW Nifty ~11% buy-and-hold.** Strategy only outperforms
+meaningfully from 2019+, which aligns with the NSE mid-cap bull market 2020-2026
+(Nifty Midcap 100 roughly 3-4× in that period).
+
+Forward-looking expectation: somewhere between 8.62% and 38.31%, depending heavily on
+whether the NSE mid-cap momentum regime persists. Conservative baseline: ~10-13% CAGR
+if markets revert to 2010-2019 conditions.
+
 ### Plausibility investigation
 
 OOS CAGR 38.31% triggers the runbook's 20% flag. Investigated:
