@@ -197,13 +197,13 @@
   notes: "RETIRED 2026-04-24: 193 configs tested (R0 + R1 192-config). Best CAGR 8.05%/Cal0.175 (bbp=10, bbs=2.5, sma=100, hold=120) — below NIFTYBEES 10.45%/0.27. Wider BB (3σ) and longer hold (400d) help marginally but cap at ~8%. Same NSE pattern as connors_rsi/ibs/ext_ibs/momentum_dip — BB lower-band breaks signal continued weakness, not reversion. Literature 10% SPY claim relies on index-level + close-entry + US costs. See strategies/bb_mean_reversion/OPTIMIZATION.md."
 
 - strategy: squeeze
-  status: PENDING
+  status: AUDIT_RETIRED
   priority: 21
-  current_round: null
-  best_calmar: null
-  best_cagr: null
-  session: null
-  notes: "Bollinger/Keltner squeeze breakout."
+  current_round: 1
+  best_calmar: -0.196
+  best_cagr: -0.189
+  session: 2026-04-24
+  notes: "RETIRED 2026-04-24: 109 configs tested (R0 + R1 108-config). R0 -21.51%/-98.1% MDD, R1 0/108 positive (best -18.91%/-96.7%). Squeeze entries on NSE catch failed breakouts — operator pumps + gap risk + false breakouts. 11K orders per config compounds negative expectancy. Tied with extended_ibs as worst-in-suite. Carter's 'Squeeze' strategy works in US futures, not NSE stocks. See strategies/squeeze/OPTIMIZATION.md."
 
 - strategy: darvas_box
   status: PENDING
