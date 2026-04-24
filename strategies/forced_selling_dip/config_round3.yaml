@@ -1,0 +1,51 @@
+# R3 — fine grid around R2 winner (slb=5, dip=3, vol=1.5, tsl=15, hold=504, pos=10).
+# 2×2×2×3×3 = 72 configs.
+
+static:
+  strategy_type: forced_selling_dip
+  start_margin: 10000000
+  start_epoch: 1262304000
+  end_epoch: 1773878400
+  prefetch_days: 1500
+  data_granularity: day
+  data_provider: nse_charting
+
+scanner:
+  instruments:
+    - [{exchange: NSE, symbols: []}]
+  price_threshold: [50]
+  avg_day_transaction_threshold:
+    - {period: 125, threshold: 70000000}
+  n_day_gain_threshold:
+    - {n: 360, threshold: -999}
+
+entry:
+  consecutive_positive_years: [2]
+  min_yearly_return_pct: [0]
+  sector_lookback_days: [3, 5]
+  dip_threshold_pct: [2, 3]
+  volume_multiplier: [1.0, 1.5]
+  peak_lookback_days: [63]
+  rescreen_interval_days: [63]
+  roe_threshold: [0]
+  pe_threshold: [0]
+  de_threshold: [0]
+  fundamental_missing_mode: ['skip']
+  regime_instrument: ['NSE:NIFTYBEES']
+  regime_sma_period: [200]
+
+exit:
+  trailing_stop_pct: [12, 15, 18]
+  max_hold_days: [504]
+
+simulation:
+  default_sorting_type: [top_gainer]
+  order_sorting_type: [top_gainer]
+  order_ranking_window_days: [30]
+  max_positions: [8, 10, 12]
+  max_positions_per_instrument: [1]
+  order_value_multiplier: [1.0]
+  max_order_value:
+    - {type: fixed, value: 1000000000}
+
+# 2 slb × 2 dip × 2 vol = 8 entry × 3 tsl × 3 pos = 72 configs

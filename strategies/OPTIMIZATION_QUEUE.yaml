@@ -87,13 +87,13 @@
   notes: "Tiered entry variant of quality_dip_buy."
 
 - strategy: forced_selling_dip
-  status: PENDING
+  status: COMPLETE
   priority: 9
-  current_round: null
-  best_calmar: null
-  best_cagr: null
-  session: null
-  notes: "Sector-relative forced selling detection."
+  current_round: 4
+  best_calmar: 0.431
+  best_cagr: 0.133
+  session: 2026-04-24
+  notes: "Champion: slb=5,dip=2%,vol>=1.0,tsl=15,pos=8,regime=NIFTYBEES>SMA200. Honest 13.26%/Cal0.431 (2010-2026). WF 4/5+, std Cal 0.218 (PASSES). OOS 2020-2026: 4.66%/Cal0.156 (regime-specific: bull markets = fewer forced-selling events). Counter-cyclical to quality_dip_buy — 2016-2019 is fsd's BEST fold and qdb's WORST. See strategies/forced_selling_dip/OPTIMIZATION.md."
 
 - strategy: factor_composite
   status: PENDING
