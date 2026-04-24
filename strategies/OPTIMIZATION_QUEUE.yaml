@@ -206,13 +206,13 @@
   notes: "RETIRED 2026-04-24: 109 configs tested (R0 + R1 108-config). R0 -21.51%/-98.1% MDD, R1 0/108 positive (best -18.91%/-96.7%). Squeeze entries on NSE catch failed breakouts — operator pumps + gap risk + false breakouts. 11K orders per config compounds negative expectancy. Tied with extended_ibs as worst-in-suite. Carter's 'Squeeze' strategy works in US futures, not NSE stocks. See strategies/squeeze/OPTIMIZATION.md."
 
 - strategy: darvas_box
-  status: PENDING
+  status: AUDIT_RETIRED
   priority: 22
-  current_round: null
-  best_calmar: null
-  best_cagr: null
-  session: null
-  notes: "Darvas box breakout with volume confirmation."
+  current_round: 1
+  best_calmar: -0.131
+  best_cagr: -0.112
+  session: 2026-04-24
+  notes: "RETIRED 2026-04-24: 145 configs tested (R0 + R1 144-config). R0 -26.42%/-99.3% MDD, R1 0/144 positive (best -11.22%/-85.8%). Pure 'close > N-day high + volume' breakout fails on NSE — no quality filter (vs eod_breakout's direction-score + quality + percentile rank which works at 15.20% CAGR). Trailing stop = max(box_low, highest×(1-tsl)) allows huge intra-trade drawdowns from long-N box_low. See strategies/darvas_box/OPTIMIZATION.md."
 
 - strategy: swing_master
   status: PENDING
