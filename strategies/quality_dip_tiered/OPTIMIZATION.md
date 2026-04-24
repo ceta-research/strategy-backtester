@@ -109,7 +109,23 @@ DCA averaging works. Two tiers at 4% and 6% dip beat single-tier at 5%.
 | `max_hold_days` | 504 | **504** | Not swept |
 | `order_sorting_type` | top_gainer | **top_gainer** | Best |
 | `max_positions` | 15 | **15** | 20 marginal edge |
-| `max_positions_per_instrument` | 3 | **3** | Allows all tiers |
+| `max_positions_per_instrument` | 3 | **3** | Plateau 3-5. ppi=1 is conservative alternative |
+
+## ppi sensitivity (post-hoc check)
+
+ppi wasn't explicitly swept in R1-R3 (fixed at 3). A post-hoc check confirms ppi=3 is well-chosen:
+
+| ppi | CAGR | MDD | Calmar | Trades | Win rate |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 12.79% | -40.7% | 0.314 | 547 | 69.1% |
+| 2 | 16.86% | -47.0% | 0.359 | 577 | 70.9% |
+| **3** | **18.39%** | **-47.4%** | **0.388** | 582 | 70.8% |
+| 5 | 18.46% | -47.4% | 0.389 | 570 | 71.0% |
+
+Note: total trades barely change (547→582) but CAGR jumps 12.8%→18.4%. The extra trades enabled
+by ppi>1 are the DCA re-entries — high-alpha (averaging down a quality stock then exiting on
+recovery). ppi=1 is a valid conservative alternative: trades 0.074 Cal for 7pp lower MDD. The
+default champion uses ppi=3 as the Calmar optimum.
 
 ## Rounds
 
