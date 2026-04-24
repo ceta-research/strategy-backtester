@@ -60,13 +60,13 @@
 # ── Medium priority (known strategies, never optimized) ──
 
 - strategy: earnings_dip
-  status: IN_PROGRESS
+  status: AUDIT_RETIRED
   priority: 6
   current_round: 4
-  best_calmar: 0.292
-  best_cagr: 0.046
-  session: 2026-04-20
-  notes: "REGRESSION: optimized on broken engine (Cal 0.638 invalid). Correct champion Cal 0.292, CAGR 4.6%. Needs R2-R4 re-run with corrected engine."
+  best_calmar: 0.371
+  best_cagr: 0.078
+  session: 2026-04-24
+  notes: "RETIRED 2026-04-24: honest R2 re-sweep (72 configs) best CAGR 7.78% (Cal 0.169, 21 trades) and best Cal 0.371 (CAGR 6.12%, 71 trades) — both below NIFTYBEES ~12%. Pre-audit champion Cal 0.638 was ~48% metrics inflation. Deflated Sharpe fails significance. FMP earnings data structurally sparse pre-2018 on NSE. See strategies/earnings_dip/OPTIMIZATION.md."
 
 - strategy: quality_dip_buy
   status: COMPLETE

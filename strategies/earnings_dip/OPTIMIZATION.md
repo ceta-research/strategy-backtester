@@ -4,6 +4,32 @@
 **Signal file:** `engine/signals/earnings_dip.py`
 **Data source:** nse.nse_charting_day (Rounds 0-3), fmp.stock_eod (Round 4)
 
+## Status (2026-04-24): AUDIT_RETIRED
+
+Honest re-run on post-audit engine (commit fbcd36a+):
+
+**Pre-audit champion re-run** (s=1, d=3, q=2, r=200, TSL=15, hold=1000, pos=8):
+- CAGR 5.46% / Calmar 0.205 / MDD -26.7% / 68 trades
+- Pre-audit claim was 10.6% / 0.638 — ~48% metrics inflation
+
+**Honest R2 re-sweep** (72 configs: dip × TSL × hold × pos, 2026-04-24):
+- Best CAGR: 7.78% (dip=2, tsl=30, hold=1000, pos=5) → Cal 0.169, MDD -46%, 21 trades
+- Best Calmar: 0.371 (dip=2, tsl=15, hold=756, pos=8) → CAGR 6.12%, MDD -16.5%, 71 trades
+- **No config clears NIFTYBEES ~12% CAGR.**
+
+**Reasons to retire:**
+1. Best honest CAGR (7.78%) is 4pp below NIFTYBEES buy-and-hold.
+2. Best-Calmar config has 71 trades over 16yr — low statistical significance.
+3. Pre-audit deflated Sharpe was 0.188 (FAIL <0.3). Honest Sharpe is lower.
+4. Walk-forward (pre-audit) already showed 3/6 positive — fragile.
+5. FMP earnings_surprises NSE coverage is structurally sparse pre-2018.
+
+See `results/earnings_dip/round2_honest.json` for the full honest sweep.
+
+---
+
+## Historical (pre-audit, kept for traceability)
+
 ## Champion
 
 | Period | Config | CAGR | MDD | Calmar | Trades |
