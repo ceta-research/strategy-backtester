@@ -141,13 +141,13 @@
   notes: "RETIRED 2026-04-24: 378 configs tested. Best honest CAGR 8.62%/Cal0.205 — below NIFTYBEES 10.45%. Reddit-inspired strategy (claimed 81.6% WR / 31% in 2 months) confirmed overstated: post-audit fixes (no same-bar bias, NSE charges) bring it below buy-and-hold. Structural issue: RSI<30 oversold in momentum winners is too frequent, 3-8% profit target doesn't capture enough edge to overcome charges. See strategies/momentum_dip/OPTIMIZATION.md."
 
 - strategy: low_pe
-  status: PENDING
+  status: COMPLETE
   priority: 15
-  current_round: null
-  best_calmar: null
-  best_cagr: null
-  session: null
-  notes: "Fundamental value strategy. Uses FMP financial_ratios."
+  current_round: 4
+  best_calmar: 1.016
+  best_cagr: 0.123
+  session: 2026-04-24
+  notes: "Champion: pe=8,roe=0.08,de=1.0,ms=50,sl=0.10,pos=50 (modern 2018-2026). Full-period 2010-2026 best CAGR 7.25% < NIFTYBEES 10.45% (FMP pre-2018 sparse). Modern 2018-2026: 12.26%/MDD-12.08%/Cal1.016/Sharpe1.002. OOS 2020-2026: 17.76%/Cal1.471. WF 6 folds: 5/6 positive, Mean Cal 1.72, Std Cal 1.34 FAILS. 2018-2020 fold negative (-3.23%, value drought). Deflated Sharpe 0.195 BELOW 0.3. COMPLETE with data-window + regime caveats (similar to earnings_dip, trending_value). Only valid 2018+ in value-friendly regime. See strategies/low_pe/OPTIMIZATION.md."
 
 - strategy: ml_supertrend
   status: PENDING

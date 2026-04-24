@@ -1,0 +1,43 @@
+# CHAMPION (modern window 2018-2026): pe=8, roe=0.08, de=1.0, ms=50, sl=0.10
+# CAGR 12.26%, MDD -12.1%, Cal 1.016, Sharpe 1.002, 742 trades
+# DATA-WINDOW CAVEAT: full-period 2010-2026 fails (FMP NSE fundamentals sparse pre-2018).
+
+static:
+  strategy_type: low_pe
+  start_margin: 10000000
+  start_epoch: 1514764800     # 2018-01-01
+  end_epoch: 1773878400       # 2026-03-19
+  prefetch_days: 300
+  data_granularity: day
+  data_provider: nse_charting
+
+scanner:
+  instruments:
+    - [{exchange: NSE, symbols: []}]
+  price_threshold: [50]
+  avg_day_transaction_threshold:
+    - {period: 125, threshold: 70000000}
+  n_day_gain_threshold:
+    - {n: 360, threshold: -999}
+
+entry:
+  pe_max: [8]
+  pe_min: [0]
+  roe_min: [0.08]
+  de_max: [1.0]
+  mktcap_min: [10000000000]
+  max_stocks: [50]
+  min_stocks: [10]
+
+exit:
+  stop_loss_pct: [0.10]
+
+simulation:
+  default_sorting_type: [top_gainer]
+  order_sorting_type: [top_gainer]
+  order_ranking_window_days: [30]
+  max_positions: [50]
+  max_positions_per_instrument: [1]
+  order_value_multiplier: [1.0]
+  max_order_value:
+    - {type: fixed, value: 1000000000}
