@@ -1,0 +1,48 @@
+# R2: Full cross-parameter sweep. Built around R1 findings.
+# ~288 configs. Signal-gen intensive (48 entry combos × 8s precompute + exit loops).
+#
+# IMPORTANT params get 3 values: lookback, stop_loss, max_positions
+# MODERATE params get 2 values: factor_weights, top_n, regime, vol_target, sorting
+# INSENSITIVE fixed: skip=21, vol_lb=126
+
+static:
+  strategy_type: factor_composite
+  start_margin: 10000000
+  start_epoch: 1262304000
+  end_epoch: 1773878400
+  prefetch_days: 700
+  data_granularity: day
+  data_provider: nse_charting
+
+scanner:
+  instruments:
+    - [{exchange: NSE, symbols: []}]
+  price_threshold: [50]
+  avg_day_transaction_threshold:
+    - {period: 125, threshold: 70000000}
+  n_day_gain_threshold:
+    - {n: 360, threshold: -999}
+
+entry:
+  momentum_lookback_days: [315, 378, 441]
+  momentum_skip_days: [21]
+  factor_weights:
+    - {momentum: 1.0, gross_profitability: 0.0, value: 0.0}
+    - {momentum: 0.6, gross_profitability: 0.2, value: 0.2}
+  regime_filter_sma: [0, 200]
+  top_n_stocks: [20, 30]
+
+exit:
+  vol_target_annual: [0.15, 0.25]
+  vol_lookback_days: [126]
+  stop_loss_pct: [0.25, 0.50]
+
+simulation:
+  default_sorting_type: [top_gainer]
+  order_sorting_type: [top_gainer, top_performer]
+  order_ranking_window_days: [30]
+  max_positions: [15, 20, 25]
+  max_positions_per_instrument: [1]
+  order_value_multiplier: [1.0]
+  max_order_value:
+    - {type: fixed, value: 1000000000}

@@ -1,0 +1,44 @@
+# R1c: extend momentum_lookback into longer horizons (monotonic in R1b)
+# 12 configs: lookback={504, 630, 756} × skip={0, 21, 42} × top_n={15, 30}
+# Fixed: weights=mom_heavy, regime=0
+
+static:
+  strategy_type: factor_composite
+  start_margin: 10000000
+  start_epoch: 1262304000
+  end_epoch: 1773878400
+  prefetch_days: 1000
+  data_granularity: day
+  data_provider: nse_charting
+
+scanner:
+  instruments:
+    - [{exchange: NSE, symbols: []}]
+  price_threshold: [50]
+  avg_day_transaction_threshold:
+    - {period: 125, threshold: 70000000}
+  n_day_gain_threshold:
+    - {n: 360, threshold: -999}
+
+entry:
+  momentum_lookback_days: [504, 630, 756]
+  momentum_skip_days: [0, 21, 42]
+  factor_weights:
+    - {momentum: 0.6, gross_profitability: 0.2, value: 0.2}
+  regime_filter_sma: [0]
+  top_n_stocks: [15, 30]
+
+exit:
+  vol_target_annual: [0.15]
+  vol_lookback_days: [126]
+  stop_loss_pct: [0.15]
+
+simulation:
+  default_sorting_type: [top_gainer]
+  order_sorting_type: [top_gainer]
+  order_ranking_window_days: [30]
+  max_positions: [30]
+  max_positions_per_instrument: [1]
+  order_value_multiplier: [1.0]
+  max_order_value:
+    - {type: fixed, value: 1000000000}

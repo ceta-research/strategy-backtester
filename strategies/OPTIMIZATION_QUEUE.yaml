@@ -96,13 +96,13 @@
   notes: "Champion: slb=5,dip=2%,vol>=1.0,tsl=15,pos=8,regime=NIFTYBEES>SMA200. Honest 13.26%/Cal0.431 (2010-2026). WF 4/5+, std Cal 0.218 (PASSES). OOS 2020-2026: 4.66%/Cal0.156 (regime-specific: bull markets = fewer forced-selling events). Counter-cyclical to quality_dip_buy — 2016-2019 is fsd's BEST fold and qdb's WORST. See strategies/forced_selling_dip/OPTIMIZATION.md."
 
 - strategy: factor_composite
-  status: PENDING
+  status: COMPLETE
   priority: 10
-  current_round: null
-  best_calmar: null
-  best_cagr: null
-  session: null
-  notes: "Multi-factor ranking (momentum + profitability + value)."
+  current_round: 4
+  best_calmar: 0.319
+  best_cagr: 0.148
+  session: 2026-04-24
+  notes: "Champion: lookback=350,skip=21,weights={0.6/0.2/0.2},regime=0,top_n=30,vol_tgt=0.25,sl=0.30,top_gainer,pos=15. Full 14.78%/Cal0.319 (2010-2026). OOS 2020-2026: 18.43%/Cal0.491 (>IS, robust). WF 5/5 positive, Std Cal 0.301 (PASSES). Deflated Sharpe ~0.275 (borderline). Strategy is effectively long-horizon momentum with small fundamental tilt — fund weights only marginally improve over pure_mom. Regime filter hurts (internal equal-weight SMA is noisy). Tight stops kill performance. Deepest MDD among COMPLETE strategies (-46%). See strategies/factor_composite/OPTIMIZATION.md."
 
 - strategy: trending_value
   status: PENDING
