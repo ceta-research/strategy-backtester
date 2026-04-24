@@ -161,13 +161,13 @@
 # ── Lower priority (mean reversion / niche) ──
 
 - strategy: connors_rsi
-  status: PENDING
+  status: AUDIT_RETIRED
   priority: 17
-  current_round: null
-  best_calmar: null
-  best_cagr: null
-  session: null
-  notes: "RSI(2) oversold + SMA trend filter."
+  current_round: 1
+  best_calmar: 0.269
+  best_cagr: 0.119
+  session: 2026-04-24
+  notes: "RETIRED 2026-04-24: 270 configs tested (R0 + R1 + modern). Full-period 2010-2026 best CAGR 9.36% < NIFTYBEES 10.45%. Modern 2018-2026 best CAGR 11.85% barely above benchmark with Cal 0.269 (no risk-adjusted edge). Classic NSE mean-reversion cost blowout — thousands of short-hold trades, STT 0.1% dominates. Similar fate to momentum_dip. No bias (next_open entry). See strategies/connors_rsi/OPTIMIZATION.md."
 
 - strategy: ibs_mean_reversion
   status: PENDING
