@@ -188,13 +188,13 @@
   notes: "RETIRED 2026-04-24: 217 configs tested (R0 + R1 216-config). ZERO configs positive CAGR. Best -3.87%/Cal-0.065 (MDD -59%). R0 baseline -12.33%/MDD-88.9%. Worst result in suite — extended-oversold signal (close < 10d_high - 2.5×ATR + IBS<thresh) PREDICTS CONTINUED WEAKNESS on NSE stocks, opposite of US index literature. SL/TSL/VEI/SMA filters cannot rescue. Same pattern as ibs_mean_reversion but worse. See strategies/extended_ibs/OPTIMIZATION.md."
 
 - strategy: bb_mean_reversion
-  status: PENDING
+  status: AUDIT_RETIRED
   priority: 20
-  current_round: null
-  best_calmar: null
-  best_cagr: null
-  session: null
-  notes: "Bollinger Band mean reversion."
+  current_round: 1
+  best_calmar: 0.175
+  best_cagr: 0.081
+  session: 2026-04-24
+  notes: "RETIRED 2026-04-24: 193 configs tested (R0 + R1 192-config). Best CAGR 8.05%/Cal0.175 (bbp=10, bbs=2.5, sma=100, hold=120) — below NIFTYBEES 10.45%/0.27. Wider BB (3σ) and longer hold (400d) help marginally but cap at ~8%. Same NSE pattern as connors_rsi/ibs/ext_ibs/momentum_dip — BB lower-band breaks signal continued weakness, not reversion. Literature 10% SPY claim relies on index-level + close-entry + US costs. See strategies/bb_mean_reversion/OPTIMIZATION.md."
 
 - strategy: squeeze
   status: PENDING

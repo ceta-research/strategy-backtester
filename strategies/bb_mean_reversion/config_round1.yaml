@@ -1,0 +1,36 @@
+# R1: BB period × std × SMA × hold sweep. 4 × 4 × 3 × 4 = 192 configs.
+static:
+  strategy_type: bb_mean_reversion
+  start_margin: 10000000
+  start_epoch: 1262304000
+  end_epoch: 1773878400
+  prefetch_days: 400
+  data_granularity: day
+  data_provider: nse_charting
+
+scanner:
+  instruments:
+    - [{exchange: NSE, symbols: []}]
+  price_threshold: [50]
+  avg_day_transaction_threshold:
+    - {period: 125, threshold: 70000000}
+  n_day_gain_threshold:
+    - {n: 360, threshold: -999}
+
+entry:
+  bb_period: [10, 20, 50, 100]
+  bb_std: [1.5, 2.0, 2.5, 3.0]
+  sma_trend_period: [100, 200, 300]
+
+exit:
+  max_hold_days: [60, 120, 250, 400]
+
+simulation:
+  default_sorting_type: [top_gainer]
+  order_sorting_type: [top_gainer]
+  order_ranking_window_days: [30]
+  max_positions: [15]
+  max_positions_per_instrument: [1]
+  order_value_multiplier: [1.0]
+  max_order_value:
+    - {type: fixed, value: 1000000000}
