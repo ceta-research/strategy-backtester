@@ -215,13 +215,13 @@
   notes: "RETIRED 2026-04-24: 145 configs tested (R0 + R1 144-config). R0 -26.42%/-99.3% MDD, R1 0/144 positive (best -11.22%/-85.8%). Pure 'close > N-day high + volume' breakout fails on NSE — no quality filter (vs eod_breakout's direction-score + quality + percentile rank which works at 15.20% CAGR). Trailing stop = max(box_low, highest×(1-tsl)) allows huge intra-trade drawdowns from long-N box_low. See strategies/darvas_box/OPTIMIZATION.md."
 
 - strategy: swing_master
-  status: PENDING
+  status: AUDIT_RETIRED
   priority: 23
-  current_round: null
-  best_calmar: null
-  best_cagr: null
-  session: null
-  notes: "SMA crossover swing trading."
+  current_round: 1
+  best_calmar: 0.061
+  best_cagr: 0.026
+  session: 2026-04-24
+  notes: "RETIRED 2026-04-24: 649 configs tested (R0 + R1 648-config). R0 -4.10%/-50.6%. Best R1: cfg 1_23_25_1 → 2.62%/-43.1%/Cal0.061 (7928 trades). Only 68/648 positive, 0 above 5%. Trend-pullback + FI divergence fires too frequently on NSE — 7K-9K trades/config × STT 0.1% + tight 4-15% SL on noisy pullbacks compound to cost-dominated loss. See strategies/swing_master/OPTIMIZATION.md."
 
 - strategy: gap_fill
   status: PENDING
