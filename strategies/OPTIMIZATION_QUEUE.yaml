@@ -105,13 +105,13 @@
   notes: "Champion: lookback=350,skip=21,weights={0.6/0.2/0.2},regime=0,top_n=30,vol_tgt=0.25,sl=0.30,top_gainer,pos=15. Full 14.78%/Cal0.319 (2010-2026). OOS 2020-2026: 18.43%/Cal0.491 (>IS, robust). WF 5/5 positive, Std Cal 0.301 (PASSES). Deflated Sharpe ~0.317 (just above 0.3). Effectively long-horizon momentum with small fundamental tilt — fund weights only marginally improve over pure_mom. Regime filter hurts (internal equal-weight SMA is noisy). Tight stops kill performance. Deepest MDD (-46%) and longest DD duration (~4.7yr) among COMPLETE strategies. See strategies/factor_composite/OPTIMIZATION.md."
 
 - strategy: trending_value
-  status: PENDING
+  status: COMPLETE
   priority: 11
-  current_round: null
-  best_calmar: null
-  best_cagr: null
-  session: null
-  notes: "O'Shaughnessy trending value. Long hold periods."
+  current_round: 4
+  best_calmar: 0.481
+  best_cagr: 0.169
+  session: 2026-04-24
+  notes: "Champion: dta=1.0,roe=0.10,lb=1,top_n=75,quarterly,mh=365,tsl=20,pos=15. Full 16.89%/Cal0.481 (2010-2026). OOS 2020-2026: 23.49%/Cal0.529. WF 5/5 positive but Std Cal 0.745 FAILS (regime-dependent: 2019+ Cal 1.35-1.82, 2010-19 Cal 0.17-0.34). NOT overfitting (OOS~=IS 1.10x) — FMP NSE fundamentals coverage drives outcome. Similar caveat to earnings_dip: effectively valid 2018+. Very low turnover (181 trades in 16yr ~11/yr). Deflated Sharpe 0.508. COMPLETE with data-window caveat. See strategies/trending_value/OPTIMIZATION.md."
 
 - strategy: eod_technical
   status: PENDING
