@@ -132,13 +132,13 @@
   notes: "RETIRED 2026-04-23: full-NSE 27-config sweep on honest engine — best CAGR 7.0%, best Calmar 0.254 @ 3.2% CAGR, both below NIFTYBEES ~12% buy-and-hold. moc_signal_lag_days bias confirmed cosmetic (-0.07pp CAGR on full data, local-fixture -5.5pp was artifact of tiny 30-stock 2020-2021 universe). See docs/audit_phase_8a/momentum_rebalance.md."
 
 - strategy: momentum_dip
-  status: PENDING
+  status: AUDIT_RETIRED
   priority: 14
-  current_round: null
-  best_calmar: null
-  best_cagr: null
-  session: null
-  notes: "Simple momentum + RSI dip."
+  current_round: 2
+  best_calmar: 0.205
+  best_cagr: 0.086
+  session: 2026-04-24
+  notes: "RETIRED 2026-04-24: 378 configs tested. Best honest CAGR 8.62%/Cal0.205 — below NIFTYBEES 10.45%. Reddit-inspired strategy (claimed 81.6% WR / 31% in 2 months) confirmed overstated: post-audit fixes (no same-bar bias, NSE charges) bring it below buy-and-hold. Structural issue: RSI<30 oversold in momentum winners is too frequent, 3-8% profit target doesn't capture enough edge to overcome charges. See strategies/momentum_dip/OPTIMIZATION.md."
 
 - strategy: low_pe
   status: PENDING
