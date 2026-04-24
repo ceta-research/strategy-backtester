@@ -170,13 +170,13 @@
   notes: "RETIRED 2026-04-24: 270 configs tested (R0 + R1 + modern). Full-period 2010-2026 best CAGR 9.36% < NIFTYBEES 10.45%. Modern 2018-2026 best CAGR 11.85% barely above benchmark with Cal 0.269 (no risk-adjusted edge). Classic NSE mean-reversion cost blowout — thousands of short-hold trades, STT 0.1% dominates. Similar fate to momentum_dip. No bias (next_open entry). See strategies/connors_rsi/OPTIMIZATION.md."
 
 - strategy: ibs_mean_reversion
-  status: PENDING
+  status: AUDIT_RETIRED
   priority: 18
-  current_round: null
-  best_calmar: null
-  best_cagr: null
-  session: null
-  notes: "Internal bar strength mean reversion."
+  current_round: 1
+  best_calmar: 0.050
+  best_cagr: 0.029
+  session: 2026-04-24
+  notes: "RETIRED 2026-04-24: 82 configs tested (R0 + R1 81-config). R0 -5.82% CAGR, -79% MDD. Best R1 CAGR 2.90% with -70% MDD. ALL configs have MDD -46 to -76%. Catastrophic on NSE — IBS<0.2 catches falling knives (gap-down risk) + thousands of trades overwhelmed by NSE STT 0.1%. Literature 13-40% CAGR claims assumed close-entry bias + no costs + index level. Worse fate than connors_rsi. See strategies/ibs_mean_reversion/OPTIMIZATION.md."
 
 - strategy: extended_ibs
   status: PENDING
