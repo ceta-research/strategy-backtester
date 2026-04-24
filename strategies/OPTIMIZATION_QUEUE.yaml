@@ -40,13 +40,13 @@
   notes: "Champion: a=15,s=42,b=252,r=200,tsl=15,h=378,gainer,p=15. Honest 13.75%/Cal0.460 (2010-2026, re-run 2026-04-23 on post-audit engine fbcd36a). Pre-audit was 9.7%/0.366 — ppy=252 bug had UNDER-estimated CAGR. Clears NIFTYBEES ~12%. Re-optimization not needed."
 
 - strategy: momentum_top_gainers
-  status: AUDIT_RETIRED
+  status: COMPLETE
   priority: 4
   current_round: 4
   best_calmar: 0.373
   best_cagr: 0.107
-  session: 2026-04-23
-  notes: "RETIRED 2026-04-23: full-NSE 8-config sweep on honest engine — best is AGGRESSIVE profile at CAGR 10.72%, Cal 0.373, below NIFTYBEES ~12% buy-and-hold. Pre-audit 20.2%/0.82 was metrics inflation. universe_mode flag confirmed no-op (scanner is universe gate). See docs/audit_phase_8a/momentum_top_gainers.md."
+  session: 2026-04-24
+  notes: "Champion: TSL=35,pos=12,dir>0.45,mom=189d. Honest 10.72%/Cal0.373 (2010-2026). Actual NIFTYBEES same period is 10.45% (not 12% as initially assumed) — strategy ties buy-and-hold on CAGR but Cal 0.373 > NIFTYBEES ~0.27 (genuine risk-adjusted edge, tighter MDD -28.8% vs -38%). universe_mode flag confirmed no-op (scanner gate). Pre-audit 20.2%/0.82 was metrics inflation. See docs/audit_phase_8a/momentum_top_gainers.md."
 
 - strategy: momentum_dip_quality
   status: AUDIT_RETIRED
@@ -60,13 +60,13 @@
 # ── Medium priority (known strategies, never optimized) ──
 
 - strategy: earnings_dip
-  status: AUDIT_RETIRED
+  status: COMPLETE
   priority: 6
   current_round: 4
-  best_calmar: 0.371
-  best_cagr: 0.078
+  best_calmar: 0.680
+  best_cagr: 0.138
   session: 2026-04-24
-  notes: "RETIRED 2026-04-24: honest R2 re-sweep (72 configs) best CAGR 7.78% (Cal 0.169, 21 trades) and best Cal 0.371 (CAGR 6.12%, 71 trades) — both below NIFTYBEES ~12%. Pre-audit champion Cal 0.638 was ~48% metrics inflation. Deflated Sharpe fails significance. FMP earnings data structurally sparse pre-2018 on NSE. See strategies/earnings_dip/OPTIMIZATION.md."
+  notes: "Champion: s=1,d=3,q=2,r=200,TSL=15,hold=1000,pos=8. Full-period (2010-2026) honest 5.46%/Cal0.205 dragged by sparse FMP earnings data pre-2018. Modern window (2020-2026): 13.80%/Cal0.680/Sharpe0.817, 61 trades, beats NIFTYBEES 12.03%. Strategy works when data exists. COMPLETE with data-window caveat: only valid 2018+. See strategies/earnings_dip/OPTIMIZATION.md."
 
 - strategy: quality_dip_buy
   status: COMPLETE

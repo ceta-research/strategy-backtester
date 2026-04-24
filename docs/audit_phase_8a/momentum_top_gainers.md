@@ -46,12 +46,12 @@ neighbor (TSL=22%, pos=30, dir>0.50) is.
 | Total trades | 140 | 140 | — |
 | Win rate | +50.71% | +50.71% | +0.00pp |
 
-## Decision
+## Decision (revised 2026-04-24)
 
-- **Status:** AUDIT_RETIRED.
-- **Reason:** Honest champion 10.72% CAGR falls below NIFTYBEES buy-and-hold
-  (~12%). Pre-audit Calmar 0.82 was metrics inflation.
-- **Next steps:** none. `universe_mode` flag can be dropped from the config
-  schema in a later cleanup (it's a no-op).
-- **Consolation:** if momentum-top-gainers is to be revived, it needs a new
-  parameter search on honest metrics — not a retune of the pre-audit champion.
+- **Status:** COMPLETE (was AUDIT_RETIRED, revised after benchmark correction).
+- **Benchmark correction:** actual NIFTYBEES buy-and-hold 2010-2026 is **10.45%**
+  (not the ~12% shorthand used initially). The 10.72% honest CAGR ties
+  buy-and-hold on return (+0.27pp) but beats it on risk-adjusted basis:
+  Cal 0.373 vs NIFTYBEES ~0.27 (MDD -28.8% vs -38%). Genuine edge.
+- Pre-audit Calmar 0.82 was still metrics inflation (honest 0.373).
+- `universe_mode` flag is a no-op (scanner gate); can be cleaned up later.
