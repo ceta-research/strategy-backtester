@@ -179,13 +179,13 @@
   notes: "RETIRED 2026-04-24: 82 configs tested (R0 + R1 81-config). R0 -5.82% CAGR, -79% MDD. Best R1 CAGR 2.90% with -70% MDD. ALL configs have MDD -46 to -76%. Catastrophic on NSE — IBS<0.2 catches falling knives (gap-down risk) + thousands of trades overwhelmed by NSE STT 0.1%. Literature 13-40% CAGR claims assumed close-entry bias + no costs + index level. Worse fate than connors_rsi. See strategies/ibs_mean_reversion/OPTIMIZATION.md."
 
 - strategy: extended_ibs
-  status: PENDING
+  status: AUDIT_RETIRED
   priority: 19
-  current_round: null
-  best_calmar: null
-  best_cagr: null
-  session: null
-  notes: "Extended IBS with volatility filter."
+  current_round: 1
+  best_calmar: -0.065
+  best_cagr: -0.039
+  session: 2026-04-24
+  notes: "RETIRED 2026-04-24: 217 configs tested (R0 + R1 216-config). ZERO configs positive CAGR. Best -3.87%/Cal-0.065 (MDD -59%). R0 baseline -12.33%/MDD-88.9%. Worst result in suite — extended-oversold signal (close < 10d_high - 2.5×ATR + IBS<thresh) PREDICTS CONTINUED WEAKNESS on NSE stocks, opposite of US index literature. SL/TSL/VEI/SMA filters cannot rescue. Same pattern as ibs_mean_reversion but worse. See strategies/extended_ibs/OPTIMIZATION.md."
 
 - strategy: bb_mean_reversion
   status: PENDING
