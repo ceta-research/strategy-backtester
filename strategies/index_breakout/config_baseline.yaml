@@ -1,0 +1,39 @@
+# index_breakout R0 baseline (NIFTYBEES 2010-2026, post-audit engine fbcd36a+).
+# Defaults: 3-day high breakout, 5% trailing stop-loss, no max hold.
+# Memory note: best honest result was 13.3% CAGR / -41% MDD on this combo.
+static:
+  strategy_type: index_breakout
+  start_margin: 1000000
+  start_epoch: 1262304000          # 2010-01-01
+  end_epoch: 1773878400            # 2026-03-19
+  prefetch_days: 100
+  data_granularity: day
+  data_provider: nse_charting
+
+scanner:
+  instruments:
+    - [{exchange: NSE, symbols: [NIFTYBEES]}]
+  price_threshold: [1]
+  avg_day_transaction_threshold:
+    - {period: 20, threshold: 1000000}
+  n_day_gain_threshold:
+    - {n: 30, threshold: -999}
+
+entry:
+  lookback_days: [3]
+  regime_instrument: [""]
+  regime_sma_period: [0]
+
+exit:
+  trailing_stop_pct: [5]
+  max_hold_days: [0]
+
+simulation:
+  default_sorting_type: [top_gainer]
+  order_sorting_type: [top_gainer]
+  order_ranking_window_days: [30]
+  max_positions: [1]
+  max_positions_per_instrument: [1]
+  order_value_multiplier: [1]
+  max_order_value:
+    - {type: fixed, value: 950000}
