@@ -224,13 +224,13 @@
   notes: "RETIRED 2026-04-24: 649 configs tested (R0 + R1 648-config). R0 -4.10%/-50.6%. Best R1: cfg 1_23_25_1 → 2.62%/-43.1%/Cal0.061 (7928 trades). Only 68/648 positive, 0 above 5%. Trend-pullback + FI divergence fires too frequently on NSE — 7K-9K trades/config × STT 0.1% + tight 4-15% SL on noisy pullbacks compound to cost-dominated loss. See strategies/swing_master/OPTIMIZATION.md."
 
 - strategy: gap_fill
-  status: PENDING
+  status: AUDIT_RETIRED
   priority: 24
-  current_round: null
-  best_calmar: null
-  best_cagr: null
-  session: null
-  notes: "Gap-down fill strategy."
+  current_round: 0
+  best_calmar: 2.196
+  best_cagr: 0.353
+  session: 2026-04-24
+  notes: "RETIRED 2026-04-24 for SAME-BAR EXECUTION BIAS. R0 35.27% CAGR / Cal 2.196 / Sharpe 2.10 — triggers OPTIMIZATION_PROMPT plausibility threshold (CAGR>20%). Code uses today's open as both signal trigger AND entry price (avg_hold_days=0.0 confirms). Real execution impossible: cannot see open print until 9:15 AM, by which time pre-open call auction has closed. Realistic execution paths (pre-open limits, post-open market) both destroy edge via fill bias / slippage. Honest CAGR estimated 0-5%. Skipped further optimization — bias affects all variants. Needs minute-bar data + realistic execution sim. See strategies/gap_fill/OPTIMIZATION.md."
 
 - strategy: overnight_hold
   status: PENDING
