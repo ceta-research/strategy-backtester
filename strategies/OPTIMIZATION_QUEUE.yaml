@@ -260,13 +260,13 @@
   notes: "RETIRED 2026-04-25: fails to beat NIFTYBEES buy-and-hold (10.45%/Cal 0.27). R0 vanilla (lookback=3, TSL=5%, hold=0) -0.70% CAGR. R1 sweep (126 configs lookback × TSL × hold): top by Calmar 8.13%/Cal 0.299 but only 4 trades — fluke. Statistically meaningful (>=30 trades) caps at 5.10%/Cal 0.284 — half NIFTYBEES CAGR. R2 with regime filter (96 configs): identical results, regime invariant. NO bias (lookback uses close.shift(1), entry at next_open). Memory's standalone 13.3% was without NSE charges. Verdict: NSE STT 0.1% × frequent re-entry + cash-drag > MDD reduction value. See strategies/index_breakout/OPTIMIZATION.md."
 
 - strategy: index_dip_buy
-  status: PENDING
+  status: AUDIT_RETIRED
   priority: 28
-  current_round: null
-  best_calmar: null
-  best_cagr: null
-  session: null
-  notes: "Index-level dip buy."
+  current_round: 1
+  best_calmar: -0.019
+  best_cagr: -0.0031
+  session: 2026-04-25
+  notes: "RETIRED 2026-04-25: 0/432 R1 configs positive. R0 (SMA20/200, hold=20, no SL) -0.65%/-13% MDD/188 trades. R1 sweep (SMA × RSI × hold × SL = 432 configs) best -0.31%. Confirms memory: selling on recovery (close > SMA short) DESTROYS dip-buy returns by sitting in cash during NIFTYBEES bull runs. Bias-clean. Never-sell variant = buy-and-hold (~12.8%/-59% MDD per memory). Sell-on-recovery exit is the worst possible choice for this strategy. See strategies/index_dip_buy/OPTIMIZATION.md."
 
 - strategy: index_green_candle
   status: PENDING
