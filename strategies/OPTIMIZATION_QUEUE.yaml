@@ -233,13 +233,13 @@
   notes: "RETIRED 2026-04-24 for SAME-BAR EXECUTION BIAS. R0 35.27% CAGR / Cal 2.196 / Sharpe 2.10 — triggers OPTIMIZATION_PROMPT plausibility threshold (CAGR>20%). Code uses today's open as both signal trigger AND entry price (avg_hold_days=0.0 confirms). Real execution impossible: cannot see open print until 9:15 AM, by which time pre-open call auction has closed. Realistic execution paths (pre-open limits, post-open market) both destroy edge via fill bias / slippage. Honest CAGR estimated 0-5%. Skipped further optimization — bias affects all variants. Needs minute-bar data + realistic execution sim. See strategies/gap_fill/OPTIMIZATION.md."
 
 - strategy: overnight_hold
-  status: PENDING
+  status: AUDIT_RETIRED
   priority: 25
-  current_round: null
-  best_calmar: null
-  best_cagr: null
-  session: null
-  notes: "Overnight holding strategy."
+  current_round: 1
+  best_calmar: -0.149
+  best_cagr: -0.1344
+  session: 2026-04-25
+  notes: "RETIRED 2026-04-25: 0/72 R1 configs positive. R0 vanilla -15.22% CAGR / -93.23% MDD / 1.49M trades — NSE STT 0.1% × turnover destroys any premium. R1 with filters (down-day, RSI, top_gainer/loser, pos sizes 10/15/30) best -13.44% / -90.45% MDD / 13.7K trades. NO same-bar bias (entry MOC at close T, exit MOO at open T+1, distinct epochs). Bias-clean negative expectancy. Literature 'overnight premium' is US large-cap ETF phenomenon, doesn't generalize to NSE individual equities. See strategies/overnight_hold/OPTIMIZATION.md."
 
 - strategy: holp_lohp
   status: PENDING

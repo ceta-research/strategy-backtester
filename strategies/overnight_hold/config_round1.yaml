@@ -1,0 +1,37 @@
+# overnight_hold R1: try filters (down-day + RSI oversold) + tighter universe.
+# Goal: cut trade count by >10x, see if filtered overnight premium survives costs.
+static:
+  strategy_type: overnight_hold
+  start_margin: 10000000
+  start_epoch: 1262304000
+  end_epoch: 1773878400
+  prefetch_days: 30
+  data_granularity: day
+  data_provider: nse_charting
+
+scanner:
+  instruments:
+    - [{exchange: NSE, symbols: []}]
+  price_threshold: [50]
+  avg_day_transaction_threshold:
+    - {period: 125, threshold: 70000000}
+  n_day_gain_threshold:
+    - {n: 360, threshold: -999}
+
+entry:
+  buy_on_down_day: [false, true]
+  min_rsi_14: [0, 30, 50]
+
+exit:
+  exit_at: [next_open]
+  max_hold_days: [1]
+
+simulation:
+  default_sorting_type: [top_gainer, top_loser]
+  order_sorting_type: [top_gainer, top_loser]
+  order_ranking_window_days: [30]
+  max_positions: [10, 15, 30]
+  max_positions_per_instrument: [1]
+  order_value_multiplier: [1.0]
+  max_order_value:
+    - {type: fixed, value: 1000000000}
