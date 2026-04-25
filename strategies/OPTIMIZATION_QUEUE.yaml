@@ -242,13 +242,13 @@
   notes: "RETIRED 2026-04-25: 0/72 R1 configs positive. R0 vanilla -15.22% CAGR / -93.23% MDD / 1.49M trades — NSE STT 0.1% × turnover destroys any premium. R1 with filters (down-day, RSI, top_gainer/loser, pos sizes 10/15/30) best -13.44% / -90.45% MDD / 13.7K trades. NO same-bar bias (entry MOC at close T, exit MOO at open T+1, distinct epochs). Bias-clean negative expectancy. Literature 'overnight premium' is US large-cap ETF phenomenon, doesn't generalize to NSE individual equities. See strategies/overnight_hold/OPTIMIZATION.md."
 
 - strategy: holp_lohp
-  status: PENDING
+  status: AUDIT_RETIRED
   priority: 26
-  current_round: null
-  best_calmar: null
-  best_cagr: null
-  session: null
-  notes: "High of low period / low of high period."
+  current_round: 1
+  best_calmar: -0.094
+  best_cagr: -0.0720
+  session: 2026-04-25
+  notes: "RETIRED 2026-04-25: 0/81 R1 configs positive. R0 vanilla -10.30%/-86% MDD/45,833 trades. R1 sweep (lookback × trailing-start × max-hold × pos = 81 configs) best -7.20%/-77% MDD/5,547 trades. Bias-clean (entry next_open, signal at close T-1). Carter LOHP intraday-discretionary pattern doesn't translate to mechanical daily-bar NSE: too many false reversals + STT 0.1% paper-cuts. Same pathology as darvas/squeeze/swing_master. See strategies/holp_lohp/OPTIMIZATION.md."
 
 - strategy: index_breakout
   status: PENDING
