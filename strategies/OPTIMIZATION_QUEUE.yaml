@@ -269,13 +269,13 @@
   notes: "RETIRED 2026-04-25: 0/432 R1 configs positive. R0 (SMA20/200, hold=20, no SL) -0.65%/-13% MDD/188 trades. R1 sweep (SMA × RSI × hold × SL = 432 configs) best -0.31%. Confirms memory: selling on recovery (close > SMA short) DESTROYS dip-buy returns by sitting in cash during NIFTYBEES bull runs. Bias-clean. Never-sell variant = buy-and-hold (~12.8%/-59% MDD per memory). Sell-on-recovery exit is the worst possible choice for this strategy. See strategies/index_dip_buy/OPTIMIZATION.md."
 
 - strategy: index_green_candle
-  status: PENDING
+  status: AUDIT_RETIRED
   priority: 29
-  current_round: null
-  best_calmar: null
-  best_cagr: null
-  session: null
-  notes: "Index green candle continuation."
+  current_round: 1
+  best_calmar: 0.115
+  best_cagr: 0.0130
+  session: 2026-04-25
+  notes: "RETIRED 2026-04-25: best 1.30%/Cal 0.115 vs NIFTYBEES 10.45%/0.27 — crushed. R0 (2 green/1 red) -0.49%/-8% MDD. R1 sweep (192 configs green × red × TP × SL) best green=5/red=any/TP=0.20 → 1.30% with 32 trades. Bias-clean (signal at close T, entry next_open T+1, exit starts i+2). Pattern fails: after N greens NIFTYBEES mean-reverts, tight red exits cut winners. Same pathology as index_dip_buy and index_breakout. See strategies/index_green_candle/OPTIMIZATION.md."
 
 - strategy: index_sma_crossover
   status: PENDING

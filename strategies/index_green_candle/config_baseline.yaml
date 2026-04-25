@@ -1,0 +1,37 @@
+# index_green_candle R0 baseline (NIFTYBEES 2010-2026, post-audit engine fbcd36a+).
+# Defaults: 2 green candles entry, 1 red candle exit.
+static:
+  strategy_type: index_green_candle
+  start_margin: 1000000
+  start_epoch: 1262304000
+  end_epoch: 1773878400
+  prefetch_days: 30
+  data_granularity: day
+  data_provider: nse_charting
+
+scanner:
+  instruments:
+    - [{exchange: NSE, symbols: [NIFTYBEES]}]
+  price_threshold: [1]
+  avg_day_transaction_threshold:
+    - {period: 20, threshold: 1000000}
+  n_day_gain_threshold:
+    - {n: 30, threshold: -999}
+
+entry:
+  green_candles: [2]
+
+exit:
+  red_candles_exit: [1]
+  take_profit_pct: [0]
+  stop_loss_pct: [0]
+
+simulation:
+  default_sorting_type: [top_gainer]
+  order_sorting_type: [top_gainer]
+  order_ranking_window_days: [30]
+  max_positions: [1]
+  max_positions_per_instrument: [1]
+  order_value_multiplier: [1]
+  max_order_value:
+    - {type: fixed, value: 950000}
