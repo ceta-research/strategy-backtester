@@ -17,7 +17,7 @@
 
 **vs baseline:** CAGR 17.1%→17.2% (+0.1pp), MDD 41.1%→26.6% (-15pp), Calmar 0.417→0.645 (+55%)
 
-**NOTE:** Previous results (Cal 1.378) were INVALID due to engine regression in pipeline.py/utils.py. See docs/SESSION_PENDING_WORK.md.
+**NOTE:** Previous results (Cal 1.378) were INVALID due to engine regression in pipeline.py/utils.py. See docs/archive/audit-2026-04/REGRESSION_INVESTIGATION.md.
 
 ## Parameters
 

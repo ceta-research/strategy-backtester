@@ -28,7 +28,7 @@ exceed `abs: 1e-6, rel: 1e-4` thresholds).
 ## What is NOT pinned here
 
 - Pre-fix (pre-2026-04-21) numbers. Those are archived in
-  `docs/AUDIT_FINDINGS.md` as a delta table, along with the exact metric
+  `docs/archive/audit-2026-04/AUDIT_FINDINGS.md` as a delta table, along with the exact metric
   changes produced by each layer fix. Don't pin pre-fix baselines here
   — the harness would flag every correct post-fix run as a regression.
 - Per-run volatile fields (timestamps, paths, intermediate equity

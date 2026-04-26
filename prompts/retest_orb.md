@@ -91,7 +91,7 @@ Compare corrected Calmar to the biased result (5.36). The bias audit on other st
 - `scripts/forced_selling_dip.py` -- reference for standalone script pattern
 - `scripts/quality_dip_buy_lib.py` -- reference for data fetching and simulator
 - `docs/BACKTEST_GUIDE.md` -- output format spec
-- `docs/NEXT_STRATEGIES_PLAN.md` -- see Strategy 3b (ORB + quality filter) for context
+- `docs/archive/pre-engine-2026-03/NEXT_STRATEGIES_PLAN.md` -- see Strategy 3b (ORB + quality filter) for context
 
 ### Important notes
 

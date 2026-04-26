@@ -7,7 +7,7 @@ named `*_round_trip_*` return the two-leg total.
 Historical bug (fixed 2026-04-21): the non-IN/US fallback returned
 `order_value * 0.001` with a comment claiming "0.1% round-trip estimate",
 but the caller (simulator.py) invokes it per-side, producing 0.2% round-trip
-on every non-IN/US exchange. See docs/AUDIT_FINDINGS.md.
+on every non-IN/US exchange. See docs/archive/audit-2026-04/AUDIT_FINDINGS.md.
 
 Fee data is organized as module-level constants so adding a new exchange is
 editing data, not control flow.

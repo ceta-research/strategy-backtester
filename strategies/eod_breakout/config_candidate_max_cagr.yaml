@@ -1,7 +1,7 @@
 # Sweep-1 winner (max CAGR, no regime): 2026-04-22
 # Full NSE 2010-2026: 19.0% CAGR, -29.9% MDD, Calmar 0.636, Sharpe 1.07
 # NOT yet walk-forward validated. Treat as in-sample in-sweep peak.
-# See docs/audit_phase_8a/eod_breakout_regime_sweep.md for caveats.
+# See docs/archive/audit-2026-04/audit_phase_8a/eod_breakout_regime_sweep.md for caveats.
 
 static:
   strategy_type: eod_breakout

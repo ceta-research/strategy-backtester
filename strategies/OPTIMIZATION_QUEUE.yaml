@@ -46,7 +46,7 @@
   best_calmar: 0.373
   best_cagr: 0.107
   session: 2026-04-24
-  notes: "Champion: TSL=35,pos=12,dir>0.45,mom=189d. Honest 10.72%/Cal0.373 (2010-2026). Actual NIFTYBEES same period is 10.45% (not 12% as initially assumed) — strategy ties buy-and-hold on CAGR but Cal 0.373 > NIFTYBEES ~0.27 (genuine risk-adjusted edge, tighter MDD -28.8% vs -38%). universe_mode flag confirmed no-op (scanner gate). Pre-audit 20.2%/0.82 was metrics inflation. See docs/audit_phase_8a/momentum_top_gainers.md."
+  notes: "Champion: TSL=35,pos=12,dir>0.45,mom=189d. Honest 10.72%/Cal0.373 (2010-2026). Actual NIFTYBEES same period is 10.45% (not 12% as initially assumed) — strategy ties buy-and-hold on CAGR but Cal 0.373 > NIFTYBEES ~0.27 (genuine risk-adjusted edge, tighter MDD -28.8% vs -38%). universe_mode flag confirmed no-op (scanner gate). Pre-audit 20.2%/0.82 was metrics inflation. See docs/archive/audit-2026-04/audit_phase_8a/momentum_top_gainers.md."
 
 - strategy: momentum_dip_quality
   status: AUDIT_RETIRED
@@ -55,7 +55,7 @@
   best_calmar: 0.645
   best_cagr: 0.172
   session: 2026-04-22
-  notes: "RETIRED 2026-04-22: honest CAGR 5.08% (point_in_time universe) < NIFTYBEES ~12%. Legacy 22.7% was inflated by full-period universe look-ahead. See docs/audit_phase_8a/momentum_dip_quality.md."
+  notes: "RETIRED 2026-04-22: honest CAGR 5.08% (point_in_time universe) < NIFTYBEES ~12%. Legacy 22.7% was inflated by full-period universe look-ahead. See docs/archive/audit-2026-04/audit_phase_8a/momentum_dip_quality.md."
 
 # ── Medium priority (known strategies, never optimized) ──
 
@@ -129,7 +129,7 @@
   best_calmar: 0.254
   best_cagr: 0.070
   session: 2026-04-23
-  notes: "RETIRED 2026-04-23: full-NSE 27-config sweep on honest engine — best CAGR 7.0%, best Calmar 0.254 @ 3.2% CAGR, both below NIFTYBEES ~12% buy-and-hold. moc_signal_lag_days bias confirmed cosmetic (-0.07pp CAGR on full data, local-fixture -5.5pp was artifact of tiny 30-stock 2020-2021 universe). See docs/audit_phase_8a/momentum_rebalance.md."
+  notes: "RETIRED 2026-04-23: full-NSE 27-config sweep on honest engine — best CAGR 7.0%, best Calmar 0.254 @ 3.2% CAGR, both below NIFTYBEES ~12% buy-and-hold. moc_signal_lag_days bias confirmed cosmetic (-0.07pp CAGR on full data, local-fixture -5.5pp was artifact of tiny 30-stock 2020-2021 universe). See docs/archive/audit-2026-04/audit_phase_8a/momentum_rebalance.md."
 
 - strategy: momentum_dip
   status: AUDIT_RETIRED

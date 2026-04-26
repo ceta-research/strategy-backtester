@@ -19,7 +19,7 @@ With `--provider parquet` (default), uses ~/ATO_DATA/tick_data local kite
 parquet (NSE only, 2019-2021 in the dev fixture). For a full run, use
 `--provider cr` which hits the Ceta Research API (requires CR_API_KEY).
 
-Output: docs/audit_phase_8a/{strategy}.md with a delta table.
+Output: docs/archive/audit-2026-04/audit_phase_8a/{strategy}.md with a delta table.
 """
 
 import argparse
@@ -233,7 +233,7 @@ def main():
     p.add_argument("config_path")
     p.add_argument("--provider", default="parquet",
                    choices=["parquet", "cr", "nse_charting"])
-    p.add_argument("--out-dir", default="docs/audit_phase_8a")
+    p.add_argument("--out-dir", default="docs/archive/audit-2026-04/audit_phase_8a")
     args = p.parse_args()
 
     report = measure(args.strategy, args.config_path, args.provider)

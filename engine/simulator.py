@@ -57,7 +57,7 @@ def _process_exits(orders, current_positions, current_positions_count, margin_av
             # Python's list.append stores a reference, not a copy. We read
             # `exit_reason` from `exit_order` because the reason semantically
             # belongs to the exit event; reading from `position` would be
-            # equivalent. See docs/SESSION_CODE_REVIEW.md for the trace.
+            # equivalent. See docs/sessions/2026-04-21_code_review.md for the trace.
             trade_log.append({
                 "instrument": position["instrument"],
                 "entry_epoch": position["entry_epoch"],
@@ -471,7 +471,7 @@ def process(context, df_orders, epoch_wise_instrument_stats, current_snapshot, s
         raise ValueError(
             f"Unknown end_of_sim_policy: {end_of_sim_policy!r}. "
             f"Only 'close_at_mtm' is implemented (see Decision 6 in "
-            f"docs/AUDIT_FINDINGS.md for planned alternatives)."
+            f"docs/archive/audit-2026-04/AUDIT_FINDINGS.md for planned alternatives)."
         )
     if current_positions:
         # Decision 7 (code review 2026-04-21): `end_epoch` comes from config

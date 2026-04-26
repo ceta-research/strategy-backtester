@@ -2,7 +2,7 @@
 # Full NSE 2010-2026: 14.8% CAGR, -24.2% MDD, Calmar 0.609
 # Demonstrates option (ii): NIFTYBEES SMA200 gate + force-exit on regime flip.
 # NOT yet walk-forward validated.
-# See docs/audit_phase_8a/eod_breakout_regime_sweep.md.
+# See docs/archive/audit-2026-04/audit_phase_8a/eod_breakout_regime_sweep.md.
 
 static:
   strategy_type: eod_breakout

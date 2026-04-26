@@ -1,7 +1,7 @@
 """Regression tests for the review-findings fixes.
 
 Each test here locks in the behavior of a specific bug that was identified
-during the Layer 0-5 review (docs/AUDIT_FINDINGS.md). They prevent the same
+during the Layer 0-5 review (docs/archive/audit-2026-04/AUDIT_FINDINGS.md). They prevent the same
 bug from recurring silently.
 
   T1: end_epoch off-by-one fix (>= -> >) — exercised when end_epoch is NOT

@@ -82,7 +82,7 @@ Execution:
 - LOCAL ONLY. Do NOT use CR compute / server execution / CloudOrchestrator. They are unreliable
   and per 2026-04-22 handover, all work runs locally with proper memory management.
 - Command: `python run.py --config <path> --output <path>`
-- Memory management playbook (see docs/SESSION_HANDOVER_2026-04-22.md §5):
+- Memory management playbook (see docs/sessions/2026-04-22_handover.md §5):
   - Narrow the data window (date range + universe) per strategy before loading
   - Pre-filter the universe per-strategy in the signal generator
   - Chunk exit computation where feasible
@@ -96,18 +96,18 @@ CRITICAL RULES:
     engine/pipeline.py, engine/utils.py, engine/simulator.py,
     engine/ranking.py, engine/charges.py, engine/exits.py, engine/order_key.py,
     lib/metrics.py, lib/backtest_result.py, lib/equity_curve.py
-  These were verified correct during the metrics audit (see docs/AUDIT_FINDINGS.md).
+  These were verified correct during the metrics audit (see docs/archive/audit-2026-04/AUDIT_FINDINGS.md).
   If you hit OOM or performance issues, fix them ONLY in the strategy's signal generator
   (see memory management playbook above).
 - After each round completes, verify the result is plausible (post-audit thresholds,
-  calibrated against the corrected CAGR formula — see docs/AUDIT_FINDINGS.md):
+  calibrated against the corrected CAGR formula — see docs/archive/audit-2026-04/AUDIT_FINDINGS.md):
   - Calmar > 2.9 on NSE is suspicious (check for bugs)
   - CAGR > 50% on 16-year backtest is suspicious
   - If OOS Calmar > 2x IS Calmar, investigate before celebrating
   - REALITY CHECK: honest single-strategy CAGR typically lands 7–15% on NSE after
     the audit fixes. NIFTYBEES buy-and-hold ~12% is the bar to clear. A 20%+ CAGR
     should trigger a bias re-check (universe survivorship, same-bar entry, stale
-    charges). See docs/SESSION_HANDOVER_2026-04-22.md §7.
+    charges). See docs/sessions/2026-04-22_handover.md §7.
 - Track all state in strategies/{name}/OPTIMIZATION.md so any session can resume.
 ```
 
@@ -119,11 +119,11 @@ CRITICAL RULES:
    - `engine/pipeline.py`, `engine/utils.py` restored from e7122a6 (forward-fill, no instrument caps, no min_epoch filter)
    - `engine/simulator.py` fixed (end_epoch authoritative, end-of-sim force-close)
 
-2. **✓ Metrics audit complete** — 17/17 P0 + 49/50 P1 fixes landed. 1 P1 deferred (`_portfolio_metrics` fixture), 2 P2s + 6 P3s deferred. See `docs/AUDIT_FINDINGS.md`.
+2. **✓ Metrics audit complete** — 17/17 P0 + 49/50 P1 fixes landed. 1 P1 deferred (`_portfolio_metrics` fixture), 2 P2s + 6 P3s deferred. See `docs/archive/audit-2026-04/AUDIT_FINDINGS.md`.
 
 3. **✓ Audit baseline captured** — commit `fbcd36a`. All drift checks above reference this hash.
 
-4. **✓ `docs/AUDIT_FINDINGS.md` written** — 1951-line authoritative log with every P0/P1/P2 entry.
+4. **✓ `docs/archive/audit-2026-04/AUDIT_FINDINGS.md` written** — 1951-line authoritative log with every P0/P1/P2 entry.
 
 5. **✓ Historical results migrated** — 214 files re-computed to `results_v2/*.json` via `scripts/recompute_metrics.py` using embedded equity curves and corrected CAGR formula.
 
@@ -131,6 +131,6 @@ CRITICAL RULES:
 
 7. **OPTIMIZATION_QUEUE.yaml state** — 3 COMPLETE with pinned snapshots (eod_breakout, enhanced_breakout, momentum_cascade), 1 IN_PROGRESS (earnings_dip — regression needs R2-R4 re-run), 2 AUDIT_BLOCKED (momentum_top_gainers, momentum_rebalance — pending full-NSE local A/B), 1 AUDIT_RETIRED (momentum_dip_quality), 22 PENDING. `enhanced_breakout` COMPLETE is invalidated by P0 #10 and must be re-optimized.
 
-8. **Plausibility thresholds recalibrated** — Calmar >2.9, CAGR >50% (see CRITICAL RULES above). `docs/OPTIMIZATION_RUNBOOK.md` update deferred; the source of truth for plausibility is this prompt + `docs/SESSION_HANDOVER_2026-04-22.md` §7.
+8. **Plausibility thresholds recalibrated** — Calmar >2.9, CAGR >50% (see CRITICAL RULES above). `docs/OPTIMIZATION_RUNBOOK.md` update deferred; the source of truth for plausibility is this prompt + `docs/sessions/2026-04-22_handover.md` §7.
 
 9. **Cloud execution** — NOT fixed. Not needed: all work is local per the 2026-04-22 decision. Memory-constrained strategies use the playbook in the Execution section above.

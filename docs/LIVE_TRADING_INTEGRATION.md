@@ -1,99 +1,108 @@
-# Live Trading Integration Plan: Momentum Dip-Buy Strategy
+# Live Trading Integration Plan
 
-## Strategy Spec (Champion, Calmar 1.01 on NSE)
+**Strategy:** `eod_technical` (current champion, post-audit engine `fbcd36a+`)
+**Backtested performance (2010-2026, NIFTYBEES universe):** 19.63% CAGR / Cal 0.757 / Sharpe 1.07
+**Caveat:** Pre-2019 standalone CAGR is 8.62%. Performance is regime-dependent
+on the 2019+ NSE mid-cap bull. Forward expectation: 10-13% CAGR if regime reverts.
 
-| Parameter | Value |
-|-----------|-------|
-| Quality gate | 2yr consecutive positive returns |
-| Momentum filter | Top 30% by 63d trailing return |
-| Entry signal | 5% dip from 63d rolling peak |
-| Fundamental filter | ROE>15%, PE<25, D/E<1.0 |
-| Execution | Signal at close[i], execute at open[i+1] (MOC) |
-| Position sizing | Equal weight: account_value / 10 |
-| Max positions | 10 |
-| Exit: TSL | 10% trailing stop (activates after peak recovery) |
-| Exit: Max hold | 504 trading days |
-| Regime filter | SMA200 (benchmark above SMA = bull) |
-| Charges | NSE delivery (STT 0.1%, stamp, GST) + 5 bps slippage |
+> Earlier draft of this doc covered standalone `momentum_dip_buy` (Cal 1.01)
+> from pre-engine work. That champion no longer exists post-audit (Layer 4
+> P0 fix invalidated the standalone numbers). Current champion is the
+> engine-pipeline `eod_technical` — see
+> [`strategies/eod_technical/OPTIMIZATION.md`](../strategies/eod_technical/OPTIMIZATION.md)
+> for full optimization history.
 
 ---
 
-## Architecture Decision: Standalone Signal Generator
+## Strategy spec (champion config)
 
-**Problem:** ATO_Simulator's order_generation_step is built for breakout entries (`close >= n_day_high`). Our dip-buy strategy needs the opposite (`close <= peak * 0.95`). Modifying core pipeline risks breaking existing strategies.
+Source: [`strategies/eod_technical/config_champion.yaml`](../strategies/eod_technical/config_champion.yaml)
 
-**Decision:** Build a standalone EOD signal generator that runs post-market, produces a shortlist, and feeds into the existing strategy_integration flow.
-
-**Why:**
-- Reuses exact backtested logic from `quality_dip_buy_lib.py` (validated, no bugs)
-- No changes to core ATO_Simulator pipeline
-- Can run independently and be audited against backtest predictions
-- Easier to paper trade first
+| Parameter | Value | Notes |
+|---|---|---|
+| Universe | NSE, price > 50, 125d avg turnover > 7Cr | Liquidity gate |
+| Entry: MA filter | `close > 3-day MA` | Recent uptrend |
+| Entry: Breakout | `close >= 5-day high` | Short breakout |
+| Entry: Direction score | `>= 0.54` of stocks above 3d MA | Market breadth gate |
+| Sort/rank | `top_gainer`, 30-day window | Pick best of multiple breakouts |
+| Exit: TSL | 10% trailing stop | Activates from entry |
+| Exit: Min hold | 3 days | Avoid same-day flips |
+| Position sizing | Equal weight | `account_value / 15` |
+| Max positions | 15 | Concentrated portfolio |
+| Max per symbol | 1 | No pyramiding |
+| Execution | Signal at close T, BUY at next_open T+1 | MOC, no same-bar bias |
+| Charges | NSE delivery (STT 0.1%, stamp, GST) + 5 bps slippage | Per `engine/charges.py` |
 
 ---
 
-## System Design
+## Architecture
+
+The engine path (`engine/signals/eod_technical.py` →
+`engine/order_generator.py` → `engine/simulator.py`) produces orders with
+explicit `entry_epoch` / `exit_epoch`. For live trading we don't need a
+re-implementation — we need a thin daily wrapper that:
+
+1. Pulls the same engine signal generator,
+2. Runs it on data through yesterday's close,
+3. Persists the resulting shortlist for tomorrow's open,
+4. Reconciles fills + open-position state.
 
 ```
 Post-Market (15:35 IST)                Pre-Market (09:14 IST)
-┌──────────────────────┐                ┌──────────────────────┐
-│ 1. Fetch EOD data    │                │ 5. Read shortlist    │
-│    (NSE charting)    │                │    from state file   │
-│                      │                │                      │
-│ 2. Update state:     │                │ 6. Check positions   │
-│    - quality universe│                │    vs max_positions  │
-│    - momentum rank   │                │                      │
-│    - open positions  │                │ 7. Place AMO orders  │
-│    - TSL tracking    │                │    (BUY entries)     │
-│                      │                │                      │
-│ 3. Generate signals: │                │ 8. Place exit orders │
-│    - New entries     │                │    (SELL for TSL/    │
-│    - Exit triggers   │                │     max-hold exits)  │
-│                      │                └──────────────────────┘
-│ 4. Write shortlist   │
-│    + exit orders     │
-│    to state file     │
-└──────────────────────┘
+┌──────────────────────────┐           ┌──────────────────────────┐
+│ 1. Fetch EOD T data      │           │ 5. Read state file       │
+│    (NSE charting / Kite) │           │                          │
+│                          │           │ 6. Pre-trade checks      │
+│ 2. Run eod_technical     │           │    - margin              │
+│    signal gen on data    │           │    - position cap (15)   │
+│    through close T       │           │    - sector cap          │
+│                          │           │                          │
+│ 3. Apply universe +      │           │ 7. Place AMO orders      │
+│    breadth + breakout    │           │    - BUY entries         │
+│    filters → shortlist   │           │    - SELL TSL/timed exits│
+│                          │           │                          │
+│ 4. Persist state:        │           │ 8. Audit log             │
+│    shortlist + exits     │           └──────────────────────────┘
+└──────────────────────────┘
 ```
 
-### State File: `~/.ato/dip_buy_state.json`
+### State file: `~/.ato/eod_technical_state.json`
 
 ```json
 {
-  "last_updated": "2026-03-26T15:35:00+05:30",
+  "last_updated": "2026-04-25T15:35:00+05:30",
+  "engine_commit": "fbcd36a",
+  "champion_config": "strategies/eod_technical/config_champion.yaml",
   "regime": "bull",
-  "quality_universe": ["INFY", "TCS", "HDFCBANK", ...],
-  "momentum_universe": ["TATAELXSI", "BHARTIARTL", ...],
-  "combined_universe": ["INFY", "TCS", ...],
+  "breadth_score": 0.61,
   "pending_entries": [
     {
-      "symbol": "INFY",
-      "signal_date": "2026-03-26",
-      "peak_price": 1850.0,
-      "dip_price": 1757.5,
-      "current_close": 1740.0,
-      "order_value": 1000000,
-      "quantity": 571
+      "symbol": "TATAELXSI",
+      "signal_date": "2026-04-25",
+      "trigger_close": 7245.0,
+      "5d_high": 7240.0,
+      "rank": 1,
+      "order_value": 666666,
+      "quantity": 92
     }
   ],
   "pending_exits": [
     {
-      "symbol": "HDFCBANK",
-      "reason": "tsl",
-      "trail_high": 1650.0,
-      "tsl_trigger": 1485.0,
-      "current_close": 1480.0
+      "symbol": "BHARTIARTL",
+      "reason": "trailing_stop",
+      "trail_high": 1620.0,
+      "tsl_trigger": 1458.0,
+      "current_close": 1455.5
     }
   ],
   "positions": [
     {
-      "symbol": "TCS",
-      "entry_date": "2025-11-15",
-      "entry_price": 3800.0,
-      "quantity": 263,
-      "peak_since_entry": 4200.0,
-      "reached_peak": true,
-      "days_held": 95
+      "symbol": "INFY",
+      "entry_date": "2026-03-12",
+      "entry_price": 1480.0,
+      "quantity": 450,
+      "peak_since_entry": 1612.0,
+      "days_held": 32
     }
   ]
 }
@@ -101,106 +110,106 @@ Post-Market (15:35 IST)                Pre-Market (09:14 IST)
 
 ---
 
-## Implementation Plan
+## Implementation phases
 
-### Phase 1: EOD Signal Generator (new script)
+### Phase 1 — Daily signal runner
 
-**File:** `scripts/live_signal_generator.py`
+**File:** `scripts/live_eod_technical.py`
 
-Responsibilities:
-1. Fetch today's EOD data from NSE (via CR API or Kite historical)
-2. Recompute quality universe (every 63 days or on schedule)
-3. Recompute momentum universe (every 63 days)
-4. Intersect quality + momentum + fundamental filters
-5. Check dip conditions against 63d rolling peaks
-6. For existing positions: check TSL, max-hold, regime
-7. Write state file with pending entries/exits
+1. Fetch EOD data for current NSE universe (price > 50, liquidity-filtered).
+2. Invoke the engine signal generator the same way `run.py` does, but
+   with `end_epoch = today_close` and a single-day output window.
+3. Translate engine orders for `entry_epoch == tomorrow_open` into a
+   shortlist; translate `exit_epoch == tomorrow_open` into pending exits.
+4. Update peak-since-entry / TSL triggers for open positions.
+5. Write state file.
 
-Key difference from backtest: uses live data, not historical replay.
+**Key invariant:** the live runner must use the SAME signal generator
+the backtest uses (`engine/signals/eod_technical.py`). Any
+re-implementation drifts and silently invalidates backtest expectations.
 
-```python
-# Core logic (reuses quality_dip_buy_lib.py functions):
-# 1. Quality: compute_quality_universe() with live price history
-# 2. Momentum: compute_momentum_universe() with live price history
-# 3. Dip detection: compare today's close vs 63d peak
-# 4. Fundamentals: fetch_fundamentals() from FMP (45-day lag)
-# 5. Regime: benchmark SMA200 check
-# 6. Position management: TSL tracking, max-hold counting
-```
+### Phase 2 — Order placement integration
 
-### Phase 2: Order Placement Integration
+**Module:** `ATO/ATO_UserUtil/strategy_integration/eod_technical_orders.py`
 
-**Modify:** `ATO/ATO_UserUtil/src/ATO_UserUtil/strategy_integration/`
+1. Read state file.
+2. For each pending entry: pre-trade checks → place AMO BUY at market
+   (or AMO limit at signal close + 0.5%).
+3. For each pending exit: place AMO SELL at market.
+4. Audit-log all placements with broker order IDs.
 
-Add `dip_buy_order_placement.py`:
-1. Read state file
-2. For each pending_entry:
-   - Check available margin
-   - Check position count < max_positions
-   - Place AMO BUY order at market (or limit at yesterday's close)
-3. For each pending_exit:
-   - Place AMO SELL order at market
-4. Log all orders to audit trail
+### Phase 3 — Post-session reconciliation
 
-### Phase 3: Position Tracking
+1. Pull executed AMO fills from broker.
+2. Update state file with new positions / closed positions / partial fills.
+3. Record daily P&L snapshot.
+4. Trigger Phase 1 for next day.
 
-**Modify:** Post-session script to:
-1. Check which AMO orders were executed
-2. Update state file with new positions / closed positions
-3. Run signal generator for next day
-4. Record daily P&L snapshot
+### Phase 4 — Risk limits
 
-### Phase 4: Risk Limits
-
-| Limit | Value | Action |
-|-------|-------|--------|
-| Max positions | 10 | Skip new entries |
+| Limit | Value | Action on breach |
+|---|---|---|
+| Max positions | 15 | Skip new entries |
 | Max per symbol | 1 | Skip if already held |
-| Max sector | 3 per sector | Skip if sector full |
-| Drawdown kill switch | -30% from peak | Close all, pause 30 days |
-| Regime filter | Benchmark < SMA200 | No new entries (hold existing) |
-| Min order value | Rs 50,000 | Skip small orders |
-| Max order value | Rs 2,000,000 | Cap per position |
+| Max sector | 4 per sector | Skip if sector full (NEW — backtest doesn't enforce) |
+| Min order value | ₹50,000 | Skip small orders |
+| Max order value | ₹2,000,000 | Cap per position |
+| Drawdown kill switch | -25% from peak | Close all, pause 30 days |
+| Breadth gate | `direction_score < 0.40` | No new entries (hold existing) |
+| Engine drift check | `git rev-parse HEAD != fbcd36a` | Block new entries until verified |
 
-### Phase 5: Paper Trading Validation
+### Phase 5 — Paper trading validation (30 days)
 
 Before going live:
-1. Run signal generator daily for 30 days
-2. Compare generated signals against what backtest would have produced
-3. Verify entry/exit prices match expectations
-4. Check position sizing is correct
-5. Audit charges calculation
-6. Confirm no look-ahead (signals use yesterday's close, not today's)
+
+1. Run signal runner daily for 30 trading days.
+2. **Reconciliation test:** for each day, also run the engine backtest
+   over the same window — compare generated signals one-for-one. Any
+   mismatch is a bug.
+3. Verify entry/exit prices match backtest (within slippage band).
+4. Check position sizing.
+5. Audit charges calculation against broker contract notes.
+6. Confirm no look-ahead — signals at close T, executions next-day open.
 
 ---
 
-## Key Files
+## Key files
 
 | File | Action | Purpose |
-|------|--------|---------|
-| `scripts/live_signal_generator.py` | CREATE | EOD signal generation |
-| `scripts/quality_dip_buy_lib.py` | REUSE | Core filters (quality, momentum, dip) |
-| `scripts/quality_dip_buy_fundamental.py` | REUSE | Fundamental filters |
-| `~/.ato/dip_buy_state.json` | CREATE | Live state tracking |
-| `ATO_UserUtil/.../dip_buy_order_placement.py` | CREATE | AMO order placement |
-| `TS_Scripts/.../pre_session_script.py` | MODIFY | Add dip-buy to pre-session |
-| `TS_Scripts/.../post_session_script.py` | MODIFY | Add position reconciliation |
+|---|---|---|
+| `scripts/live_eod_technical.py` | CREATE | Daily signal runner |
+| `engine/signals/eod_technical.py` | REUSE (no changes) | Signal logic — must match backtest |
+| `~/.ato/eod_technical_state.json` | CREATE | Live state |
+| `ATO_UserUtil/.../eod_technical_orders.py` | CREATE | AMO placement |
+| `TS_Scripts/.../pre_session_script.py` | MODIFY | Wire eod_technical into pre-session |
+| `TS_Scripts/.../post_session_script.py` | MODIFY | Wire reconciliation into post-session |
 
-## Execution Timeline
+---
 
-| Phase | Duration | Prereq |
-|-------|----------|--------|
-| 1. Signal generator | 2-3 days | None |
-| 2. Order placement | 1-2 days | Phase 1 |
-| 3. Position tracking | 1-2 days | Phase 2 |
-| 4. Risk limits | 1 day | Phase 3 |
-| 5. Paper trading | 30 days | Phase 4 |
-| **Go live** | After paper trading validates | All phases |
+## Open questions
 
-## Open Questions
+1. **Capital allocation** — how much of total account? Suggest 30-50%
+   initially given 2026-04-24 handover note that pre-2019 CAGR was 8.62%.
+2. **Order type** — AMO market vs AMO limit at signal close? Limit
+   matches backtest more honestly but risks unfilled in fast markets.
+3. **Partial fills** — backtest assumes full fill at next_open. Live
+   should accept partial and adjust position size.
+4. **Corporate actions** — bonus/split handling for `peak_since_entry`
+   tracking. NSE adjusts close prices, but state file needs explicit
+   corp-action ingestion to avoid spurious TSL trips.
+5. **Data source for live** — Kite historical API for execution-aligned
+   prices, or CR API (matches backtest)? Suggest both: Kite for
+   reconciliation, CR for signal regeneration.
+6. **Champion drift** — `eod_technical` Std Cal 0.723 FAILS the WF
+   fragility gate. Need to decide: paper-trade as-is, or swap to a more
+   robust champion (e.g. `forced_selling_dip`, Std Cal 0.218 PASSES) for
+   live deployment?
 
-1. **Capital allocation:** How much of total account to allocate? (suggest 30-50% initially)
-2. **Order type:** AMO market vs AMO limit at previous close?
-3. **Partial fills:** How to handle? (suggest: accept partial, adjust position size)
-4. **Corporate actions:** Bonus/split handling for peak tracking?
-5. **Data source for live:** Kite historical API vs CR API vs both?
+---
+
+## Cross-refs
+
+- Champion optimization detail: [`strategies/eod_technical/OPTIMIZATION.md`](../strategies/eod_technical/OPTIMIZATION.md)
+- Top 5 alternatives + Calmar leaderboard: [`STATUS.md`](STATUS.md)
+- Engine baseline + protected files: [`STATUS.md`](STATUS.md)
+- Why pre-2019 vs post-2019 differs: [`sessions/2026-04-24_pt2_handover.md`](sessions/2026-04-24_pt2_handover.md) §3 "Regime dependency is pervasive on NSE"

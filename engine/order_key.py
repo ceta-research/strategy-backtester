@@ -17,7 +17,7 @@ The fix: make order identity structured. A frozen dataclass:
   - Serializes deterministically to string for log/trade-log output.
   - Fails loudly (TypeError on mutation) if a consumer tries to mutate a key.
 
-See docs/AUDIT_FINDINGS.md for the measured impact.
+See docs/archive/audit-2026-04/AUDIT_FINDINGS.md for the measured impact.
 """
 
 from __future__ import annotations

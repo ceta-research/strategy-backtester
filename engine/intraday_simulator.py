@@ -3,7 +3,7 @@
 v2 (`engine.intraday_simulator_v2`) supersedes this module. v1's
 SQL builder has a looser-than-intended stop-loss expression
 (`LEAST(entry*stop_factor, or_low)`). See
-`docs/INTRADAY_V1_DEPRECATION.md` for migration.
+`docs/archive/audit-2026-04/INTRADAY_V1_DEPRECATION.md` for migration.
 """
 
 import warnings
@@ -15,7 +15,7 @@ from engine.charges import nse_intraday_charges, us_intraday_charges
 _DEPRECATION_MESSAGE = (
     "engine.intraday_simulator (v1) is deprecated; set "
     "pipeline_version: v2 in strategy YAML or import "
-    "engine.intraday_simulator_v2. See docs/INTRADAY_V1_DEPRECATION.md."
+    "engine.intraday_simulator_v2. See docs/archive/audit-2026-04/INTRADAY_V1_DEPRECATION.md."
 )
 
 

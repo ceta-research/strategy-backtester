@@ -56,7 +56,7 @@ def sort_orders_by_highest_avg_txn(df_orders: pl.DataFrame, df_tick_data: pl.Dat
     the entry decision. Contrast with `engine/scanner.py` and
     `engine/utils.py::create_epoch_wise_instrument_stats`, which use
     SAME-DAY for a universe filter / liquidity cap (different purpose, so
-    different convention). See docs/AUDIT_FINDINGS.md entry P3.1.
+    different convention). See docs/archive/audit-2026-04/archive/audit-2026-04/AUDIT_FINDINGS.md entry P3.1.
     """
     df_tick_data = df_tick_data.with_columns(pl.col("instrument").cast(pl.Utf8))
     df_tick_data = df_tick_data.sort(["instrument", "date_epoch"])
@@ -138,7 +138,7 @@ def calculate_daywise_instrument_score(df_orders: pl.DataFrame, instrument_day_w
         # pl.DataFrame(idx_to_keep) concatenation reflects the outer group
         # order, and downstream joins in sort_orders_by_top_performer pick up
         # a specific row order for scoring. Pinning the outer order gives
-        # byte-identical results across runs. See AUDIT_FINDINGS.md P3.3.
+        # byte-identical results across runs. See archive/audit-2026-04/AUDIT_FINDINGS.md P3.3.
         idx_to_keep = []
         for instrument_tuple, group in _df_orders.group_by("instrument", maintain_order=True):
             group = group.sort(["entry_epoch", "exit_epoch"])

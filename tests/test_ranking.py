@@ -1,7 +1,7 @@
 """Tests for engine/ranking.py and scanner per-bar behavior.
 
 Covers Phase 3 audit items P3.1, P3.2, P3.3, P3.7 from
-docs/AUDIT_FINDINGS.md. Each test locks in a convention that was
+docs/archive/audit-2026-04/AUDIT_FINDINGS.md. Each test locks in a convention that was
 either documented or fixed during the Phase 3 pass.
 
   P3.1: sort_orders_by_highest_avg_txn uses PREV-DAY volume × average_price

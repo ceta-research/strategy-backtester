@@ -41,7 +41,7 @@ def create_config_df_loc_lookup(
                 # should be simulated together. Per-tier uniqueness is handled
                 # at the SIMULATOR layer via engine.order_key.OrderKey, which
                 # carries the full tier-suffixed string through. See
-                # docs/AUDIT_FINDINGS.md (Layer 2) for the historical bug.
+                # docs/archive/audit-2026-04/AUDIT_FINDINGS.md (Layer 2) for the historical bug.
                 base_id = entry_config_id.split("_t")[0] if "_t" in entry_config_id else entry_config_id
                 entry_config_id_df_idx_map[int(base_id)].add(idx)
 

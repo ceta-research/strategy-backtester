@@ -316,7 +316,7 @@ def _compute_series_metrics_with_cagr(returns, ppy, risk_free_rate, cagr, total_
     # Denominator uses (n - 1) to match `variance` above — both are sample
     # estimators. Pre-fix this used `/ n` (population), making downside_dev
     # smaller than it should be and inflating Sortino relative to Sharpe.
-    # See docs/AUDIT_FINDINGS.md, Phase 1.1.
+    # See docs/archive/audit-2026-04/AUDIT_FINDINGS.md, Phase 1.1.
     downside_sq = []
     for r in returns:
         diff = r - rf_period
