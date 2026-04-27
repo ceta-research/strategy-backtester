@@ -1,0 +1,23 @@
+# 3-leg full-period ensemble with inverse-vol weighting.
+# Same legs as eod_eodt_qdt_equal_quarterly but weights computed from each
+# leg's full-period vol. QDT (highest vol due to deep MDDs) should get the
+# lowest weight; eod_breakout (lowest vol of the three) gets the highest.
+
+ensemble:
+  name: eod_eodt_qdt_invvol_quarterly
+  description: 3-leg inverse-vol quarterly, full 2010-2026
+  starting_capital: 10000000
+  alignment: intersection
+  rebalance: quarterly
+  weighting: inverse_vol
+
+  legs:
+    - name: eod_breakout
+      result_path: results/eod_breakout/champion.json
+      rank: 1
+    - name: eod_technical
+      result_path: results/eod_technical/champion_verify.json
+      rank: 1
+    - name: quality_dip_tiered
+      result_path: results/quality_dip_tiered/champion_verify.json
+      rank: 1

@@ -1,0 +1,20 @@
+# Alternative 2-leg: eod_breakout + trending_value (mechanism-diverse pairing).
+# trending_value has lower correlation to eod_breakout (0.501) than eod_technical
+# (0.590), but trending_value's solo Sharpe (0.753) is much weaker than
+# eod_technical (1.067). Test whether the lower correlation overcomes this.
+
+ensemble:
+  name: eod_tv_invvol_quarterly_full
+  description: 2-leg inverse-vol quarterly, full 2010-2026 (eod_b + trending_value)
+  starting_capital: 10000000
+  alignment: intersection
+  rebalance: quarterly
+  weighting: inverse_vol
+
+  legs:
+    - name: eod_breakout
+      result_path: results/eod_breakout/champion.json
+      rank: 1
+    - name: trending_value
+      result_path: results/trending_value/champion_verify.json
+      rank: 1
