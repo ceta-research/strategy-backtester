@@ -559,6 +559,138 @@ def resolve_weights(
         )
 
 
+# ── Diagnostics: correlation + sensitivity ───────────────────────────────
+
+def compute_correlation_matrix(
+    curves: Sequence[EquityCurve],
+    mode: str = "intersection",
+) -> list[list[float]]:
+    """Pairwise Pearson correlation of per-period returns across legs.
+
+    Returns a symmetric n×n matrix; diagonals = 1.0. Uses aligned period
+    returns so all legs contribute the same number of observations.
+
+    Args:
+        curves: Per-leg EquityCurves (must share frequency).
+        mode: Alignment mode (only 'intersection' supported).
+
+    Returns:
+        list[list[float]] — corr[i][j] in [-1, 1].
+    """
+    if not curves:
+        return []
+    _, aligned = align_curves(curves, mode=mode)
+    n_legs = len(aligned)
+    n_points = len(aligned[0])
+
+    # Build per-period returns from aligned values
+    leg_returns: list[list[float]] = []
+    for vs in aligned:
+        rets = []
+        for t in range(1, n_points):
+            prev = vs[t - 1]
+            rets.append(vs[t] / prev - 1 if prev > 0 else 0.0)
+        leg_returns.append(rets)
+
+    n = len(leg_returns[0])
+    if n < 2:
+        return [[1.0 if i == j else 0.0 for j in range(n_legs)]
+                for i in range(n_legs)]
+
+    means = [sum(r) / n for r in leg_returns]
+    deviations = [[r[t] - means[i] for t in range(n)]
+                  for i, r in enumerate(leg_returns)]
+    variances = [sum(d ** 2 for d in row) / (n - 1) for row in deviations]
+
+    corr: list[list[float]] = [[0.0] * n_legs for _ in range(n_legs)]
+    for i in range(n_legs):
+        corr[i][i] = 1.0
+    for i in range(n_legs):
+        for j in range(i + 1, n_legs):
+            cov = sum(deviations[i][t] * deviations[j][t] for t in range(n)) / (n - 1)
+            denom = math.sqrt(variances[i] * variances[j])
+            c = cov / denom if denom > 0 else 0.0
+            corr[i][j] = corr[j][i] = round(c, 6)
+    return corr
+
+
+def sharpe_sensitivity_2leg(
+    curves: Sequence[EquityCurve],
+    starting_capital: float,
+    rebalance: str = "none",
+    risk_free_rate: float = 0.02,
+    n_grid: int = 21,
+) -> dict:
+    """Sweep two-leg weight (w1 ∈ [0,1]) and report ensemble Sharpe at each.
+
+    For a 2-leg ensemble, this curve has at most one interior maximum
+    (Markowitz tangency). Compares to inverse-vol and equal-weight as
+    reference points.
+
+    Args:
+        curves: Exactly 2 EquityCurves.
+        starting_capital: Notional for combine math.
+        rebalance: Pass-through to combine logic.
+        risk_free_rate: Used to compute Sharpe.
+        n_grid: Number of grid points (default 21 → step 0.05).
+
+    Returns:
+        {
+            "grid": [{"w1": .., "w2": .., "cagr": .., "vol": .., "sharpe": ..}, ...],
+            "peak_weights": [w1, w2],
+            "peak_sharpe": float,
+            "inverse_vol_weights": [w1, w2],
+            "inverse_vol_sharpe": float,
+        }
+    """
+    # Local import to avoid circular dependency at module-load time.
+    from lib.metrics import compute_metrics_from_curve  # noqa: WPS433
+
+    if len(curves) != 2:
+        raise ValueError(
+            f"sharpe_sensitivity_2leg: expected 2 legs, got {len(curves)}"
+        )
+
+    grid: list[dict] = []
+    peak_sharpe = float("-inf")
+    peak_weights = (0.5, 0.5)
+    for k in range(n_grid):
+        w1 = k / (n_grid - 1)
+        w2 = 1 - w1
+        # Skip degenerate single-leg endpoints? Include them (they're
+        # informative anchors); only skip if leg has length issues.
+        ens = build_ensemble_curve(
+            curves, [w1, w2], starting_capital, rebalance=rebalance
+        )
+        m = compute_metrics_from_curve(ens, risk_free_rate=risk_free_rate)["portfolio"]
+        sh = m.get("sharpe_ratio")
+        cagr = m.get("cagr")
+        vol = m.get("annualized_volatility")
+        grid.append({
+            "w1": round(w1, 4),
+            "w2": round(w2, 4),
+            "cagr": round(cagr, 6) if cagr is not None else None,
+            "vol": round(vol, 6) if vol is not None else None,
+            "sharpe": round(sh, 6) if sh is not None else None,
+        })
+        if sh is not None and sh > peak_sharpe:
+            peak_sharpe = sh
+            peak_weights = (w1, w2)
+
+    iv = compute_inverse_vol_weights(curves)
+    iv_ens = build_ensemble_curve(curves, iv, starting_capital, rebalance=rebalance)
+    iv_m = compute_metrics_from_curve(iv_ens, risk_free_rate=risk_free_rate)["portfolio"]
+    iv_sharpe = iv_m.get("sharpe_ratio")
+
+    return {
+        "grid": grid,
+        "peak_weights": [round(peak_weights[0], 4), round(peak_weights[1], 4)],
+        "peak_sharpe": round(peak_sharpe, 6) if peak_sharpe != float("-inf") else None,
+        "inverse_vol_weights": [round(iv[0], 4), round(iv[1], 4)],
+        "inverse_vol_sharpe": round(iv_sharpe, 6) if iv_sharpe is not None else None,
+    }
+
+
 # ── Drawdown attribution ─────────────────────────────────────────────────
 
 def attribute_drawdown(

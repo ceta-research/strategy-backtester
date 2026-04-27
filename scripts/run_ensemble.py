@@ -51,9 +51,11 @@ from lib.ensemble_curve import (
     align_curves,
     attribute_drawdown,
     build_ensemble_curve,
+    compute_correlation_matrix,
     compute_leg_navs,
     load_equity_curve_from_result,
     resolve_weights,
+    sharpe_sensitivity_2leg,
 )
 
 
@@ -207,9 +209,40 @@ def print_drawdown_attribution(attr: dict) -> None:
     print()
 
 
+def print_diagnostics(diag: dict, leg_names: list[str]) -> None:
+    corr = diag.get("correlation_matrix", {}).get("matrix", [])
+    if corr:
+        print("  Correlation matrix (daily returns):")
+        # Header
+        header = "  " + " " * 28 + "  ".join(f"{n[:10]:>10}" for n in leg_names)
+        print(header)
+        for i, row in enumerate(corr):
+            cells = "  ".join(f"{c:>+10.3f}" for c in row)
+            print(f"  {leg_names[i][:28]:<28}{cells}")
+        print()
+
+    sens = diag.get("sharpe_sensitivity")
+    if sens:
+        peak = sens["peak_weights"]
+        iv = sens["inverse_vol_weights"]
+        print(f"  Sharpe sensitivity (2-leg sweep, n={len(sens['grid'])}):")
+        print(f"    Max Sharpe       = {sens['peak_sharpe']:.3f}  at w={peak}")
+        print(f"    Inverse-vol      = {sens['inverse_vol_sharpe']:.3f}  at w={iv}")
+        # Print a small ASCII chart of the grid
+        print(f"    {'w1':>5}  {'CAGR':>7}  {'Vol':>7}  {'Sharpe':>7}")
+        for row in sens["grid"]:
+            cagr = row.get("cagr") or 0
+            vol = row.get("vol") or 0
+            sh = row.get("sharpe") or 0
+            marker = " <- peak" if [row["w1"], row["w2"]] == peak else ""
+            print(f"    {row['w1']:>5.2f}  {cagr*100:>+6.2f}%  "
+                  f"{vol*100:>6.2f}%  {sh:>+7.3f}{marker}")
+        print()
+
+
 def build_output(cfg: dict, ensemble_curve: EquityCurve,
                  leg_meta: list[dict], weights: list[float],
-                 metrics: dict, dd_attribution: dict) -> dict:
+                 metrics: dict, dd_attribution: dict, diagnostics: dict) -> dict:
     """Build a result JSON for the ensemble.
 
     Shape is intentionally distinct from BacktestResult.to_dict() (no per-trade
@@ -254,6 +287,7 @@ def build_output(cfg: dict, ensemble_curve: EquityCurve,
         "equity_curve_frequency": ensemble_curve.frequency.name,
         "summary": summary,
         "drawdown_attribution": dd_attribution,
+        "diagnostics": diagnostics,
         "equity_curve": eq_series,
         "warnings": _warnings(cfg),
     }
@@ -339,6 +373,19 @@ def run_ensemble(cfg_path: str, output_path: str | None = None) -> dict:
     leg_names = [leg["name"] for leg in cfg["legs"]]
     dd_attribution = attribute_drawdown(common_epochs, leg_navs, leg_names)
 
+    # Diagnostics: correlation matrix + (2-leg only) Sharpe sensitivity
+    corr_matrix = compute_correlation_matrix(curves, mode=cfg["alignment"])
+    diagnostics: dict = {
+        "correlation_matrix": {
+            "labels": leg_names,
+            "matrix": corr_matrix,
+        },
+    }
+    if len(curves) == 2:
+        diagnostics["sharpe_sensitivity"] = sharpe_sensitivity_2leg(
+            curves, cfg["starting_capital"], rebalance=cfg["rebalance"],
+        )
+
     # Metrics (no benchmark in Phase 1)
     metrics = compute_metrics_from_curve(ensemble_curve)
 
@@ -358,9 +405,10 @@ def run_ensemble(cfg_path: str, output_path: str | None = None) -> dict:
     print_summary(cfg, leg_meta, weights, metrics["portfolio"],
                   window_start, window_end, len(ensemble_curve))
     print_drawdown_attribution(dd_attribution)
+    print_diagnostics(diagnostics, leg_names)
 
     output = build_output(cfg, ensemble_curve, leg_meta, weights, metrics,
-                          dd_attribution)
+                          dd_attribution, diagnostics)
 
     if output_path:
         os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
