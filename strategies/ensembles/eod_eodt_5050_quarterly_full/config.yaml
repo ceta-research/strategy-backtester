@@ -1,0 +1,27 @@
+# Full-period (2010-2026) ensemble: eod_breakout + eod_technical, 50/50 quarterly.
+#
+# Two highest-Sharpe strategies in the suite that have full 2010+ data.
+# Caveat: both are technical/breakout-family — correlation may be high.
+# Honest result depends on the diagnostics.
+#
+# Solo legs:
+#   eod_breakout   (regime+holdout):   17.68% / -26.75% / Cal 0.661 / Sharpe 1.334
+#   eod_technical  (champion):         19.63% / -25.93% / Cal 0.757 / Sharpe 1.067
+
+ensemble:
+  name: eod_eodt_5050_quarterly_full
+  description: 50/50 eod_breakout + eod_technical, quarterly rebalance, 2010-2026
+  starting_capital: 10000000
+  alignment: intersection
+  rebalance: quarterly
+  weighting: fixed
+
+  legs:
+    - name: eod_breakout_full
+      weight: 0.5
+      result_path: results/eod_breakout/champion.json
+      rank: 1
+    - name: eod_technical_full
+      weight: 0.5
+      result_path: results/eod_technical/champion_verify.json
+      rank: 1
