@@ -113,6 +113,7 @@ Full detail in [`sessions/2026-04-25_handover.md`](sessions/2026-04-25_handover.
 - [`OPTIMIZATION_RUNBOOK.md`](OPTIMIZATION_RUNBOOK.md) — repeatable methodology
 - [`ENGINE_STRATEGY_GUIDE.md`](ENGINE_STRATEGY_GUIDE.md) — pipeline architecture
 - [`BACKTEST_GUIDE.md`](BACKTEST_GUIDE.md) — standalone scripts
+- [`ENSEMBLE_GUIDE.md`](ENSEMBLE_GUIDE.md) — combine N strategies (`scripts/run_ensemble.py`)
 - [`LIVE_TRADING_INTEGRATION.md`](LIVE_TRADING_INTEGRATION.md) — going-live plan
 
 **Sessions:** [`sessions/`](sessions/) — chronological session handovers + code reviews
