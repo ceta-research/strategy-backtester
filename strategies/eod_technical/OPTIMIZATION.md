@@ -17,6 +17,24 @@ modules (predates `eod_breakout`'s modern framework).
 - [x] Round 4b: Walk-forward (5 folds, Std Cal 0.723)
 - [ ] Round 4c: Cross-data-source (deferred)
 - [ ] Round 4d: Cross-exchange (deferred)
+- [x] Regime+holdout (2026-04-28) — **negative result, methodology does not transfer**
+
+## Regime+holdout investigation (2026-04-28)
+
+Applied the methodology that lifted eod_breakout (Sharpe 0.804→1.334) on the
+hypothesis that eod_technical's top-CAGR-mediocre-Sharpe profile reflected
+similar regime fragility. **Both phases failed Pareto:**
+
+| Phase | Best variant | vs current champion |
+|---|---|---|
+| Holdout retrain (648-config 2010-2024 sweep) | `1_9_2_2` (ndma=5, mh=0) | -0.27pp CAGR / -0.048 Calmar / -0.027 Sharpe |
+| Regime gate (8-config NIFTYBEES SMA × force_exit) | SMA=200, force_exit=False | -2.87pp CAGR / -0.272 Calmar / -0.335 Sharpe |
+
+Two reasons it doesn't transfer:
+1. eod_technical's 2025 was +2.69% (not a collapse to escape — eod_breakout had -16.57%).
+2. Faster cycling (60d avg hold, 3d min_hold) + breadth filter at entry already does regime adjustment at the position level. Stacking a 100-250d NIFTYBEES SMA on top creates whipsaw, not protection.
+
+**Current champion stays.** Full analysis: [`REGIME_AND_HOLDOUT_2026-04-28.md`](REGIME_AND_HOLDOUT_2026-04-28.md).
 
 ## Champion
 
