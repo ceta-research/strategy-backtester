@@ -124,12 +124,24 @@ class EodTechnicalSignalGenerator:
 
                 regime_str = (f" [regime={ri}>SMA{rp}, force_exit={fe}]"
                               if use_regime else " [regime=off]")
-                print(f"  Config id={ec.get('id', '?')}{regime_str}: "
+                original_id = ec.get("id", 1)
+                print(f"  Config id={original_id}{regime_str}: "
                       f"{df_orders.height} orders ({t_total}s)")
 
                 if use_regime and fe and df_orders.height > 0:
                     df_orders = self._apply_force_exit_on_flip(
                         df_orders, df_tick_data, bull_epochs, context
+                    )
+
+                # Relabel entry_config_ids to the ORIGINAL entry config's id.
+                # Each per-config pass runs order_generator with a context that
+                # contains only this single entry config, so it stamps id=1 on
+                # every row. After concat, the simulator would see all rows as
+                # belonging to config 1 (configs 2..N would receive 0 orders).
+                # Rewriting to the original id restores correct dispatch.
+                if df_orders.height > 0:
+                    df_orders = df_orders.with_columns(
+                        pl.lit(str(original_id)).alias("entry_config_ids")
                     )
 
                 per_config_orders.append(df_orders)
