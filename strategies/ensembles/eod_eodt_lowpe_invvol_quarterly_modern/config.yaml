@@ -1,0 +1,25 @@
+# 3-leg modern-window ensemble (eod_b + eod_t + low_pe), inverse-vol quarterly.
+# Intersection alignment clips eod_b and eod_t (full-period results) to 2018+ where
+# low_pe modern starts. low_pe modern is healthy here (CAGR 12.26% solo). Compare
+# against:
+#   - 2-leg baseline (eod_b + eod_t) on full 2010+: Sharpe 1.281
+#   - 2-leg modern (eod_b-modern + low_pe-modern): Sharpe 1.365
+
+ensemble:
+  name: eod_eodt_lowpe_invvol_quarterly_modern
+  description: 3-leg inverse-vol quarterly, modern 2018+ (eod_b + eod_t + low_pe)
+  starting_capital: 10000000
+  alignment: intersection
+  rebalance: quarterly
+  weighting: inverse_vol
+
+  legs:
+    - name: eod_breakout
+      result_path: results/eod_breakout/champion.json
+      rank: 1
+    - name: eod_technical
+      result_path: results/eod_technical/champion_verify.json
+      rank: 1
+    - name: low_pe_modern
+      result_path: results/low_pe/round_modern_2018_26.json
+      rank: 1

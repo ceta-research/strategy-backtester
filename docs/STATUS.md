@@ -1,6 +1,6 @@
 # Strategy Backtester — Current Status
 
-**Last updated:** 2026-04-28
+**Last updated:** 2026-04-28 (pt2)
 **Engine baseline:** commit `fbcd36a` (post-audit, all P0/P1 fixes landed)
 **Latest session handover:** [`sessions/2026-04-28_handover.md`](sessions/2026-04-28_handover.md)
 
@@ -12,7 +12,8 @@
 
 | Date | Focus | Commits | Key outcome |
 |---|---|---|---|
-| 2026-04-28 | eod_t regime+holdout (negative); Sharpe-doc realign; LIVE_TRADING ensemble rewrite; 2025 gate run | `14bbe35`..(this session) | eod_t regime+holdout investigation — both phases failed Pareto, methodology mechanism-specific. Sharpe references realigned: doc 1.334 was CAGR/vol, engine canonical is 1.183 — all canonical docs aligned. LIVE_TRADING_INTEGRATION rewritten for ensemble winner. 2025 OOS gate ran on QDT/TV/low_pe — all 3 fail (no 2025 collapse), regime+holdout deprioritized indefinitely. |
+| 2026-04-28 pt2 | N-leg ensemble experiment | (this session) | Tested 3-leg eod_b+eod_t+low_pe (full + modern, invvol + equal). Result: **2-leg champion stays** (Sharpe 1.281). low_pe drags full-period Sharpe (5.86% solo CAGR due to FMP pre-2018 sparsity). Pareto trade-off: w_lowpe=0.25 buys Cal 0.789→0.810 / MDD -23.81→-19.31% at -0.03 Sharpe. Writeup: [`strategies/ensembles/N_LEG_EXPERIMENT_2026-04-28.md`](../strategies/ensembles/N_LEG_EXPERIMENT_2026-04-28.md). |
+| 2026-04-28 | eod_t regime+holdout (negative); Sharpe-doc realign; LIVE_TRADING ensemble rewrite; 2025 gate run | `14bbe35`..`0c046e2` | eod_t regime+holdout investigation — both phases failed Pareto, methodology mechanism-specific. Sharpe references realigned: doc 1.334 was CAGR/vol, engine canonical is 1.183 — all canonical docs aligned. LIVE_TRADING_INTEGRATION rewritten for ensemble winner. 2025 OOS gate ran on QDT/TV/low_pe — all 3 fail (no 2025 collapse), regime+holdout deprioritized indefinitely. |
 | 2026-04-27 pt2 | Ensemble runner Phase 1-6 + 2010+ best | `fc3d0f2`..`af35ac5` (8 commits) | Ensemble runner shipped. Best 2010+ ensemble: eod_b+eod_t invvol qtly, Sharpe 1.281 |
 | 2026-04-27 | eod_breakout regime+holdout champion | `ba1c208` | Strict Pareto improvement: 15.20%→17.68% CAGR, 2025 -16.57%→+18.67% |
 | 2026-04-26 | Docs cleanup, audit-era archival | `8943a5e` | 38 commits flushed; STATUS.md created; LIVE_TRADING rewritten |
@@ -88,6 +89,13 @@ Calmar:    0.789    # vs solo 0.757 / 0.661
 Sharpe:    1.281    # lifts above BOTH solos (1.067 / 1.183)
 Vol:       13.11%
 ```
+
+**N-leg attempts (2026-04-28 pt2):** 3-leg with low_pe / QDT tested. None beat
+the 2-leg on Sharpe. low_pe IS the lowest-correlation candidate (corr 0.39/0.45)
+but full-period CAGR 5.86% (cash drag pre-2018) overwhelms diversification.
+Optional defensive variant: add 25% low_pe → Cal 0.810 / MDD -19.31% / Sharpe
+1.253 (Pareto trade, not strict improvement). Writeup:
+[`strategies/ensembles/N_LEG_EXPERIMENT_2026-04-28.md`](../strategies/ensembles/N_LEG_EXPERIMENT_2026-04-28.md).
 
 ### Best 2018+ (modern)
 

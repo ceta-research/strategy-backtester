@@ -1,0 +1,23 @@
+# 3-leg full-period ensemble (eod_b + eod_t + low_pe), inverse-vol quarterly.
+# low_pe full 2010-2026 mostly holds cash pre-2018 (FMP NSE fundamentals sparse);
+# CAGR 5.86% solo, but vol 7.42% (cash periods compress vol). Inverse-vol therefore
+# OVER-WEIGHTS low_pe — see equal-weight variant for the alternative allocation.
+
+ensemble:
+  name: eod_eodt_lowpe_invvol_quarterly_full
+  description: 3-leg inverse-vol quarterly, full 2010-2026 (eod_b + eod_t + low_pe)
+  starting_capital: 10000000
+  alignment: intersection
+  rebalance: quarterly
+  weighting: inverse_vol
+
+  legs:
+    - name: eod_breakout
+      result_path: results/eod_breakout/champion.json
+      rank: 1
+    - name: eod_technical
+      result_path: results/eod_technical/champion_verify.json
+      rank: 1
+    - name: low_pe
+      result_path: results/low_pe/champion_full.json
+      rank: 1

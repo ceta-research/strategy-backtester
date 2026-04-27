@@ -1,0 +1,25 @@
+# 3-leg full-period ensemble (eod_b + eod_t + low_pe), equal-weight quarterly.
+# Avoids the inverse-vol over-allocation to low_pe (which has compressed vol due to
+# pre-2018 cash holding). Each leg ~33%.
+
+ensemble:
+  name: eod_eodt_lowpe_equal_quarterly_full
+  description: 3-leg equal-weight quarterly, full 2010-2026 (eod_b + eod_t + low_pe)
+  starting_capital: 10000000
+  alignment: intersection
+  rebalance: quarterly
+  weighting: fixed
+
+  legs:
+    - name: eod_breakout
+      weight: 0.3334
+      result_path: results/eod_breakout/champion.json
+      rank: 1
+    - name: eod_technical
+      weight: 0.3333
+      result_path: results/eod_technical/champion_verify.json
+      rank: 1
+    - name: low_pe
+      weight: 0.3333
+      result_path: results/low_pe/champion_full.json
+      rank: 1

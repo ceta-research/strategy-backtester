@@ -1,0 +1,23 @@
+# 3-leg modern-window ensemble (eod_b + eod_t + low_pe), equal-weight quarterly.
+
+ensemble:
+  name: eod_eodt_lowpe_equal_quarterly_modern
+  description: 3-leg equal-weight quarterly, modern 2018+ (eod_b + eod_t + low_pe)
+  starting_capital: 10000000
+  alignment: intersection
+  rebalance: quarterly
+  weighting: fixed
+
+  legs:
+    - name: eod_breakout
+      weight: 0.3334
+      result_path: results/eod_breakout/champion.json
+      rank: 1
+    - name: eod_technical
+      weight: 0.3333
+      result_path: results/eod_technical/champion_verify.json
+      rank: 1
+    - name: low_pe_modern
+      weight: 0.3333
+      result_path: results/low_pe/round_modern_2018_26.json
+      rank: 1
