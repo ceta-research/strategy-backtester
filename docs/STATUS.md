@@ -12,7 +12,7 @@
 
 | Date | Focus | Commits | Key outcome |
 |---|---|---|---|
-| 2026-04-28 | eod_technical regime+holdout investigation | `14bbe35`..`3119a8a` (5 commits) | **Negative result.** Both holdout retrain (Pareto fail) and regime sweep (all 8 worse) fail. Methodology mechanism-specific to eod_breakout's 2025 collapse. Champion unchanged. |
+| 2026-04-28 | eod_t regime+holdout (negative); Sharpe-doc realign; LIVE_TRADING ensemble rewrite; 2025 gate run | `14bbe35`..(this session) | eod_t regime+holdout investigation — both phases failed Pareto, methodology mechanism-specific. Sharpe references realigned: doc 1.334 was CAGR/vol, engine canonical is 1.183 — all canonical docs aligned. LIVE_TRADING_INTEGRATION rewritten for ensemble winner. 2025 OOS gate ran on QDT/TV/low_pe — all 3 fail (no 2025 collapse), regime+holdout deprioritized indefinitely. |
 | 2026-04-27 pt2 | Ensemble runner Phase 1-6 + 2010+ best | `fc3d0f2`..`af35ac5` (8 commits) | Ensemble runner shipped. Best 2010+ ensemble: eod_b+eod_t invvol qtly, Sharpe 1.281 |
 | 2026-04-27 | eod_breakout regime+holdout champion | `ba1c208` | Strict Pareto improvement: 15.20%→17.68% CAGR, 2025 -16.57%→+18.67% |
 | 2026-04-26 | Docs cleanup, audit-era archival | `8943a5e` | 38 commits flushed; STATUS.md created; LIVE_TRADING rewritten |
@@ -143,10 +143,12 @@ git diff fbcd36a HEAD -- engine/pipeline.py engine/utils.py engine/simulator.py 
 ### Pending (prioritized, top of queue first)
 
 1. **Update `LIVE_TRADING_INTEGRATION.md`** (~30-60 min). Add ensemble-as-deployment option (eod_b + eod_t invvol qtly). Document daily breadth check + quarterly rebalance ops. Friction ~25bps/yr.
-2. **Apply regime+holdout to other strategies — ONLY AFTER 2025 OOS check** (~3-4 hrs each). The eod_technical investigation (2026-04-28) showed the methodology is mechanism-specific: it fixes a 2025 collapse, not a generic Sharpe gap. Add a 5-min gate: read champion's 2025 yearly return; only proceed if materially negative (< -10%).
-   - `quality_dip_tiered`: -47% MDD; check 2025; ppi=1, sector caps, tsl=6% never tested
-   - `trending_value`: check 2025; mechanism is value not breakout — regime less relevant
-   - `low_pe`: check 2025; already most defensive (Cal 1.016) — likely no upside
+2. **Apply regime+holdout to other strategies — GATE RAN 2026-04-28, ALL FAILED** (~3-4 hrs each, NOT scheduled). The eod_technical investigation (2026-04-28) showed the methodology is mechanism-specific: it fixes a 2025 collapse, not a generic Sharpe gap. The 5-min 2025 OOS gate (champion 2025 < -10% → proceed) ran on all three candidates:
+   - `quality_dip_tiered`: 2025 = **+33.64%** → FAIL (huge year, nothing to correct). Other angles (ppi=1, sector caps, tsl=6%) remain untested but unrelated to regime.
+   - `trending_value`: 2025 = -4.85% → FAIL (mild, not catastrophic).
+   - `low_pe`: 2025 = -1.32% → FAIL (basically flat — already most defensive).
+
+   None of the three has a 2025 problem. Regime+holdout work on this list is deprioritized indefinitely. Other angles (alternative entry mechanisms, walk-forward refits, ensemble experiments with non-breakout legs) may still apply but should not be framed as "regime+holdout".
 
 ### Closed (negative result)
 
@@ -183,7 +185,13 @@ git diff fbcd36a HEAD -- engine/pipeline.py engine/utils.py engine/simulator.py 
 
 **Low-risk (~30-60 min):** Update `LIVE_TRADING_INTEGRATION.md` (item 1) for the ensemble winner. The deployment story is settled (eod_b + eod_t invvol qtly, Sharpe 1.281). Live trading docs should reflect that.
 
-**Larger follow-on (~3-4 hrs):** Pick a single strategy from item 2's list, do the 5-min 2025 OOS check first, and only run regime+holdout if the gate condition holds (champion 2025 < -10%). `quality_dip_tiered` is the most likely candidate given its -47% MDD profile.
+**Open question:** with regime+holdout gated out for the entire deferred list, the highest-leverage forward work is unclear. Three candidate directions:
+
+1. **Refit a non-breakout strategy with the post-audit engine** — e.g., `quality_dip_tiered` has -47% MDD that the regime gate can't fix; a quality-overlay or sector-cap refit might shave that. Estimate 4-6 hrs.
+2. **Build an N-leg ensemble experiment** — current best ensemble is 2-leg (eod_b + eod_t). Adding a low-correlated value leg (low_pe) was tried in the 2018+ window (Cal 1.177). A full 2010+ 3-leg with `low_pe` extended back via FMP fundamentals when available is untried.
+3. **Sharpen R4c/R4d (cross-data + cross-exchange) on the 6 deferred strategies** — pure validation work, low surprise factor.
+
+Recommend talking through priorities at the start of next session before opening any of these.
 
 ---
 
