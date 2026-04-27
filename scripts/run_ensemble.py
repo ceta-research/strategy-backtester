@@ -47,8 +47,10 @@ from lib.equity_curve import EquityCurve
 from lib.metrics import compute_metrics_from_curve
 from lib.ensemble_curve import (
     REBALANCE_PERIODS,
+    WEIGHTING_MODES,
     build_ensemble_curve,
     load_equity_curve_from_result,
+    resolve_weights,
 )
 
 
@@ -71,6 +73,7 @@ def load_ensemble_config(path: str) -> dict:
     cfg.setdefault("alignment", "intersection")
     cfg.setdefault("rebalance", "none")
     cfg.setdefault("weighting", "fixed")
+    cfg.setdefault("weight_lookback_days", None)
 
     if cfg["alignment"] != "intersection":
         raise NotImplementedError(
@@ -82,20 +85,24 @@ def load_ensemble_config(path: str) -> dict:
             f"{path}: rebalance={cfg['rebalance']!r} must be one of "
             f"{REBALANCE_PERIODS}"
         )
-    if cfg["weighting"] != "fixed":
-        raise NotImplementedError(
-            f"{path}: weighting={cfg['weighting']!r} not supported "
-            f"(coming in Phase 3)"
+    if cfg["weighting"] not in WEIGHTING_MODES:
+        raise ValueError(
+            f"{path}: weighting={cfg['weighting']!r} must be one of "
+            f"{WEIGHTING_MODES}"
         )
 
     legs = cfg["legs"]
     if not legs or len(legs) < 2:
         raise ValueError(f"{path}: need >= 2 legs (got {len(legs) if legs else 0})")
+    weighting = cfg["weighting"]
     for i, leg in enumerate(legs):
         if "name" not in leg:
             raise ValueError(f"{path}: legs[{i}] missing 'name'")
-        if "weight" not in leg:
-            raise ValueError(f"{path}: legs[{i}] missing 'weight'")
+        if weighting == "fixed" and "weight" not in leg:
+            raise ValueError(
+                f"{path}: legs[{i}] missing 'weight' (required when "
+                f"weighting=fixed)"
+            )
         if "result_path" not in leg and "config_path" not in leg:
             raise ValueError(
                 f"{path}: legs[{i}] needs 'result_path' or 'config_path'"
@@ -106,11 +113,12 @@ def load_ensemble_config(path: str) -> dict:
                 f"specify 'result_path' to a pre-computed result JSON"
             )
 
-    total_w = sum(leg["weight"] for leg in legs)
-    if abs(total_w - 1.0) > 1e-6:
-        raise ValueError(
-            f"{path}: leg weights sum to {total_w:.6f}, expected 1.0"
-        )
+    if weighting == "fixed":
+        total_w = sum(leg["weight"] for leg in legs)
+        if abs(total_w - 1.0) > 1e-6:
+            raise ValueError(
+                f"{path}: leg weights sum to {total_w:.6f}, expected 1.0"
+            )
 
     return cfg
 
@@ -135,22 +143,29 @@ def _num(v, d=3):
     return f"{v:>8.{d}f}" if v is not None else "    N/A"
 
 
-def print_summary(cfg: dict, leg_meta: list[dict], ensemble_summary: dict,
-                  window_start: str, window_end: str, n_points: int) -> None:
+def print_summary(cfg: dict, leg_meta: list[dict], weights: list[float],
+                  ensemble_summary: dict, window_start: str, window_end: str,
+                  n_points: int) -> None:
     print()
     print("=" * 78)
     print(f"  Ensemble: {cfg['name']}")
     if cfg.get("description"):
         print(f"  {cfg['description']}")
+    weighting_note = (
+        f"weighting={cfg['weighting']}"
+        + (f" (lookback={cfg['weight_lookback_days']}d)"
+           if cfg.get("weight_lookback_days") is not None else "")
+    )
     print(f"  Window: {window_start} -> {window_end}  ({n_points} points, "
-          f"alignment={cfg['alignment']}, rebalance={cfg['rebalance']})")
+          f"alignment={cfg['alignment']}, rebalance={cfg['rebalance']}, "
+          f"{weighting_note})")
     print("=" * 78)
     print(f"  {'Leg':<28} {'Wgt':>5} {'CAGR':>9} {'MDD':>9} "
           f"{'Cal':>7} {'Sharpe':>8}")
     print("  " + "-" * 70)
-    for leg, meta in zip(cfg["legs"], leg_meta):
+    for leg, meta, w in zip(cfg["legs"], leg_meta, weights):
         s = meta["summary"]
-        print(f"  {leg['name'][:28]:<28} {leg['weight']:>5.2f} "
+        print(f"  {leg['name'][:28]:<28} {w:>5.2f} "
               f"{_pct(s.get('cagr'))} {_pct(s.get('max_drawdown'))} "
               f"{_num(s.get('calmar_ratio'), 3)} "
               f"{_num(s.get('sharpe_ratio'), 3)}")
@@ -173,7 +188,8 @@ def print_summary(cfg: dict, leg_meta: list[dict], ensemble_summary: dict,
 # ── Result JSON shape (ensemble) ──────────────────────────────────────────
 
 def build_output(cfg: dict, ensemble_curve: EquityCurve,
-                 leg_meta: list[dict], metrics: dict) -> dict:
+                 leg_meta: list[dict], weights: list[float],
+                 metrics: dict) -> dict:
     """Build a result JSON for the ensemble.
 
     Shape is intentionally distinct from BacktestResult.to_dict() (no per-trade
@@ -201,16 +217,18 @@ def build_output(cfg: dict, ensemble_curve: EquityCurve,
             "alignment": cfg["alignment"],
             "rebalance": cfg["rebalance"],
             "weighting": cfg["weighting"],
+            "weight_lookback_days": cfg.get("weight_lookback_days"),
             "legs": [
                 {
                     "name": leg["name"],
-                    "weight": leg["weight"],
+                    "weight": w,
+                    "config_weight": leg.get("weight"),
                     "result_path": leg.get("result_path"),
                     "rank": leg.get("rank", 1),
                     "params_match": leg.get("params_match"),
                     "leg_summary": meta["summary"],
                 }
-                for leg, meta in zip(cfg["legs"], leg_meta)
+                for leg, meta, w in zip(cfg["legs"], leg_meta, weights)
             ],
         },
         "equity_curve_frequency": ensemble_curve.frequency.name,
@@ -239,6 +257,23 @@ def _warnings(cfg: dict) -> list[str]:
             f"modeled). Subtract ~{_friction_bps(cfg['rebalance'])}bps/yr "
             f"from realized CAGR for live-deployment estimates."
         )
+    if cfg["weighting"] in ("inverse_vol", "risk_parity"):
+        if cfg.get("weight_lookback_days") is None:
+            out.append(
+                f"weighting={cfg['weighting']} with full-window lookback: "
+                f"weights are IN-SAMPLE (computed from the full backtest "
+                f"vol). For honest forward estimates, set "
+                f"weight_lookback_days (e.g. 365) and exclude the lookback "
+                f"period from evaluation, or build per-rebalance adaptive "
+                f"weights (Phase 3.5)."
+            )
+        else:
+            out.append(
+                f"weighting={cfg['weighting']} with lookback="
+                f"{cfg['weight_lookback_days']}d: weights are computed once "
+                f"from the trailing window, then held fixed for the entire "
+                f"backtest. Per-rebalance adaptive weights are Phase 3.5."
+            )
     return out
 
 
@@ -260,8 +295,14 @@ def run_ensemble(cfg_path: str, output_path: str | None = None) -> dict:
         curves.append(curve)
         leg_meta.append({"summary": summary})
 
+    # Resolve weights (fixed or computed)
+    weights = resolve_weights(
+        cfg["legs"], curves,
+        weighting=cfg["weighting"],
+        lookback_days=cfg.get("weight_lookback_days"),
+    )
+
     # Build ensemble
-    weights = [leg["weight"] for leg in cfg["legs"]]
     ensemble_curve = build_ensemble_curve(
         curves, weights, cfg["starting_capital"],
         mode=cfg["alignment"],
@@ -284,10 +325,10 @@ def run_ensemble(cfg_path: str, output_path: str | None = None) -> dict:
     # include it; we approximate from yearly returns)
     metrics["portfolio"]["worst_year"] = _worst_year(ensemble_curve)
 
-    print_summary(cfg, leg_meta, metrics["portfolio"],
+    print_summary(cfg, leg_meta, weights, metrics["portfolio"],
                   window_start, window_end, len(ensemble_curve))
 
-    output = build_output(cfg, ensemble_curve, leg_meta, metrics)
+    output = build_output(cfg, ensemble_curve, leg_meta, weights, metrics)
 
     if output_path:
         os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)

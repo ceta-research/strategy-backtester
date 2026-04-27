@@ -1,0 +1,36 @@
+# Inverse-vol weighted ensemble: eod_breakout (modern) + low_pe (modern)
+#
+# Weights are computed from full-period (in-sample) vol of each leg:
+#   eod_breakout vol ~16.6%  -> weight ~0.38
+#   low_pe        vol ~10.2% -> weight ~0.62
+#
+# This skews allocation toward the lower-vol leg, equivalent to risk-parity
+# in the 2-leg case. Rebalanced quarterly back to these computed weights.
+#
+# Expected (Phase 3, in-sample):
+#   Sharpe should match or exceed the 50/50 quarterly variant (1.399), since
+#   inverse-vol weighting is the analytic Sharpe-maximizer when correlations
+#   are ~equal and CAGR/vol ratios differ.
+#
+# Caveats (auto-emitted in output JSON warnings):
+# - Full-window lookback is in-sample (uses entire backtest's vol info).
+#   For honest forward estimates, set weight_lookback_days: 365 and exclude
+#   the lookback period from evaluation, or extend to per-rebalance weights.
+# - Frictionless rebalancing: subtract ~25bps/yr for realistic NSE costs.
+
+ensemble:
+  name: eod_lowpe_invvol_quarterly
+  description: inverse-vol weighted (full-window) eod+low_pe, quarterly rebalance
+  starting_capital: 10000000
+  alignment: intersection
+  rebalance: quarterly
+  weighting: inverse_vol
+  weight_lookback_days: null    # null = full curve (in-sample)
+
+  legs:
+    - name: eod_breakout_holdout_modern
+      result_path: results/eod_breakout/holdout_champion_modern.json
+      rank: 1
+    - name: low_pe_modern
+      result_path: results/low_pe/round_modern_2018_26.json
+      rank: 1

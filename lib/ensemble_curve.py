@@ -20,12 +20,14 @@ This module is a NEW addition; it does not modify any protected lib/ file.
 from __future__ import annotations
 
 import json
+import math
 from datetime import datetime, timezone
 from typing import Sequence
 
 from lib.equity_curve import EquityCurve, Frequency
 
 REBALANCE_PERIODS = ("none", "monthly", "quarterly", "annual")
+WEIGHTING_MODES = ("fixed", "inverse_vol", "risk_parity")
 
 
 # ── Loaders ──────────────────────────────────────────────────────────────
@@ -360,6 +362,123 @@ def _period_key(epoch: int, period: str):
     if period == "annual":
         return dt.year
     raise ValueError(f"_period_key: unknown period {period!r}")
+
+
+# ── Weighting ────────────────────────────────────────────────────────────
+
+def compute_inverse_vol_weights(
+    curves: Sequence[EquityCurve],
+    lookback_days: int | None = None,
+) -> list[float]:
+    """Inverse-volatility weights: w_i ∝ 1 / vol_i, normalized to sum to 1.
+
+    Equivalent to risk-parity (equal risk contribution) when leg-pair
+    correlations are equal — a near-identical approximation for the 2-leg
+    case and a reasonable starting point for N>2.
+
+    Args:
+        curves: Per-leg EquityCurve objects.
+        lookback_days: If None (default), use the full curve to compute vol.
+            If int, use only the last N samples (assumes one sample per
+            calendar day, matching DAILY_CALENDAR semantics). Same fixed
+            weights are then applied for the entire backtest — this does
+            NOT do per-rebalance adaptive weighting.
+
+    Returns:
+        Normalized weights summing to 1.0.
+
+    Caveats:
+        Full-window vol introduces in-sample bias: weights "know" the entire
+        backtest's variance. For honest forward-looking estimates, use
+        lookback_days and evaluate only the post-lookback portion of the
+        curve, or build per-rebalance adaptive weights (future Phase 3.5).
+    """
+    if not curves:
+        raise ValueError("compute_inverse_vol_weights: at least one curve required")
+
+    vols: list[float] = []
+    for i, c in enumerate(curves):
+        if len(c) < 2:
+            raise ValueError(
+                f"compute_inverse_vol_weights: leg {i} has < 2 points"
+            )
+        if lookback_days is None:
+            returns = c.period_returns()
+        else:
+            n = min(lookback_days, len(c) - 1)
+            if n < 1:
+                raise ValueError(
+                    f"compute_inverse_vol_weights: lookback_days={lookback_days} "
+                    f"yields < 1 return for leg {i} (curve length {len(c)})"
+                )
+            window_values = c.values[-(n + 1):]
+            returns = []
+            for j in range(1, len(window_values)):
+                prev = window_values[j - 1]
+                if prev > 0:
+                    returns.append(window_values[j] / prev - 1)
+                else:
+                    returns.append(0.0)
+
+        if len(returns) < 2:
+            raise ValueError(
+                f"compute_inverse_vol_weights: leg {i} produced < 2 returns"
+            )
+        mean = sum(returns) / len(returns)
+        var = sum((r - mean) ** 2 for r in returns) / (len(returns) - 1)
+        ppy = c.frequency.periods_per_year
+        vols.append(math.sqrt(var) * math.sqrt(ppy))
+
+    if any(v <= 0 for v in vols):
+        raise ValueError(
+            f"compute_inverse_vol_weights: zero/negative vol on a leg "
+            f"({vols}); cannot invert"
+        )
+
+    inv = [1.0 / v for v in vols]
+    total = sum(inv)
+    return [w / total for w in inv]
+
+
+def resolve_weights(
+    cfg_legs: Sequence[dict],
+    curves: Sequence[EquityCurve],
+    weighting: str,
+    lookback_days: int | None = None,
+) -> list[float]:
+    """Resolve final per-leg weights based on weighting mode.
+
+    Args:
+        cfg_legs: Leg config dicts (each may have a 'weight' field used in
+            mode 'fixed').
+        curves: Per-leg EquityCurves (used in computed modes).
+        weighting: One of WEIGHTING_MODES.
+        lookback_days: Passed to compute_inverse_vol_weights when applicable.
+
+    Returns:
+        list[float] of length len(cfg_legs), summing to 1.0.
+
+    Raises:
+        ValueError on unknown mode, NotImplementedError for risk_parity
+        (use inverse_vol as the practical approximation).
+    """
+    if weighting not in WEIGHTING_MODES:
+        raise ValueError(
+            f"resolve_weights: weighting must be one of {WEIGHTING_MODES}, "
+            f"got {weighting!r}"
+        )
+    if weighting == "fixed":
+        return [float(leg["weight"]) for leg in cfg_legs]
+    if weighting == "inverse_vol":
+        return compute_inverse_vol_weights(curves, lookback_days=lookback_days)
+    if weighting == "risk_parity":
+        # Equal-risk-contribution requires iterative solver on the leg
+        # covariance matrix. For 2 legs, identical to inverse_vol. For N>2,
+        # inverse_vol is a one-step approximation. Full ERC is Phase 3.5.
+        raise NotImplementedError(
+            "risk_parity weighting requires an iterative ERC solver "
+            "(Phase 3.5). Use 'inverse_vol' as the practical approximation."
+        )
 
 
 def build_ensemble_curve(
