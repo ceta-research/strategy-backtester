@@ -1,20 +1,40 @@
 # eod_breakout Optimization
 
-**Strategy:** N-day high breakout + direction score filter + TSL exit
+**Strategy:** N-day high breakout + direction score filter + TSL exit + NIFTYBEES regime gate
 **Signal file:** `engine/signals/eod_breakout.py`
 
-## Champion
+## Champion (2026-04-27 — regime+holdout)
 
-| Period | Config | CAGR | MDD | Calmar | Sharpe | Trades |
-|--------|--------|------|-----|--------|--------|--------|
-| 2010-2026 | ndh=7,ndm=5,ds={3,0.54},tsl=8,pos=15 | **13.3%** | -25.7% | **0.516** | 0.928 | 1664 |
-| 2015-2025 | same, tsl=15, pos=15 | **18.1%** | -27.4% | **0.662** | 1.124 | 410 |
-| OOS 2020-2026 | same, tsl=8, pos=15 | **22.8%** | -26.6% | **0.856** | — | 797 |
+| Period | CAGR | MDD | Calmar | Sharpe | Trades |
+|--------|------|-----|--------|--------|--------|
+| **2010-2026** | **17.68%** | -26.75% | **0.661** | **1.334** | ~1670 |
+| 2025 OOS year | **+18.67%** | -8.6% | — | — | — |
 
-**Walk-forward:** 6/6 folds positive, avg Calmar 0.736. Deflated Sharpe 0.649 (PASS).
+**Champion config:** `pt=99, ndh=3, ndm=10, ds={5,0.40}, mh=7, tsl=8, pos=15, top_gainer, regime=NIFTYBEES>SMA(100), force_exit=true`
 
-**vs baseline:** CAGR 10.9%→13.3% (+22%), MDD 42%→26% (-16pp), Calmar 0.26→0.52 (+100%)
-**vs ATO_Simulator:** ATO reported 32.5% CAGR. Our pipeline with exact ATO params gives 14.3%. Gap is structural (data source, ranking impl), not params.
+### Promotion history
+
+| Date | Champion | CAGR | MDD | Cal | Notes |
+|---|---|---:|---:|---:|---|
+| 2026-04-23 | `pt=50, ndh=7, ndm=5, ds={3,0.54}, mh=0, tsl=8` | 15.20% | -34.10% | 0.446 | Original; selected on full 2010-2026 |
+| **2026-04-27** | **regime+holdout (above)** | **17.68%** | **-26.75%** | **0.661** | **Current**. Selected via 2010-2024 holdout + regime exit. |
+
+### Why the new champion is strictly better
+
+| Metric | Old | **New** | Δ |
+|---|---:|---:|---:|
+| CAGR | 15.20% | **17.68%** | +2.48pp |
+| MDD | -34.10% | **-26.75%** | +7.35pp |
+| Calmar | 0.446 | **0.661** | +48% |
+| Sharpe | 0.804 | **1.334** | +66% |
+| Vol | 18.89% | 13.20% | -30% |
+| **2025 yearly** | **-16.57%** | **+18.67%** | **+35.24pp** |
+
+The regime exit alone (NIFTYBEES < SMA(100) → force-exit) is responsible for ~+32pp of the 2025 swing. See `REGIME_AND_ENSEMBLE_2026-04-27.md`.
+
+### Backup of prior champion
+
+`config_champion_pre_2026-04-27.yaml` retained for traceability.
 
 ## Parameters
 

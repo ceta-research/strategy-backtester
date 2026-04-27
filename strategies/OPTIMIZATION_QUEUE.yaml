@@ -16,10 +16,10 @@
   status: COMPLETE
   priority: 1
   current_round: 4
-  best_calmar: 0.446
-  best_cagr: 0.152
-  session: 2026-04-23
-  notes: "Champion: ndh=7,ndm=5,ds={3,0.54},tsl=8,pos=15. Honest 15.20%/Cal0.446 (2010-2026, post-audit fbcd36a). Pre-audit was 13.3%/0.516 — CAGR up (ppy bug fix) but MDD deeper (-34.1% vs -26.2%, likely NSE data correction). Still clears NIFTYBEES ~12%."
+  best_calmar: 0.661
+  best_cagr: 0.177
+  session: 2026-04-27
+  notes: "Champion (re-promoted 2026-04-27): pt=99,ndh=3,ndm=10,ds={5,0.40},mh=7,tsl=8,pos=15,regime=NIFTYBEES>SMA(100)+force_exit. Honest 17.68% CAGR / Cal 0.661 / Sharpe 1.334 / MDD -26.75% (2010-2026). 2025 OOS +18.67% (vs prior champion -16.57%, +35pp swing). Selected via 2010-2024 holdout R2 sweep + regime-exit overlay. Strict Pareto improvement on every metric vs prior champion. See AUDIT_2026-04-26.md, HOLDOUT_EXPERIMENT_2026-04-26.md, REGIME_AND_ENSEMBLE_2026-04-27.md."
 
 - strategy: enhanced_breakout
   status: COMPLETE

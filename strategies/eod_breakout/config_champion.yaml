@@ -1,23 +1,32 @@
-# Champion config: optimized eod_breakout (final, validated)
-# ndh=7, ndm=5, ds={3, 0.54}, tsl=8, pos=15, top_gainer
+# Champion config: regime+holdout (promoted 2026-04-27).
 #
-# HONEST (post-audit, commit fbcd36a+, re-run 2026-04-23):
-# Full-period (2010-2026): 15.20% CAGR, -34.1% MDD, Cal 0.446
+# 2026-04-27 promotion:
+#   Holdout-trained champion (R2 sweep on 2010-2024 only) + NIFTYBEES SMA(100)
+#   regime exit with force-exit on regime flip.
 #
-# PRE-AUDIT (buggy metrics, kept for traceability):
-# Full period (2010-2026): 13.3% CAGR, -25.7% MDD, Cal 0.516, Sharpe 0.928
-# ATO window (2015-2025): 18.1% CAGR (tsl=15) or 13.3% CAGR (tsl=8)
-# OOS (2020-2026): 22.8% CAGR, Cal 0.856
-# Walk-forward: 6/6 positive, avg Cal 0.736
+# Full-period (2010-2026): CAGR 17.68%, MDD -26.75%, Cal 0.661, Sharpe 1.334
+# 2025 OOS: +18.67% (vs prior champion -16.57% — single biggest improvement
+#   delivered in eod_breakout history).
 #
-# CAGR went up post-audit (ppy fix) but MDD deeper (NSE data correction
-# around 2024 drawdown). Still clears NIFTYBEES ~12% comfortably.
+# Key changes vs prior champion (config_champion_pre_2026-04-27.yaml):
+#   price_threshold: 50 → 99
+#   n_day_high: 7 → 3
+#   n_day_ma: 5 → 10
+#   direction_score: {3, 0.54} → {5, 0.40}
+#   min_hold_time_days: 0 → 7
+#   regime_instrument: "" → "NSE:NIFTYBEES"
+#   regime_sma_period: 0 → 100
+#   force_exit_on_regime_flip: false → true
+#
+# See strategies/eod_breakout/REGIME_AND_ENSEMBLE_2026-04-27.md for full
+# experiment writeup. See HOLDOUT_EXPERIMENT_2026-04-26.md for parameter-only
+# improvement (held back ~1.8pp CAGR vs adding regime exit).
 
 static:
   strategy_type: eod_breakout
   start_margin: 10000000
   start_epoch: 1262304000     # 2010-01-01
-  end_epoch: 1773878400       # 2026-03-17
+  end_epoch: 1773878400       # 2026-03-19
   prefetch_days: 500
   data_granularity: day
   data_provider: nse_charting
@@ -25,20 +34,23 @@ static:
 scanner:
   instruments:
     - [{exchange: NSE, symbols: []}]
-  price_threshold: [50]
+  price_threshold: [99]
   avg_day_transaction_threshold:
     - {period: 125, threshold: 70000000}
   n_day_gain_threshold:
     - {n: 360, threshold: 0}
 
 entry:
-  n_day_high: [7]
-  n_day_ma: [5]
+  n_day_high: [3]
+  n_day_ma: [10]
   direction_score:
-    - {n_day_ma: 3, score: 0.54}
+    - {n_day_ma: 5, score: 0.40}
+  regime_instrument: ["NSE:NIFTYBEES"]
+  regime_sma_period: [100]
+  force_exit_on_regime_flip: [true]
 
 exit:
-  min_hold_time_days: [0]
+  min_hold_time_days: [7]
   trailing_stop_pct: [8]
 
 simulation:

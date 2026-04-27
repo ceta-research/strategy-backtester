@@ -21,9 +21,9 @@ direction (see brainstorm in latest handover).
 |---:|---|---:|---:|---:|---|
 | 1 | `eod_technical` | **19.63%** | **0.757** | **1.07** | Pre-2019 only 8.62% (regime-dep) |
 | 2 | `quality_dip_tiered` | 18.39% | 0.388 | 0.76 | Deep MDD -47% |
-| 3 | `trending_value` | 16.89% | 0.481 | 0.75 | WF Std Cal 0.745 (FMP sparsity) |
-| 4 | `enhanced_breakout` | 16.40% | 0.656 | — | Best Cal among breakouts |
-| 5 | `eod_breakout` | 15.20% | 0.446 | — | Champion proven NSE strategy |
+| 3 | `eod_breakout` | **17.68%** | **0.661** | **1.334** | Re-promoted 2026-04-27 (regime+holdout, 2025 +18.67%) |
+| 4 | `trending_value` | 16.89% | 0.481 | 0.75 | WF Std Cal 0.745 (FMP sparsity) |
+| 5 | `enhanced_breakout` | 16.40% | 0.656 | — | Best Cal among breakouts |
 
 ## Top by Calmar
 
