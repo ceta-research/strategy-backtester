@@ -48,7 +48,10 @@ from lib.metrics import compute_metrics_from_curve
 from lib.ensemble_curve import (
     REBALANCE_PERIODS,
     WEIGHTING_MODES,
+    align_curves,
+    attribute_drawdown,
     build_ensemble_curve,
+    compute_leg_navs,
     load_equity_curve_from_result,
     resolve_weights,
 )
@@ -187,9 +190,26 @@ def print_summary(cfg: dict, leg_meta: list[dict], weights: list[float],
 
 # ── Result JSON shape (ensemble) ──────────────────────────────────────────
 
+def print_drawdown_attribution(attr: dict) -> None:
+    if not attr or not attr.get("legs"):
+        return
+    print(f"  Worst drawdown: {attr['ensemble_drawdown']*100:+.2f}%  "
+          f"({attr['peak_date']} -> {attr['trough_date']}, "
+          f"{attr['duration_days']}d)")
+    print(f"  {'Leg':<28} {'Peak NAV':>14} {'Trough NAV':>14} "
+          f"{'Return':>9} {'DD share':>10}")
+    print("  " + "-" * 78)
+    for leg in attr["legs"]:
+        print(f"  {leg['name'][:28]:<28} {leg['nav_at_peak']:>14,.0f} "
+              f"{leg['nav_at_trough']:>14,.0f} "
+              f"{leg['leg_return']*100:>+8.2f}% "
+              f"{leg['contribution_to_dd']*100:>+9.2f}%")
+    print()
+
+
 def build_output(cfg: dict, ensemble_curve: EquityCurve,
                  leg_meta: list[dict], weights: list[float],
-                 metrics: dict) -> dict:
+                 metrics: dict, dd_attribution: dict) -> dict:
     """Build a result JSON for the ensemble.
 
     Shape is intentionally distinct from BacktestResult.to_dict() (no per-trade
@@ -233,6 +253,7 @@ def build_output(cfg: dict, ensemble_curve: EquityCurve,
         },
         "equity_curve_frequency": ensemble_curve.frequency.name,
         "summary": summary,
+        "drawdown_attribution": dd_attribution,
         "equity_curve": eq_series,
         "warnings": _warnings(cfg),
     }
@@ -309,6 +330,15 @@ def run_ensemble(cfg_path: str, output_path: str | None = None) -> dict:
         rebalance=cfg["rebalance"],
     )
 
+    # Drawdown attribution: re-walk to recover per-leg NAVs
+    common_epochs, aligned = align_curves(curves, mode=cfg["alignment"])
+    leg_navs = compute_leg_navs(
+        common_epochs, aligned, weights, cfg["starting_capital"],
+        period=cfg["rebalance"],
+    )
+    leg_names = [leg["name"] for leg in cfg["legs"]]
+    dd_attribution = attribute_drawdown(common_epochs, leg_navs, leg_names)
+
     # Metrics (no benchmark in Phase 1)
     metrics = compute_metrics_from_curve(ensemble_curve)
 
@@ -327,8 +357,10 @@ def run_ensemble(cfg_path: str, output_path: str | None = None) -> dict:
 
     print_summary(cfg, leg_meta, weights, metrics["portfolio"],
                   window_start, window_end, len(ensemble_curve))
+    print_drawdown_attribution(dd_attribution)
 
-    output = build_output(cfg, ensemble_curve, leg_meta, weights, metrics)
+    output = build_output(cfg, ensemble_curve, leg_meta, weights, metrics,
+                          dd_attribution)
 
     if output_path:
         os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)

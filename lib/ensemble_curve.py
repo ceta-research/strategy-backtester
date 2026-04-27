@@ -246,6 +246,84 @@ def combine_curves(
     return out
 
 
+def compute_leg_navs(
+    epochs: Sequence[int],
+    aligned_values: Sequence[Sequence[float]],
+    weights: Sequence[float],
+    starting_capital: float,
+    period: str,
+    weight_tolerance: float = 1e-6,
+) -> list[list[float]]:
+    """Walk the per-leg NAV trajectories with optional periodic rebalance.
+
+    Same compounding/rebalance logic as `rebalance_combined_curve` but
+    returns the per-leg NAV series instead of just their sum. The combined
+    curve at time t is `sum(leg_navs[i][t] for i in range(n_legs))`.
+
+    Used by drawdown_attribution() and any other diagnostic that needs to
+    know each leg's NAV at specific timesteps.
+
+    Args:
+        Same as rebalance_combined_curve.
+
+    Returns:
+        list[list[float]] of shape (n_legs, n_points). leg_navs[i][t] is
+        leg i's NAV at epoch t.
+    """
+    if period not in REBALANCE_PERIODS:
+        raise ValueError(
+            f"compute_leg_navs: period must be one of {REBALANCE_PERIODS}, "
+            f"got {period!r}"
+        )
+    n_legs = len(aligned_values)
+    if len(weights) != n_legs:
+        raise ValueError(
+            f"compute_leg_navs: weights length {len(weights)} != legs {n_legs}"
+        )
+    if any(w < 0 for w in weights):
+        raise ValueError(f"compute_leg_navs: weights must be non-negative")
+    if abs(sum(weights) - 1.0) > weight_tolerance:
+        raise ValueError(
+            f"compute_leg_navs: weights must sum to 1.0 (got {sum(weights):.6f})"
+        )
+    if starting_capital <= 0:
+        raise ValueError(f"compute_leg_navs: starting_capital must be > 0")
+
+    n_points = len(epochs)
+    if n_points == 0:
+        return [[] for _ in range(n_legs)]
+    for i, vs in enumerate(aligned_values):
+        if len(vs) != n_points:
+            raise ValueError(
+                f"compute_leg_navs: leg {i} length {len(vs)} != {n_points}"
+            )
+        if vs[0] <= 0:
+            raise ValueError(f"compute_leg_navs: leg {i} starts at {vs[0]}")
+
+    # Per-leg NAV series, all initialized to weight_i * starting_capital
+    leg_series: list[list[float]] = [
+        [weights[i] * starting_capital] for i in range(n_legs)
+    ]
+    leg_nav = [weights[i] * starting_capital for i in range(n_legs)]
+    prev_key = _period_key(epochs[0], period)
+
+    for t in range(1, n_points):
+        for i in range(n_legs):
+            prev = aligned_values[i][t - 1]
+            cur = aligned_values[i][t]
+            if prev > 0:
+                leg_nav[i] *= cur / prev
+        cur_key = _period_key(epochs[t], period)
+        if period != "none" and cur_key != prev_key:
+            total = sum(leg_nav)
+            leg_nav = [weights[i] * total for i in range(n_legs)]
+        prev_key = cur_key
+        for i in range(n_legs):
+            leg_series[i].append(leg_nav[i])
+
+    return leg_series
+
+
 def rebalance_combined_curve(
     epochs: Sequence[int],
     aligned_values: Sequence[Sequence[float]],
@@ -479,6 +557,99 @@ def resolve_weights(
             "risk_parity weighting requires an iterative ERC solver "
             "(Phase 3.5). Use 'inverse_vol' as the practical approximation."
         )
+
+
+# ── Drawdown attribution ─────────────────────────────────────────────────
+
+def attribute_drawdown(
+    epochs: Sequence[int],
+    leg_navs: Sequence[Sequence[float]],
+    leg_names: Sequence[str],
+) -> dict:
+    """Decompose the ensemble's worst drawdown into per-leg contributions.
+
+    Walks the combined NAV (sum of leg_navs) to find the global peak/trough
+    pair (peak-to-trough that produces the largest drawdown). At those two
+    epochs, computes each leg's NAV change as a fraction of the combined
+    NAV at peak — those fractions sum to the ensemble drawdown.
+
+    Args:
+        epochs: Common epoch axis.
+        leg_navs: Per-leg NAV series (from compute_leg_navs).
+        leg_names: Display names for each leg.
+
+    Returns:
+        {
+            "peak_epoch": int, "peak_date": "YYYY-MM-DD",
+            "trough_epoch": int, "trough_date": "YYYY-MM-DD",
+            "ensemble_drawdown": float,  # negative
+            "duration_days": int,
+            "legs": [
+                {"name": str, "nav_at_peak": float, "nav_at_trough": float,
+                 "leg_return": float, "contribution_to_dd": float},
+                ...
+            ]
+        }
+        contribution_to_dd values sum to ensemble_drawdown (within fp).
+    """
+    if not leg_navs or not epochs:
+        return {}
+    n_points = len(epochs)
+    n_legs = len(leg_navs)
+    if any(len(s) != n_points for s in leg_navs):
+        raise ValueError("attribute_drawdown: leg_navs length mismatch")
+    if len(leg_names) != n_legs:
+        raise ValueError(
+            f"attribute_drawdown: leg_names length {len(leg_names)} "
+            f"!= legs {n_legs}"
+        )
+
+    combined = [sum(leg_navs[i][t] for i in range(n_legs)) for t in range(n_points)]
+
+    # Find peak/trough pair that produces max drawdown
+    running_peak = combined[0]
+    running_peak_idx = 0
+    max_dd = 0.0
+    peak_idx_at_max = 0
+    trough_idx_at_max = 0
+    for t in range(n_points):
+        if combined[t] > running_peak:
+            running_peak = combined[t]
+            running_peak_idx = t
+        if running_peak > 0:
+            dd = (combined[t] - running_peak) / running_peak
+            if dd < max_dd:
+                max_dd = dd
+                peak_idx_at_max = running_peak_idx
+                trough_idx_at_max = t
+
+    p, q = peak_idx_at_max, trough_idx_at_max
+    peak_combined = combined[p]
+    legs_out = []
+    for i in range(n_legs):
+        nav_p = leg_navs[i][p]
+        nav_q = leg_navs[i][q]
+        leg_return = (nav_q / nav_p - 1) if nav_p > 0 else 0.0
+        contribution = (nav_q - nav_p) / peak_combined if peak_combined > 0 else 0.0
+        legs_out.append({
+            "name": leg_names[i],
+            "nav_at_peak": round(nav_p, 2),
+            "nav_at_trough": round(nav_q, 2),
+            "leg_return": round(leg_return, 6),
+            "contribution_to_dd": round(contribution, 6),
+        })
+
+    peak_dt = datetime.fromtimestamp(int(epochs[p]), tz=timezone.utc)
+    trough_dt = datetime.fromtimestamp(int(epochs[q]), tz=timezone.utc)
+    return {
+        "peak_epoch": int(epochs[p]),
+        "peak_date": peak_dt.strftime("%Y-%m-%d"),
+        "trough_epoch": int(epochs[q]),
+        "trough_date": trough_dt.strftime("%Y-%m-%d"),
+        "ensemble_drawdown": round(max_dd, 6),
+        "duration_days": (int(epochs[q]) - int(epochs[p])) // 86400,
+        "legs": legs_out,
+    }
 
 
 def build_ensemble_curve(
