@@ -1,0 +1,35 @@
+# 50/50 ensemble with QUARTERLY rebalancing — honest live-deployment baseline.
+#
+# Same legs as eod_lowpe_5050, but rebalanced every quarter back to 50/50.
+# This is the more realistic deployment scenario (set-and-forget biases the
+# winning leg's effective weight upward over time).
+#
+# Expected (Phase 2):
+#   CAGR ~ 18.65%, MDD ~ -17.19%, Calmar ~ 1.085, Sharpe(geom) ~ 1.40
+#
+# Compare to set-and-forget (eod_lowpe_5050):
+#   CAGR 19.44%, MDD -21.34%, Calmar 0.911 — eod_breakout's effective weight
+#   drifted up to ~70% by 2026, inflating both CAGR and MDD.
+#
+# Friction caveat: rebalancing here is FRICTIONLESS. Real-world quarterly
+# rebalance ~25bps/yr drag (NSE STT 0.1% per turn × ~quarterly turnover).
+# Subtract from realized CAGR for live estimates.
+
+ensemble:
+  name: eod_lowpe_5050_quarterly
+  description: 50/50 holdout-eod_breakout + low_pe, quarterly rebalance
+  starting_capital: 10000000
+  alignment: intersection
+  rebalance: quarterly
+  weighting: fixed
+
+  legs:
+    - name: eod_breakout_holdout_modern
+      weight: 0.5
+      result_path: results/eod_breakout/holdout_champion_modern.json
+      rank: 1
+
+    - name: low_pe_modern
+      weight: 0.5
+      result_path: results/low_pe/round_modern_2018_26.json
+      rank: 1

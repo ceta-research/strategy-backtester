@@ -1,0 +1,36 @@
+# 50/50 ensemble: eod_breakout (holdout-trained, 2018-2026) + low_pe (modern)
+#
+# Reproduces the prototype experiment from
+# strategies/eod_breakout/REGIME_AND_ENSEMBLE_2026-04-27.md (§ Experiment 2).
+#
+# Expected (Phase 1, set-and-forget):
+#   CAGR ~ 19.4%, MDD ~ -21.3%, Calmar ~ 0.91, Sharpe(geom) ~ 1.38
+#
+# Note: prototype writeup quoted Sharpe 1.538 — that was CAGR/vol (no
+# risk-free subtraction). Our 1.380 is the rf-adjusted geometric Sharpe used
+# everywhere else in this repo. Sharpe(arith) is also reported in stdout.
+#
+# Both legs were independently backtested on 2018-2026 with ₹10M each. The
+# ensemble averages their normalized return streams 50/50.
+#
+# Window: 2018-01-01 -> 2026-03-19 (intersection of both legs; both share
+# this exact 3000-point window in their result JSONs).
+
+ensemble:
+  name: eod_lowpe_5050
+  description: 50/50 holdout-eod_breakout + low_pe (modern 2018-2026)
+  starting_capital: 10000000
+  alignment: intersection
+  rebalance: none           # Phase 2: monthly|quarterly
+  weighting: fixed          # Phase 3: inverse_vol|risk_parity
+
+  legs:
+    - name: eod_breakout_holdout_modern
+      weight: 0.5
+      result_path: results/eod_breakout/holdout_champion_modern.json
+      rank: 1
+
+    - name: low_pe_modern
+      weight: 0.5
+      result_path: results/low_pe/round_modern_2018_26.json
+      rank: 1
