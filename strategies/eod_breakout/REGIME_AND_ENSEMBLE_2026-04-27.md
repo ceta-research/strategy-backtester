@@ -12,16 +12,23 @@
 
 ## Bottom-line numbers
 
+> **Sharpe convention (revised 2026-04-28):** values below were updated to
+> engine-canonical Sharpe `(geom_mean(daily) - rf_daily) / std(daily)`,
+> annualized. The first revision of this doc cited `CAGR / vol`
+> ("Sharpe-as-CAGR-over-vol", a prototype-script convention that does not
+> subtract rf). Engine Sharpe is consistently ~0.10-0.20 lower across all
+> rows. Ranking and qualitative conclusions are unchanged.
+
 | Variant | CAGR | MDD | Cal | Sharpe | Vol | **2025** |
 |---|---:|---:|---:|---:|---:|---:|
-| Current champion (full) | 15.20% | -34.10% | 0.446 | 0.804 | 18.9% | **-16.57%** |
-| Holdout champion (full) | 15.90% | -24.45% | 0.650 | 1.078 | 14.7% | -13.26% |
-| **🏆 Regime + holdout (full)** | **17.68%** | **-26.75%** | **0.661** | **1.334** | 13.2% | **+18.67%** |
-| Holdout (modern 2018-2026) | 24.42% | -27.76% | 0.880 | 1.469 | 16.6% | -1.19% |
-| Regime + holdout (modern) | 17.74% | -32.07% | 0.553 | 1.194 | 14.9% | +5.37% |
-| `low_pe` (modern) | 12.26% | -12.08% | 1.016 | 1.198 | 10.2% | -1.42% |
-| **🏆 Ensemble: holdout/2 + low_pe/2** | **19.44%** | **-21.34%** | **0.911** | **1.538** | 12.6% | -1.26% |
-| Ensemble: regime/2 + low_pe/2 | 15.24% | -19.53% | 0.780 | 1.375 | 11.1% | +2.63% |
+| Current champion (full) | 15.20% | -34.10% | 0.446 | 0.698 | 18.9% | **-16.57%** |
+| Holdout champion (full) | 15.90% | -24.45% | 0.650 | 0.943 | 14.7% | -13.26% |
+| **🏆 Regime + holdout (full)** | **17.68%** | **-26.75%** | **0.661** | **1.183** | 13.2% | **+18.67%** |
+| Holdout (modern 2018-2026) | 24.42% | -27.76% | 0.880 | 1.349 | 16.6% | -1.19% |
+| Regime + holdout (modern) | 17.74% | -32.07% | 0.553 | 1.059 | 14.9% | +5.37% |
+| `low_pe` (modern) | 12.26% | -12.08% | 1.016 | 1.002 | 10.2% | -1.42% |
+| **🏆 Ensemble: holdout/2 + low_pe/2** | **19.44%** | **-21.34%** | **0.911** | **1.380** | 12.6% | -1.26% |
+| Ensemble: regime/2 + low_pe/2 | 15.24% | -19.53% | 0.780 | ~1.23 | 11.1% | +2.63% |
 
 Daily-return correlation eod_breakout ↔ low_pe: **0.532** (low enough that diversification works).
 
@@ -104,11 +111,11 @@ From the audit:
 | CAGR | 24.42% | 12.26% | **19.44%** |
 | MDD | -27.76% | -12.08% | **-21.34%** |
 | Calmar | 0.880 | 1.016 | **0.911** |
-| **Sharpe** | 1.469 | 1.198 | **1.538** ⬆ |
+| **Sharpe** | 1.349 | 1.002 | **1.380** ⬆ |
 | Vol | 16.63% | 10.24% | **12.64%** |
 | 2025 | -1.19% | -1.42% | -1.26% |
 
-**Sharpe 1.538 is HIGHER than either solo strategy** — clean evidence that diversification is working. The MDD reduction (-27.76% → -21.34%) comes "for free" from the low correlation.
+**Sharpe 1.380 is HIGHER than either solo strategy (1.349, 1.002)** — clean evidence that diversification is working. The MDD reduction (-27.76% → -21.34%) comes "for free" from the low correlation.
 
 ### Yearly comparison
 
@@ -133,7 +140,7 @@ The 2025 comfort here comes from the **path-dependent fact that eod_breakout-mod
 | CAGR | 19.44% | 15.24% |
 | MDD | -21.34% | **-19.53%** |
 | Calmar | 0.911 | 0.780 |
-| Sharpe | 1.538 | 1.375 |
+| Sharpe | 1.380 | ~1.23 |
 | Vol | 12.64% | 11.10% |
 | 2025 | -1.26% | **+2.63%** |
 
@@ -146,14 +153,14 @@ The regime+ensemble has the smallest MDD and best 2025, but loses on CAGR/Sharpe
 ### Pragmatic deployment (in order of effort)
 
 **1. Promote regime+holdout to new champion (zero infra)**
-- 17.68% CAGR / Cal 0.661 / Sharpe 1.334 on full 2010-2026
+- 17.68% CAGR / Cal 0.661 / Sharpe 1.183 on full 2010-2026
 - 2025 = +18.67% (vs current -16.57%)
 - **Strict Pareto improvement** over current champion on every dimension
 - Single config change to `config_champion.yaml`
 - No ensemble infrastructure needed
 
 **2. Add ensemble layer (1-day infra build)**
-- Best Sharpe achievable today: holdout/2 + low_pe/2 = Sharpe 1.538
+- Best Sharpe achievable today: holdout/2 + low_pe/2 = Sharpe 1.380
 - Modern window only (2018-2026), but 8 years is enough validation
 - Build a `scripts/run_ensemble.py` that runs N strategies, combines equity curves
 - Naturally extends to 3+ strategy ensembles later

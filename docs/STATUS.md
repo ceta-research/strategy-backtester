@@ -40,12 +40,17 @@ The strategy-optimization queue is exhausted. Forward work is now:
 |---:|---|---:|---:|---:|---|
 | 1 | `eod_technical` | **19.63%** | **0.757** | 1.067 | Pre-2019 only 8.62%, but 2025 was +2.69% — no 2025 collapse. Regime+holdout TESTED 2026-04-28: methodology does not transfer (see deferred work / [`strategies/eod_technical/REGIME_AND_HOLDOUT_2026-04-28.md`](../strategies/eod_technical/REGIME_AND_HOLDOUT_2026-04-28.md)). |
 | 2 | `quality_dip_tiered` | 18.39% | 0.388 | 0.761 | Deep MDD -47% |
-| 3 | `eod_breakout` | **17.68%** | **0.661** | **1.334** | Re-promoted 2026-04-27 (regime+holdout, 2025 +18.67%). See Sharpe note below. |
+| 3 | `eod_breakout` | **17.68%** | **0.661** | **1.183** | Re-promoted 2026-04-27 (regime+holdout, 2025 +18.67%). |
 | 4 | `trending_value` | 16.89% | 0.481 | 0.753 | WF Std Cal 0.745 (FMP sparsity) |
 | 5 | `enhanced_breakout` | 16.40% | 0.656 | — | Best Cal among breakouts |
 | 6 | `factor_composite` | 14.78% | 0.319 | 0.549 | Deep MDD -46% |
 
-> **Note on eod_breakout Sharpe:** OPTIMIZATION.md documents 1.334 (computed from regime+holdout champion result). Today's ensemble runner reads 1.183 from `results/eod_breakout/champion.json`. Likely a file-version discrepancy — `champion.json` may pre-date the regime+holdout promotion. Pending investigation (see deferred work).
+> **Sharpe convention:** all Sharpe values in STATUS.md are engine-canonical
+> `(geom_mean(daily) - rf_daily) / std(daily)` annualized — what the runner
+> and `lib/metrics.py` produce. The `regime+ensemble` doc and earlier drafts
+> of OPTIMIZATION.md cited a `CAGR / vol` prototype number ~0.10-0.20 higher
+> (1.334 vs canonical 1.183 for eod_breakout). All canonical docs were
+> realigned 2026-04-28.
 
 ## Top by Calmar
 
@@ -60,9 +65,9 @@ The strategy-optimization queue is exhausted. Forward work is now:
 
 | Rank | Strategy | Sharpe | Caveat |
 |---:|---|---:|---|
-| 1 | `eod_breakout` | **1.334** | Regime+holdout, post-promotion |
-| 2 | `low_pe` | 1.198 | Modern only |
-| 3 | `eod_technical` | 1.067 | Pre-2019 fragile |
+| 1 | `eod_breakout` | **1.183** | Regime+holdout, post-promotion |
+| 2 | `eod_technical` | 1.067 | Pre-2019 fragile |
+| 3 | `low_pe` | 1.002 | Modern only |
 
 ---
 
@@ -138,8 +143,7 @@ git diff fbcd36a HEAD -- engine/pipeline.py engine/utils.py engine/simulator.py 
 ### Pending (prioritized, top of queue first)
 
 1. **Update `LIVE_TRADING_INTEGRATION.md`** (~30-60 min). Add ensemble-as-deployment option (eod_b + eod_t invvol qtly). Document daily breadth check + quarterly rebalance ops. Friction ~25bps/yr.
-2. **Investigate eod_breakout Sharpe discrepancy** (~15 min). 1.334 (OPTIMIZATION.md) vs 1.183 (champion.json read by runner). Likely file-version issue.
-3. **Apply regime+holdout to other strategies — ONLY AFTER 2025 OOS check** (~3-4 hrs each). The eod_technical investigation (2026-04-28) showed the methodology is mechanism-specific: it fixes a 2025 collapse, not a generic Sharpe gap. Add a 5-min gate: read champion's 2025 yearly return; only proceed if materially negative (< -10%).
+2. **Apply regime+holdout to other strategies — ONLY AFTER 2025 OOS check** (~3-4 hrs each). The eod_technical investigation (2026-04-28) showed the methodology is mechanism-specific: it fixes a 2025 collapse, not a generic Sharpe gap. Add a 5-min gate: read champion's 2025 yearly return; only proceed if materially negative (< -10%).
    - `quality_dip_tiered`: -47% MDD; check 2025; ppi=1, sector caps, tsl=6% never tested
    - `trending_value`: check 2025; mechanism is value not breakout — regime less relevant
    - `low_pe`: check 2025; already most defensive (Cal 1.016) — likely no upside
@@ -177,13 +181,9 @@ git diff fbcd36a HEAD -- engine/pipeline.py engine/utils.py engine/simulator.py 
 
 ## Recommended opening for next session
 
-The eod_technical regime+holdout investigation (2026-04-28) closed with a negative result. The Sharpe-1.35-target ensemble lift projected previously is not achievable via that route. Next-priority items:
+**Low-risk (~30-60 min):** Update `LIVE_TRADING_INTEGRATION.md` (item 1) for the ensemble winner. The deployment story is settled (eod_b + eod_t invvol qtly, Sharpe 1.281). Live trading docs should reflect that.
 
-**Quick win first (~15 min):** Investigate the eod_breakout Sharpe discrepancy (item 2 above). 1.334 (OPTIMIZATION.md) vs 1.183 (champion.json read by ensemble runner). Likely a stale champion.json file from before the regime+holdout promotion. If we can repoint the runner to fresh data, the 2010+ ensemble Sharpe baseline lifts to its honest value without any new sweeps.
-
-**Low-risk follow-up (~30-60 min):** Update `LIVE_TRADING_INTEGRATION.md` (item 1) for the ensemble winner. The deployment story is settled (eod_b + eod_t invvol qtly, Sharpe 1.281). Live trading docs should reflect that.
-
-**Larger follow-on (~3-4 hrs):** Pick a single strategy from item 3 list, do the 5-min 2025 OOS check first, and only run regime+holdout if the gate condition holds. `quality_dip_tiered` is the most likely candidate given its -47% MDD profile.
+**Larger follow-on (~3-4 hrs):** Pick a single strategy from item 2's list, do the 5-min 2025 OOS check first, and only run regime+holdout if the gate condition holds (champion 2025 < -10%). `quality_dip_tiered` is the most likely candidate given its -47% MDD profile.
 
 ---
 

@@ -7,7 +7,7 @@
 
 | Period | CAGR | MDD | Calmar | Sharpe | Trades |
 |--------|------|-----|--------|--------|--------|
-| **2010-2026** | **17.68%** | -26.75% | **0.661** | **1.334** | ~1670 |
+| **2010-2026** | **17.68%** | -26.75% | **0.661** | **1.183** | ~1670 |
 | 2025 OOS year | **+18.67%** | -8.6% | — | — | — |
 
 **Champion config:** `pt=99, ndh=3, ndm=10, ds={5,0.40}, mh=7, tsl=8, pos=15, top_gainer, regime=NIFTYBEES>SMA(100), force_exit=true`
@@ -26,8 +26,10 @@
 | CAGR | 15.20% | **17.68%** | +2.48pp |
 | MDD | -34.10% | **-26.75%** | +7.35pp |
 | Calmar | 0.446 | **0.661** | +48% |
-| Sharpe | 0.804 | **1.334** | +66% |
-| Vol | 18.89% | 13.20% | -30% |
+| Sharpe | 0.698 | **1.183** | +69% |
+| Vol | 18.89% | 13.25% | -30% |
+
+> Sharpe convention: engine-canonical Sharpe = `(geom_mean(daily) - rf_daily) / std(daily)`, annualized. Earlier drafts of this doc and `REGIME_AND_ENSEMBLE_2026-04-27.md` cited a "Sharpe = CAGR / vol" prototype number (1.334 vs 1.183 here, 0.804 vs 0.698 for the old champion). All Sharpe references in the canonical docs were realigned to engine values on 2026-04-28.
 | **2025 yearly** | **-16.57%** | **+18.67%** | **+35.24pp** |
 
 The regime exit alone (NIFTYBEES < SMA(100) → force-exit) is responsible for ~+32pp of the 2025 swing. See `REGIME_AND_ENSEMBLE_2026-04-27.md`.
