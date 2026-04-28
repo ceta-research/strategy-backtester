@@ -1,5 +1,7 @@
 # Session handover — 2026-04-28 pt8 (Phase 2c complete)
 
+> **Superseded by [`2026-04-28_pt9_handover.md`](2026-04-28_pt9_handover.md)** — Phase 2 (2d + 2e) is now complete. Read pt9 first.
+
 **Predecessor:** [`2026-04-28_pt7_handover.md`](2026-04-28_pt7_handover.md) — Phase 2b checkpoint.
 
 Phase 2c (audit hooks across the eod_t legacy path) is done and verified.
