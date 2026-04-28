@@ -60,7 +60,8 @@ ensemble:
 |---|---|---|
 | `fixed` | Use `weight:` from each leg | 1 |
 | `inverse_vol` | `w_i ∝ 1 / vol_i`. Equivalent to risk-parity in the 2-leg case. | 3 |
-| `risk_parity` | Equal-risk-contribution; iterative ERC solver. NotImplementedError today. | 3.5 (deferred) |
+| `inverse_vol_adaptive` | Per-rebalance inverse-vol from trailing window (`weight_lookback_days`). Drops zero-vol legs (cash periods). Requires `rebalance != none`. | 3.5 (shipped 2026-04-28) |
+| `risk_parity` | Equal-risk-contribution; iterative ERC solver. NotImplementedError today. | 4+ (deferred) |
 
 ### Rebalancing
 
@@ -197,6 +198,34 @@ Sharpe is monotonically decreasing in `w_lowpe`; Calmar is monotonically increas
 
 ---
 
+## Adaptive inverse-vol vs static (2026-04-28 pt2)
+
+The `inverse_vol_adaptive` weighting was added to address the "static invvol
+over-weights cash-period legs" trap from the N-leg experiment. Per-rebalance
+weights are recomputed from the trailing `weight_lookback_days` window;
+legs with vol below floor (1e-6) get dropped at that rebalance.
+
+Empirical comparison on the 3-leg eod_b+eod_t+low_pe full-period ensemble:
+
+| Variant | CAGR | MDD | Cal | Sharpe |
+|---|---:|---:|---:|---:|
+| 2-leg eod_b+eod_t invvol qtly (champion) | 18.79% | -23.81% | 0.789 | **1.281** |
+| 3-leg static invvol qtly | 12.45% | -15.02% | 0.829 | 1.162 |
+| 3-leg static **equal** qtly | 14.65% | -17.79% | 0.823 | **1.225** |
+| 3-leg adaptive invvol qtly (252-day lookback) | 13.97% | -17.23% | 0.811 | 1.154 |
+
+**Result:** adaptive weighting fixes the over-weighting problem (CAGR
+12.45→13.97%) but doesn't beat simple equal-weight. The 252-day trailing
+window is noisy enough to oscillate weights more than the truth warrants.
+Lookback tuning could help; not pursued.
+
+**Recommendation:** when ensembling legs with mixed data coverage, use
+`fixed` equal-weight as the simplest dominant baseline, OR
+`inverse_vol_adaptive` if you specifically want to skip cash-period legs.
+Static `inverse_vol` is unsafe in this case.
+
+---
+
 ## Lessons learned (durable)
 
 1. **Adding more legs ≠ better Sharpe.** Diversification helps Sharpe only when the new leg has comparable per-unit-risk return. low_pe full-period CAGR/vol is below eod_b's, so adding it lowers ensemble Sharpe even though correlation is favorable.
@@ -255,7 +284,9 @@ docs/ENSEMBLE_GUIDE.md                                    # this file
 
 ## Future work
 
-- Phase 3.5: per-rebalance adaptive weighting; iterative ERC for risk_parity
+- ~~Phase 3.5a: per-rebalance adaptive weighting~~ — **shipped 2026-04-28** (`inverse_vol_adaptive`)
+- Phase 3.5b: iterative ERC solver for `risk_parity`
+- Phase 3.5c: lookback-window tuning for `inverse_vol_adaptive` (current default 252d; shorter windows respond faster but noisier)
 - Phase 7: rerun mode (`config_path` legs) with cache invalidation on config mtime
 - Phase 8: friction modeling per leg (rebalance trades cost something)
 - Phase 9: union_ffill alignment for differently-windowed legs

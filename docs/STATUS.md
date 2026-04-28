@@ -181,7 +181,7 @@ git diff fbcd36a HEAD -- engine/pipeline.py engine/utils.py engine/simulator.py 
 
 ### Ensemble runner — Phase 3.5 / 7+
 
-- Per-rebalance adaptive weighting (trailing-window inverse-vol)
+- ~~Per-rebalance adaptive weighting (trailing-window inverse-vol)~~ — **shipped 2026-04-28 pt2** as `inverse_vol_adaptive`. Empirically does NOT beat static equal-weight on the 3-leg test case.
 - Iterative ERC solver for `risk_parity` mode
 - `config_path` rerun mode with cache invalidation on mtime
 - Friction modeling per leg (rebalance trades cost something)

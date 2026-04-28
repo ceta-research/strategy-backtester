@@ -27,7 +27,10 @@ from typing import Sequence
 from lib.equity_curve import EquityCurve, Frequency
 
 REBALANCE_PERIODS = ("none", "monthly", "quarterly", "annual")
-WEIGHTING_MODES = ("fixed", "inverse_vol", "risk_parity")
+WEIGHTING_MODES = ("fixed", "inverse_vol", "inverse_vol_adaptive", "risk_parity")
+
+# Default trailing-window length for adaptive inverse-vol weighting (days).
+ADAPTIVE_DEFAULT_LOOKBACK_DAYS = 252  # ~1 trading year
 
 
 # ── Loaders ──────────────────────────────────────────────────────────────
@@ -428,6 +431,192 @@ def rebalance_combined_curve(
     return combined
 
 
+def rebalance_combined_curve_adaptive(
+    epochs: Sequence[int],
+    aligned_values: Sequence[Sequence[float]],
+    starting_capital: float,
+    period: str,
+    lookback_days: int = ADAPTIVE_DEFAULT_LOOKBACK_DAYS,
+    initial_weights: Sequence[float] | None = None,
+    zero_vol_floor: float = 1e-6,
+) -> tuple[list[float], list[list[float]]]:
+    """Per-rebalance adaptive inverse-vol combination.
+
+    At each rebalance boundary, recomputes per-leg weights using only the
+    trailing `lookback_days` returns of each aligned leg. Mitigates the
+    in-sample bias of full-window inverse-vol AND the cash-period
+    misallocation problem (a leg that sits in cash for the trailing window
+    has near-zero realized vol and would otherwise be over-weighted).
+
+    Cash-period handling: legs whose trailing-window vol is below
+    `zero_vol_floor` get weight 0 at that rebalance; remaining legs are
+    re-normalized to sum to 1. If ALL legs have sub-floor vol (e.g. very
+    early in the backtest before any leg has data), falls back to equal
+    weights.
+
+    Convention matches `rebalance_combined_curve`: rebalance fires at the
+    FIRST observation of each new period.
+
+    Args:
+        epochs: Common epoch axis (length T), strictly increasing.
+        aligned_values: Per-leg value series, each length T.
+        starting_capital: Notional ensemble starting NAV.
+        period: One of REBALANCE_PERIODS (must NOT be "none" — adaptive
+            weighting requires periodic rebalances by definition).
+        lookback_days: Trailing window for vol estimation (in observations,
+            assuming one observation per calendar day).
+        initial_weights: Weights at t=0 before any lookback window is
+            available. Defaults to equal weights across legs.
+        zero_vol_floor: Vol below this is treated as zero (leg dropped at
+            that rebalance).
+
+    Returns:
+        (combined_nav, weights_history) where:
+            combined_nav: list[float] of length T — ensemble NAV per epoch
+            weights_history: list[list[float]] — weights applied AT each
+                rebalance boundary (length = number of rebalances + 1; first
+                entry is initial weights)
+
+    Caveats:
+        - Frictionless. Real-world rebalance friction is unmodeled.
+        - Lookback uses calendar days as observation count; assumes
+            DAILY_CALENDAR frequency. For other frequencies, callers should
+            pre-scale lookback_days.
+    """
+    if period == "none":
+        raise ValueError(
+            "rebalance_combined_curve_adaptive: period must be one of "
+            f"{REBALANCE_PERIODS[1:]} (cannot be 'none' — adaptive weighting "
+            "requires periodic rebalances)"
+        )
+    if period not in REBALANCE_PERIODS:
+        raise ValueError(
+            f"rebalance_combined_curve_adaptive: period must be one of "
+            f"{REBALANCE_PERIODS}, got {period!r}"
+        )
+    if lookback_days < 2:
+        raise ValueError(
+            f"rebalance_combined_curve_adaptive: lookback_days must be >= 2; "
+            f"got {lookback_days}"
+        )
+    if starting_capital <= 0:
+        raise ValueError(
+            f"rebalance_combined_curve_adaptive: starting_capital must be > 0; "
+            f"got {starting_capital}"
+        )
+
+    n_legs = len(aligned_values)
+    n_points = len(epochs)
+    if n_points == 0:
+        return [], []
+
+    for i, vs in enumerate(aligned_values):
+        if len(vs) != n_points:
+            raise ValueError(
+                f"rebalance_combined_curve_adaptive: leg {i} length {len(vs)} "
+                f"!= {n_points}"
+            )
+        if vs[0] <= 0:
+            raise ValueError(
+                f"rebalance_combined_curve_adaptive: leg {i} starts at {vs[0]} "
+                "(must be > 0)"
+            )
+
+    # Initial weights: equal-weight unless overridden
+    if initial_weights is None:
+        weights = [1.0 / n_legs] * n_legs
+    else:
+        if len(initial_weights) != n_legs:
+            raise ValueError(
+                f"initial_weights length {len(initial_weights)} != legs {n_legs}"
+            )
+        s = sum(initial_weights)
+        if abs(s - 1.0) > 1e-6:
+            raise ValueError(
+                f"initial_weights must sum to 1.0; got {s:.6f}"
+            )
+        weights = list(initial_weights)
+
+    weights_history: list[list[float]] = [list(weights)]
+    leg_nav = [weights[i] * starting_capital for i in range(n_legs)]
+    combined: list[float] = [sum(leg_nav)]
+    prev_key = _period_key(epochs[0], period)
+
+    for t in range(1, n_points):
+        # Compound each leg by its own return between t-1 and t
+        for i in range(n_legs):
+            prev = aligned_values[i][t - 1]
+            cur = aligned_values[i][t]
+            if prev > 0:
+                leg_nav[i] *= cur / prev
+
+        cur_key = _period_key(epochs[t], period)
+        if cur_key != prev_key:
+            # Rebalance boundary: recompute weights from trailing window
+            new_weights = _adaptive_invvol_weights(
+                aligned_values, t, lookback_days, zero_vol_floor
+            )
+            weights = new_weights
+            total = sum(leg_nav)
+            leg_nav = [weights[i] * total for i in range(n_legs)]
+            weights_history.append(list(weights))
+        prev_key = cur_key
+
+        combined.append(sum(leg_nav))
+
+    return combined, weights_history
+
+
+def _adaptive_invvol_weights(
+    aligned_values: Sequence[Sequence[float]],
+    t: int,
+    lookback_days: int,
+    zero_vol_floor: float,
+) -> list[float]:
+    """Compute inverse-vol weights from the trailing `lookback_days`
+    observations ending at index `t-1` (i.e. excluding the current
+    rebalance bar to avoid look-ahead).
+
+    Legs with vol below `zero_vol_floor` are dropped (weight 0). Remaining
+    weights are normalized to sum to 1. If all legs are below floor,
+    returns equal weights as fallback.
+    """
+    n_legs = len(aligned_values)
+    # Window of values: end is t-1 (inclusive), start is max(0, t-1-lookback_days)
+    end = t  # python slice: aligned_values[i][start:end] is up to t-1
+    start = max(0, end - lookback_days - 1)
+
+    inv_vols: list[float] = []
+    for i in range(n_legs):
+        window = aligned_values[i][start:end]
+        if len(window) < 2:
+            inv_vols.append(0.0)
+            continue
+        rets = []
+        for j in range(1, len(window)):
+            prev = window[j - 1]
+            if prev > 0:
+                rets.append(window[j] / prev - 1)
+            else:
+                rets.append(0.0)
+        if len(rets) < 2:
+            inv_vols.append(0.0)
+            continue
+        m = sum(rets) / len(rets)
+        var = sum((r - m) ** 2 for r in rets) / (len(rets) - 1)
+        vol = math.sqrt(var)
+        if vol < zero_vol_floor:
+            inv_vols.append(0.0)
+        else:
+            inv_vols.append(1.0 / vol)
+
+    total = sum(inv_vols)
+    if total <= 0:
+        # All legs dropped → equal weight fallback
+        return [1.0 / n_legs] * n_legs
+    return [v / total for v in inv_vols]
+
+
 def _period_key(epoch: int, period: str):
     """Return a comparable key that changes when `period` rolls over."""
     if period == "none":
@@ -549,6 +738,13 @@ def resolve_weights(
         return [float(leg["weight"]) for leg in cfg_legs]
     if weighting == "inverse_vol":
         return compute_inverse_vol_weights(curves, lookback_days=lookback_days)
+    if weighting == "inverse_vol_adaptive":
+        # In adaptive mode, weights are recomputed at each rebalance.
+        # The values returned here are only used as initial weights at t=0
+        # (before any lookback window is available); we use equal-weight as
+        # a neutral starting point.
+        n = len(curves)
+        return [1.0 / n] * n
     if weighting == "risk_parity":
         # Equal-risk-contribution requires iterative solver on the leg
         # covariance matrix. For 2 legs, identical to inverse_vol. For N>2,
@@ -790,22 +986,39 @@ def build_ensemble_curve(
     starting_capital: float,
     mode: str = "intersection",
     rebalance: str = "none",
+    adaptive: bool = False,
+    adaptive_lookback_days: int = ADAPTIVE_DEFAULT_LOOKBACK_DAYS,
 ) -> EquityCurve:
     """End-to-end: align N curves and produce a single combined EquityCurve.
 
     Args:
         curves: Per-leg EquityCurve objects (must share frequency).
-        weights: Per-leg weights summing to 1.0.
+        weights: Per-leg weights — used as initial weights when `adaptive`,
+            otherwise applied uniformly. Must sum to 1.0.
         starting_capital: Notional ensemble starting NAV.
         mode: Alignment mode passed to `align_curves`.
         rebalance: One of REBALANCE_PERIODS. "none" uses fast combine_curves;
-            others use rebalance_combined_curve.
+            others use rebalance_combined_curve (or adaptive variant).
+        adaptive: If True, use adaptive inverse-vol weighting recomputed at
+            each rebalance boundary (requires rebalance != "none"). The
+            `weights` arg is used only as initial weights in this mode.
+        adaptive_lookback_days: Trailing window for adaptive vol estimation.
 
     Returns:
         EquityCurve of the ensemble, ready for compute_metrics_from_curve().
     """
     common_epochs, aligned = align_curves(curves, mode=mode)
-    if rebalance == "none":
+    if adaptive:
+        if rebalance == "none":
+            raise ValueError(
+                "build_ensemble_curve: adaptive=True requires rebalance != 'none'"
+            )
+        combined_values, _ = rebalance_combined_curve_adaptive(
+            common_epochs, aligned, starting_capital, rebalance,
+            lookback_days=adaptive_lookback_days,
+            initial_weights=weights,
+        )
+    elif rebalance == "none":
         combined_values = combine_curves(aligned, weights, starting_capital)
     else:
         combined_values = rebalance_combined_curve(

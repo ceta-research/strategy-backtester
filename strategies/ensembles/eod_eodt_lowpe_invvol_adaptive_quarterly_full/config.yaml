@@ -1,0 +1,30 @@
+# 3-leg full-period adaptive inverse-vol quarterly (Phase 3.5).
+#
+# At each quarterly rebalance boundary, weights are recomputed from the
+# trailing 252 days of returns. Cash-period legs (vol below floor) get
+# weight 0 — solving the original "low_pe over-weighted because cash
+# compresses its vol" problem identified in N_LEG_EXPERIMENT_2026-04-28.md.
+#
+# Compare against:
+#   - eod_eodt_invvol_quarterly_full     (2-leg full,  Sharpe 1.281)
+#   - eod_eodt_lowpe_invvol_quarterly_full   (3-leg static invvol, Sharpe 1.162)
+
+ensemble:
+  name: eod_eodt_lowpe_invvol_adaptive_quarterly_full
+  description: 3-leg adaptive inverse-vol quarterly, 252-day trailing window
+  starting_capital: 10000000
+  alignment: intersection
+  rebalance: quarterly
+  weighting: inverse_vol_adaptive
+  weight_lookback_days: 252
+
+  legs:
+    - name: eod_breakout
+      result_path: results/eod_breakout/champion.json
+      rank: 1
+    - name: eod_technical
+      result_path: results/eod_technical/champion_verify.json
+      rank: 1
+    - name: low_pe
+      result_path: results/low_pe/champion_full.json
+      rank: 1

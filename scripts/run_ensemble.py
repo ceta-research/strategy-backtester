@@ -357,11 +357,20 @@ def run_ensemble(cfg_path: str, output_path: str | None = None) -> dict:
         lookback_days=cfg.get("weight_lookback_days"),
     )
 
-    # Build ensemble
+    # Build ensemble (with optional adaptive per-rebalance weighting)
+    is_adaptive = cfg["weighting"] == "inverse_vol_adaptive"
+    if is_adaptive and cfg["rebalance"] == "none":
+        raise ValueError(
+            f"{cfg_path}: weighting=inverse_vol_adaptive requires "
+            f"rebalance != 'none' (got 'none')"
+        )
+    adaptive_lookback = cfg.get("weight_lookback_days") or 252
     ensemble_curve = build_ensemble_curve(
         curves, weights, cfg["starting_capital"],
         mode=cfg["alignment"],
         rebalance=cfg["rebalance"],
+        adaptive=is_adaptive,
+        adaptive_lookback_days=adaptive_lookback,
     )
 
     # Drawdown attribution: re-walk to recover per-leg NAVs

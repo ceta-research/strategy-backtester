@@ -1,0 +1,23 @@
+# 3-leg modern adaptive inverse-vol quarterly. Tests whether per-rebalance
+# weighting on a clean modern window (where low_pe trades continuously)
+# improves over static invvol — pure mechanism check.
+
+ensemble:
+  name: eod_eodt_lowpe_invvol_adaptive_quarterly_modern
+  description: 3-leg adaptive inverse-vol qtly, modern 2018+
+  starting_capital: 10000000
+  alignment: intersection
+  rebalance: quarterly
+  weighting: inverse_vol_adaptive
+  weight_lookback_days: 252
+
+  legs:
+    - name: eod_breakout
+      result_path: results/eod_breakout/champion.json
+      rank: 1
+    - name: eod_technical
+      result_path: results/eod_technical/champion_verify.json
+      rank: 1
+    - name: low_pe_modern
+      result_path: results/low_pe/round_modern_2018_26.json
+      rank: 1

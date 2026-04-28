@@ -23,6 +23,7 @@ from lib.ensemble_curve import (
     compute_inverse_vol_weights,
     compute_leg_navs,
     rebalance_combined_curve,
+    rebalance_combined_curve_adaptive,
     resolve_weights,
     sharpe_sensitivity_2leg,
 )
@@ -314,6 +315,86 @@ class TestConstants(unittest.TestCase):
 
     def test_weighting_modes_includes_fixed(self):
         self.assertIn("fixed", WEIGHTING_MODES)
+
+
+# ── Adaptive per-rebalance inverse-vol ───────────────────────────────────
+
+class TestRebalanceAdaptive(unittest.TestCase):
+
+    def _build_two_leg(self, n_days=400, seed=0):
+        # Leg A: steady upward drift with mild noise
+        # Leg B: high vol, lower drift
+        a_vals = [100.0]
+        b_vals = [100.0]
+        for i in range(1, n_days):
+            a_vals.append(a_vals[-1] * (1.0 + 0.0008 + 0.005 * (((i * 7) % 11) / 10 - 0.5)))
+            b_vals.append(b_vals[-1] * (1.0 + 0.0003 + 0.020 * (((i * 13) % 7) / 6 - 0.5)))
+        return _curve(a_vals), _curve(b_vals)
+
+    def test_adaptive_runs_and_returns_correct_shape(self):
+        a, b = self._build_two_leg(n_days=400)
+        epochs, aligned = align_curves([a, b])
+        nav, weights_history = rebalance_combined_curve_adaptive(
+            epochs, aligned, starting_capital=1000, period="quarterly",
+            lookback_days=60,
+        )
+        self.assertEqual(len(nav), len(epochs))
+        # weights_history starts with initial + one entry per rebalance
+        self.assertGreaterEqual(len(weights_history), 2)
+        self.assertAlmostEqual(nav[0], 1000.0, places=4)
+        # Each weights vector sums to 1
+        for w in weights_history:
+            self.assertAlmostEqual(sum(w), 1.0, places=6)
+
+    def test_adaptive_zero_vol_leg_gets_zero_weight(self):
+        # Leg A: cash (constant value) → vol = 0
+        # Leg B: noisy mover
+        n = 300
+        a_vals = [100.0] * n
+        b_vals = [100.0]
+        for i in range(1, n):
+            b_vals.append(b_vals[-1] * (1.0 + 0.001 + 0.01 * (((i * 7) % 11) / 10 - 0.5)))
+        a, b = _curve(a_vals), _curve(b_vals)
+        epochs, aligned = align_curves([a, b])
+        nav, weights_history = rebalance_combined_curve_adaptive(
+            epochs, aligned, starting_capital=1000, period="quarterly",
+            lookback_days=60,
+        )
+        # After at least one rebalance with the lookback window populated,
+        # leg A (cash) should have zero weight.
+        # Initial weights are equal; rebalanced weights should drop A.
+        zero_vol_rebalances = [w for w in weights_history[1:] if w[0] == 0.0]
+        self.assertGreater(
+            len(zero_vol_rebalances), 0,
+            "Expected at least one rebalance to drop the zero-vol leg"
+        )
+
+    def test_adaptive_rejects_no_rebalance(self):
+        a, b = self._build_two_leg(n_days=100)
+        epochs, aligned = align_curves([a, b])
+        with self.assertRaises(ValueError):
+            rebalance_combined_curve_adaptive(
+                epochs, aligned, starting_capital=1000, period="none",
+                lookback_days=30,
+            )
+
+    def test_adaptive_via_build_ensemble_curve(self):
+        # End-to-end: build_ensemble_curve with adaptive=True
+        a, b = self._build_two_leg(n_days=400)
+        ens = build_ensemble_curve(
+            [a, b], weights=[0.5, 0.5], starting_capital=1000,
+            rebalance="quarterly", adaptive=True, adaptive_lookback_days=60,
+        )
+        self.assertEqual(len(ens), len(a))
+        self.assertAlmostEqual(ens.values[0], 1000.0, places=4)
+
+    def test_adaptive_requires_rebalance(self):
+        a, b = self._build_two_leg(n_days=100)
+        with self.assertRaises(ValueError):
+            build_ensemble_curve(
+                [a, b], weights=[0.5, 0.5], starting_capital=1000,
+                rebalance="none", adaptive=True,
+            )
 
 
 if __name__ == "__main__":
