@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-04-28 (pt2)
 **Engine baseline:** commit `fbcd36a` (post-audit, all P0/P1 fixes landed)
-**Latest session handover:** [`sessions/2026-04-28_pt3_handover.md`](sessions/2026-04-28_pt3_handover.md)
+**Latest session handover:** [`sessions/2026-04-28_pt4_handover.md`](sessions/2026-04-28_pt4_handover.md)
 
 > **Maintenance convention:** This is the living source-of-truth doc. Every session must update STATUS.md before closing — at minimum: header date, latest handover link, session log entry, leaderboards if changed, deferred work. Per-session narratives go to `sessions/`.
 
