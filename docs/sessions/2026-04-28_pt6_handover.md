@@ -1,5 +1,7 @@
 # Session handover — 2026-04-28 pt6 (inspection drill, Phases 0+1+2a complete)
 
+> **Superseded by [`2026-04-28_pt7_handover.md`](2026-04-28_pt7_handover.md)** — Phase 2b is now complete. Read pt7 first.
+
 **Predecessor:** [`2026-04-28_pt5_inspection_plan.md`](2026-04-28_pt5_inspection_plan.md) — revised drill plan covering eod_breakout + eod_technical at deep-audit depth.
 
 This is a **progress checkpoint**, not a re-plan. The plan in pt5 is current.

@@ -48,8 +48,29 @@ class EodBreakoutSignalGenerator:
 
         start_epoch = context.get("start_epoch", context["static_config"]["start_epoch"])
 
+        # Audit hooks (Phase 2b inspection drill, 2026-04-28). When
+        # audit_mode is False (default), all hook bodies are skipped and the
+        # code path is byte-identical to the pre-hook version. The collector
+        # is a dict supplied by the audit run wrapper; hooks append polars
+        # DataFrames / dicts into well-known keys.
+        audit_mode = bool(context.get("audit_mode", False))
+        audit_collector = context.get("audit_collector") if audit_mode else None
+
         # Phase 1: Scanner (shared per-day liquidity filter)
         shortlist_tracker, df_trimmed = run_scanner(context, df_tick_data)
+
+        # HOOK 1: post-scanner candidate snapshot. df_trimmed has
+        # `scanner_config_ids` set on rows that passed the scanner; rows with
+        # NULL `scanner_config_ids` are scanner-rejected. Captures both for
+        # inspection.
+        if audit_mode and audit_collector is not None:
+            audit_collector.setdefault("scanner_snapshots", []).append(
+                df_trimmed
+                .select(["instrument", "date_epoch", "scanner_config_ids"])
+                .with_columns(
+                    pl.col("scanner_config_ids").is_not_null().alias("scanner_pass")
+                )
+            )
 
         # Phase 2: Compute indicators on full data range
         df_ind = df_tick_data.clone()
@@ -187,12 +208,62 @@ class EodBreakoutSignalGenerator:
                     & (pl.col("trailing_vol_annual") < max_stock_vol_pct / 100)
                 )
 
+            # HOOK 2: per-clause flag emission. Mirrors the entry_filter
+            # AND above as separate boolean columns. Behavior of the
+            # filtered set is unchanged — this only computes auxiliary
+            # columns and emits to the collector.
+            if audit_mode and audit_collector is not None:
+                clause_exprs = [
+                    (pl.col("close") > pl.col("n_day_ma")).alias("clause_close_gt_ma"),
+                    (pl.col("close") >= pl.col("n_day_high")).alias("clause_close_ge_ndhigh"),
+                    (pl.col("close") > pl.col("open")).alias("clause_close_gt_open"),
+                    pl.col("scanner_config_ids").is_not_null().alias("clause_scanner_pass"),
+                    (pl.col("direction_score") > ds_threshold).alias("clause_ds_gt_thr"),
+                    pl.col("next_epoch").is_not_null().alias("clause_next_epoch_present"),
+                    pl.col("next_open").is_not_null().alias("clause_next_open_present"),
+                ]
+                clause_names = [
+                    "clause_close_gt_ma", "clause_close_ge_ndhigh",
+                    "clause_close_gt_open", "clause_scanner_pass",
+                    "clause_ds_gt_thr", "clause_next_epoch_present",
+                    "clause_next_open_present",
+                ]
+                if use_regime:
+                    clause_exprs.append(
+                        pl.col("date_epoch").is_in(list(bull_epochs))
+                        .alias("clause_regime_bullish")
+                    )
+                    clause_names.append("clause_regime_bullish")
+                if vol_filter_active:
+                    clause_exprs.append(
+                        (pl.col("trailing_vol_annual").is_not_null()
+                         & (pl.col("trailing_vol_annual") < max_stock_vol_pct / 100))
+                        .alias("clause_vol_below_cap")
+                    )
+                    clause_names.append("clause_vol_below_cap")
+                df_clause = df_signals.with_columns(clause_exprs)
+                all_pass_expr = pl.col(clause_names[0])
+                for n in clause_names[1:]:
+                    all_pass_expr = all_pass_expr & pl.col(n)
+                df_clause = df_clause.with_columns(
+                    all_pass_expr.alias("all_clauses_pass")
+                )
+                audit_collector.setdefault("entry_audits", []).append(
+                    df_clause.select(
+                        ["instrument", "date_epoch"] + clause_names + ["all_clauses_pass"]
+                    )
+                )
+
+            select_cols = [
+                "instrument", "date_epoch", "next_epoch", "next_open",
+                "next_volume", "scanner_config_ids",
+            ]
+            if audit_mode:
+                # At-entry context piggy-backed onto entry_rows for HOOK 3.
+                select_cols += ["close", "n_day_high", "direction_score"]
             entry_rows = (
                 df_signals.filter(entry_filter)
-                .select([
-                    "instrument", "date_epoch", "next_epoch", "next_open",
-                    "next_volume", "scanner_config_ids",
-                ])
+                .select(select_cols)
                 .to_dicts()
             )
 
@@ -248,7 +319,7 @@ class EodBreakoutSignalGenerator:
                     # When regime is active AND force_exit_on_regime_flip is
                     # set, also exit on the first bar where the regime turns
                     # bearish (epoch not in bull_epochs).
-                    exit_epoch, exit_price = _walk_forward_tsl(
+                    exit_epoch, exit_price, exit_reason = _walk_forward_tsl(
                         ed["epochs"], ed["closes"], ed["opens"],
                         ed["next_opens"], ed["next_epochs"],
                         start_idx, entry_epoch,
@@ -274,6 +345,27 @@ class EodBreakoutSignalGenerator:
                         "exit_config_ids": str(exit_config["id"]),
                     })
                     orders_this_config += 1
+
+                    # HOOK 3: per-trade audit row with at-entry context
+                    # and exit_reason.
+                    if audit_mode and audit_collector is not None:
+                        audit_collector.setdefault("trade_log_audits", []).append({
+                            "instrument": inst,
+                            "entry_epoch": entry_epoch,
+                            "exit_epoch": exit_epoch,
+                            "entry_price": entry_price,
+                            "exit_price": exit_price,
+                            "exit_reason": exit_reason,
+                            "entry_close_signal": entry.get("close"),
+                            "entry_n_day_high": entry.get("n_day_high"),
+                            "entry_direction_score": entry.get("direction_score"),
+                            "entry_regime_bullish": (
+                                entry["date_epoch"] in bull_epochs
+                                if use_regime else None
+                            ),
+                            "entry_config_id": str(entry_config["id"]),
+                            "exit_config_id": str(exit_config["id"]),
+                        })
 
                 print(f"    Exit TSL={trailing_stop_pct}% min_hold={min_hold_days}d: "
                       f"{orders_this_config} orders")
@@ -327,7 +419,12 @@ def _walk_forward_tsl(epochs, closes, opens, next_opens, next_epochs,
     `min_hold_days` where the epoch is NOT in bull_epochs (regime flipped
     bearish). This is option (ii) from the bias audit.
 
-    Returns (exit_epoch, exit_price) or (None, None).
+    Returns (exit_epoch, exit_price, exit_reason) or (None, None, None).
+
+    `exit_reason` is one of: "anomalous_drop", "end_of_data", "regime_flip",
+    "trailing_stop". Always populated when a real exit is returned (Phase 2b
+    audit hook; computing it has no behavioral effect on exit_epoch /
+    exit_price).
     """
     max_price = closes[start_idx] if closes[start_idx] is not None else 0
     last_close = max_price
@@ -342,14 +439,14 @@ def _walk_forward_tsl(epochs, closes, opens, next_opens, next_epochs,
         # triggered on positive gaps, booking losses on days the stock rallied).
         decision = anomalous_drop(c, last_close, PRICE_DROP_THRESHOLD, epochs[j])
         if decision is not None:
-            return decision.exit_epoch, decision.exit_price
+            return decision.exit_epoch, decision.exit_price, "anomalous_drop"
 
         max_price = max(max_price, c)
         hold_days = (epochs[j] - entry_epoch) / SECONDS_IN_ONE_DAY
 
         # Last bar: exit at close
         if epochs[j] == last_epoch:
-            return epochs[j], c
+            return epochs[j], c, "end_of_data"
 
         # Min hold time check
         if hold_days < min_hold_days:
@@ -362,8 +459,8 @@ def _walk_forward_tsl(epochs, closes, opens, next_opens, next_epochs,
                 next_open = next_opens[j]
                 next_ep = next_epochs[j]
                 if next_open is not None and next_open > 0 and next_ep is not None:
-                    return next_ep, next_open
-            return epochs[j], c
+                    return next_ep, next_open, "regime_flip"
+            return epochs[j], c, "regime_flip"
 
         # TSL check
         if max_price > 0:
@@ -374,15 +471,15 @@ def _walk_forward_tsl(epochs, closes, opens, next_opens, next_epochs,
                     next_open = next_opens[j]
                     next_ep = next_epochs[j]
                     if next_open is not None and next_open > 0 and next_ep is not None:
-                        return next_ep, next_open
-                return epochs[j], c
+                        return next_ep, next_open, "trailing_stop"
+                return epochs[j], c, "trailing_stop"
 
         last_close = c
 
     # No exit trigger - exit at last bar close
     if len(epochs) > start_idx:
-        return epochs[-1], closes[-1]
-    return None, None
+        return epochs[-1], closes[-1], "end_of_data"
+    return None, None, None
 
 
 register_strategy("eod_breakout", EodBreakoutSignalGenerator)
