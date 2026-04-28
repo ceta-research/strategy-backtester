@@ -75,8 +75,19 @@ class OrderGenerationUtil:
         ])
 
         ds_thr = entry_config["direction_score"]["score"]
+        # Phase 4 (2026-04-28): optional flag to drop the `close > n_day_ma`
+        # clause. Default False preserves byte-identical behavior. When True
+        # the clause is replaced with pl.lit(True) — both in can_enter_expr
+        # and in the audit clause-mirror columns. The MA column itself is
+        # still computed because the direction-score path may use a related
+        # rolling mean independently.
+        disable_close_gt_ma = bool(entry_config.get("disable_close_gt_ma", False))
+        ma_clause_expr = (
+            pl.lit(True) if disable_close_gt_ma
+            else (pl.col("close") > pl.col("n_day_ma"))
+        )
         can_enter_expr = (
-            (pl.col("close") > pl.col("n_day_ma"))
+            ma_clause_expr
             & (pl.col("close") >= pl.col("n_day_high"))
             & (pl.col("close") > pl.col("open"))
             & (pl.col("scanner_config_ids").is_not_null())
@@ -87,7 +98,7 @@ class OrderGenerationUtil:
         # only column added is `can_enter` (identical to pre-hook).
         if self.audit_mode:
             new_cols.extend([
-                (pl.col("close") > pl.col("n_day_ma")).alias("clause_close_gt_ma"),
+                ma_clause_expr.alias("clause_close_gt_ma"),
                 (pl.col("close") >= pl.col("n_day_high")).alias("clause_close_ge_ndhigh"),
                 (pl.col("close") > pl.col("open")).alias("clause_close_gt_open"),
                 pl.col("scanner_config_ids").is_not_null().alias("clause_scanner_pass"),

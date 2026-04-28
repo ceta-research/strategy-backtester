@@ -88,6 +88,13 @@ def _build_entry_config_default(entry: dict) -> dict:
         "direction_score": entry.get("direction_score", [
             {"n_day_ma": 3, "score": 0.54}
         ]),
+        # Phase 4 (2026-04-28): optional flag to disable the
+        # `close > n_day_ma` clause from add_entry_signal_inplace.
+        # Default False preserves byte-identical behavior on existing
+        # configs. Used to test the audit finding that the MA clause
+        # is essentially redundant on eod_technical (conditional_fail_rate
+        # 0.13%).
+        "disable_close_gt_ma": entry.get("disable_close_gt_ma", [False]),
     }
 
 
