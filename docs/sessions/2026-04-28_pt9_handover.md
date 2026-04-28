@@ -298,15 +298,59 @@ phase-3 queries + tags improvement hypotheses for Phase 4.
 
 ---
 
+## End-of-session review pass (post-pt9 commit)
+
+After Phase 2e committed, did a fresh code-review pass on the full set of
+edits made this session (eod_breakout.py, scanner.py, order_generator.py,
+test_audit_noninvasive.py, run_audit_drill.py).
+
+### Findings
+
+**1 real issue found and fixed:**
+
+- `lib/audit_io.py:write_audit_readme` hardcodes the artifact-table line
+  as `scanner_reject_summary.parquet`, but the runner writes
+  `scanner_snapshot.parquet` for eod_breakout (per-row pass flag,
+  different shape from eod_t's per-day aggregate). README labels were
+  misleading for eod_b runs.
+
+- **Fix** (commit `bbb0e06`): runner now appends a `## Files actually
+  written` section to README with real filenames + row counts and a note
+  explaining the per-strategy asymmetry. `run_metadata.json` was already
+  accurate; only the human-readable README needed correction.
+
+- Re-ran drill for both champions; new READMEs verified accurate.
+
+**Reviewed and OK (no changes needed):**
+
+- HOOK 3a return-tuple change in `_walk_forward_tsl` is byte-identical
+  (reason string is computed alongside the same epoch/price values; no
+  side effects). Single caller, signature change is safe.
+- HOOK D's `_audit_at_entry` keying matches HOOK F's lookup: both use
+  `(instrument, next_epoch / entry_epoch, entry_config_id)`. Verified
+  `order_config_mapping[instrument][next_epoch]` is the same key shape.
+- `compute_filter_marginals` reads back the just-written entry_audit
+  parquet — slight inefficiency (could reuse the in-memory frame) but
+  not a bug; OS page cache makes it cheap. Left as-is.
+- Multiprocessing safety: workers in `order_generator` don't go through
+  `EodTechnicalSignalGenerator.generate_orders`, so the smoke-test
+  monkey-patch on that method is irrelevant in workers. Verified
+  empirically — slow regression suite passed (9/9 in 159s).
+- `OrderGenerationUtil.__init__` new args (`audit_mode`, `audit_collector`)
+  default to `False` / `None`; existing call sites unaffected.
+- Test suite still 435/435 OK after the README fix.
+
+---
+
 ## Working state at end of session
 
 - Tree clean post-commit.
 - `tests/test_audit_noninvasive.py`: 9 tests, all pass (4 slow gated).
 - `scripts/run_audit_drill.py`: runs end-to-end for both champions in
-  ~37 seconds each.
+  ~37 seconds each; READMEs are accurate.
 - Both audit drill output dirs on disk under `results/`.
 - Test suite: 435/435 pass (4 slow skipped).
-- 16 commits unpushed across pt2-pt9.
+- 17 commits unpushed across pt2-pt9.
 
 ---
 
@@ -320,4 +364,5 @@ phase-3 queries + tags improvement hypotheses for Phase 4.
 | `f6ca734` | Inspection drill 2026-04-28 pt7 (Phase 2b): eod_b audit hooks |
 | `813a89d` | Inspection drill 2026-04-28 pt8 (Phase 2c): eod_t legacy-path audit hooks |
 | `9c635ff` | Inspection drill 2026-04-28 (Phase 2d): audit-noninvasive regression test |
-| (this) | Inspection drill 2026-04-28 pt9 (Phase 2e): audit-drill runner + artifacts |
+| `3aac0fc` | Inspection drill 2026-04-28 pt9 (Phase 2e): audit-drill runner + artifacts |
+| `bbb0e06` | Audit drill runner: append accurate file listing to README |
