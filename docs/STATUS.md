@@ -12,7 +12,7 @@
 
 | Date | Focus | Commits | Key outcome |
 |---|---|---|---|
-| 2026-04-28 pt2 | N-leg ensemble experiment | (this session) | Tested 3-leg eod_b+eod_t+low_pe (full + modern, invvol + equal). Result: **2-leg champion stays** (Sharpe 1.281). low_pe drags full-period Sharpe (5.86% solo CAGR due to FMP pre-2018 sparsity). Pareto trade-off: w_lowpe=0.25 buys Cal 0.789→0.810 / MDD -23.81→-19.31% at -0.03 Sharpe. Writeup: [`strategies/ensembles/N_LEG_EXPERIMENT_2026-04-28.md`](../strategies/ensembles/N_LEG_EXPERIMENT_2026-04-28.md). |
+| 2026-04-28 pt2 | N-leg ensemble + QDT R5 refit | (this session) | (1) Tested 3-leg eod_b+eod_t+low_pe (full + modern, invvol + equal). 2-leg champion stays (Sharpe 1.281). Writeup: [`strategies/ensembles/N_LEG_EXPERIMENT_2026-04-28.md`](../strategies/ensembles/N_LEG_EXPERIMENT_2026-04-28.md). (2) QDT R5 refit (72 configs across R5/R5b/R5c): new champion `tsl=10, ppi=2` gives Cal 0.388→0.451 / MDD -47.4%→-39.3% at near-zero Sharpe cost. 3-leg-with-QDT also improves (Cal 0.629→0.725) but still doesn't beat 2-leg. |
 | 2026-04-28 | eod_t regime+holdout (negative); Sharpe-doc realign; LIVE_TRADING ensemble rewrite; 2025 gate run | `14bbe35`..`0c046e2` | eod_t regime+holdout investigation — both phases failed Pareto, methodology mechanism-specific. Sharpe references realigned: doc 1.334 was CAGR/vol, engine canonical is 1.183 — all canonical docs aligned. LIVE_TRADING_INTEGRATION rewritten for ensemble winner. 2025 OOS gate ran on QDT/TV/low_pe — all 3 fail (no 2025 collapse), regime+holdout deprioritized indefinitely. |
 | 2026-04-27 pt2 | Ensemble runner Phase 1-6 + 2010+ best | `fc3d0f2`..`af35ac5` (8 commits) | Ensemble runner shipped. Best 2010+ ensemble: eod_b+eod_t invvol qtly, Sharpe 1.281 |
 | 2026-04-27 | eod_breakout regime+holdout champion | `ba1c208` | Strict Pareto improvement: 15.20%→17.68% CAGR, 2025 -16.57%→+18.67% |
@@ -40,7 +40,7 @@ The strategy-optimization queue is exhausted. Forward work is now:
 | Rank | Strategy | CAGR | Calmar | Sharpe | Caveat |
 |---:|---|---:|---:|---:|---|
 | 1 | `eod_technical` | **19.63%** | **0.757** | 1.067 | Pre-2019 only 8.62%, but 2025 was +2.69% — no 2025 collapse. Regime+holdout TESTED 2026-04-28: methodology does not transfer (see deferred work / [`strategies/eod_technical/REGIME_AND_HOLDOUT_2026-04-28.md`](../strategies/eod_technical/REGIME_AND_HOLDOUT_2026-04-28.md)). |
-| 2 | `quality_dip_tiered` | 18.39% | 0.388 | 0.761 | Deep MDD -47% |
+| 2 | `quality_dip_tiered` | **17.73%** | **0.451** | 0.759 | Re-promoted 2026-04-28 (R5: tsl 8→10, ppi 3→2). MDD -47.4% → -39.3%. |
 | 3 | `eod_breakout` | **17.68%** | **0.661** | **1.183** | Re-promoted 2026-04-27 (regime+holdout, 2025 +18.67%). |
 | 4 | `trending_value` | 16.89% | 0.481 | 0.753 | WF Std Cal 0.745 (FMP sparsity) |
 | 5 | `enhanced_breakout` | 16.40% | 0.656 | — | Best Cal among breakouts |
@@ -61,6 +61,7 @@ The strategy-optimization queue is exhausted. Forward work is now:
 | 2 | `eod_technical` | 19.63% | 0.757 | Most CAGR-efficient |
 | 3 | `earnings_dip` | 13.80% | 0.680 | Modern 2020+ only |
 | 4 | `eod_breakout` | 17.68% | 0.661 | Regime-gated |
+| 5 | `quality_dip_tiered` | 17.73% | **0.451** | R5-promoted 2026-04-28 |
 
 ## Top by Sharpe
 

@@ -1,21 +1,14 @@
-# quality_dip_tiered champion (2026-04-28 pt2, post-audit engine fbcd36a+).
+# R5b: zoom around (tsl=10, max_hold=504, ppi=2) Pareto winner from R5.
+# Test slightly looser TSL [10,12,15] + slightly tighter max_hold [378,504,720]
+# at ppi=2.
 #
-# Full-period (2010-2026): CAGR=17.73%, MDD=-39.30%, Calmar=0.451, Sharpe=0.759
-# R5 champion. Pareto-promoted from R3's tsl=8/ppi=3 (18.39%/-47.37%/0.388/0.761):
-#   -0.66pp CAGR but +8.07pp MDD reduction → +16% Calmar, Sharpe unchanged.
-#
-# Params: yr=2, n_tiers=2, tier_mult=1.5, base_dip=4, peak=30, regime=NIFTYBEES>200,
-#         tsl=10, max_hold=504, sort=top_gainer, pos=15, ppi=2
-#
-# Mechanism: ppi=3→2 cuts third-tier DCA re-entries that deepened drawdowns;
-# tsl=8→10 gives positions room to breathe, fewer false stops at the 8-10% bracket.
-# Backup of pre-R5 config: config_champion_pre_r5.yaml.
+# 3 × 3 × 1 = 9 configs.
 
 static:
   strategy_type: quality_dip_tiered
   start_margin: 10000000
-  start_epoch: 1262304000      # 2010-01-01
-  end_epoch: 1773878400        # 2026-03-30
+  start_epoch: 1262304000
+  end_epoch: 1773878400
   prefetch_days: 1500
   data_granularity: day
   data_provider: nse_charting
@@ -41,8 +34,8 @@ entry:
   regime_sma_period: [200]
 
 exit:
-  trailing_stop_pct: [10]
-  max_hold_days: [504]
+  trailing_stop_pct: [10, 12, 15]
+  max_hold_days: [378, 504, 720]
 
 simulation:
   default_sorting_type: [top_gainer]

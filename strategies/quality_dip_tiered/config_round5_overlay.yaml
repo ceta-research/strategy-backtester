@@ -1,15 +1,11 @@
-# quality_dip_tiered champion (2026-04-28 pt2, post-audit engine fbcd36a+).
+# R5: post-audit overlay refit. Goal: shave the 4.5-year MDD without losing CAGR.
 #
-# Full-period (2010-2026): CAGR=17.73%, MDD=-39.30%, Calmar=0.451, Sharpe=0.759
-# R5 champion. Pareto-promoted from R3's tsl=8/ppi=3 (18.39%/-47.37%/0.388/0.761):
-#   -0.66pp CAGR but +8.07pp MDD reduction → +16% Calmar, Sharpe unchanged.
+# Hypothesis: deep MDD driven by holding losers waiting for peak recovery
+# (max_hold=504d = 2yr) AND by DCA re-entries (ppi=3) deepening drawdowns.
+# Sweep tightens both. TSL [6,8,10] also tested in case 8% is not at the
+# Calmar-optimum after R2's 8/10/12 grid.
 #
-# Params: yr=2, n_tiers=2, tier_mult=1.5, base_dip=4, peak=30, regime=NIFTYBEES>200,
-#         tsl=10, max_hold=504, sort=top_gainer, pos=15, ppi=2
-#
-# Mechanism: ppi=3→2 cuts third-tier DCA re-entries that deepened drawdowns;
-# tsl=8→10 gives positions room to breathe, fewer false stops at the 8-10% bracket.
-# Backup of pre-R5 config: config_champion_pre_r5.yaml.
+# 4 × 3 × 3 = 36 configs. All other params held at champion values.
 
 static:
   strategy_type: quality_dip_tiered
@@ -41,15 +37,15 @@ entry:
   regime_sma_period: [200]
 
 exit:
-  trailing_stop_pct: [10]
-  max_hold_days: [504]
+  trailing_stop_pct: [6, 8, 10]
+  max_hold_days: [126, 252, 378, 504]
 
 simulation:
   default_sorting_type: [top_gainer]
   order_sorting_type: [top_gainer]
   order_ranking_window_days: [30]
   max_positions: [15]
-  max_positions_per_instrument: [2]
+  max_positions_per_instrument: [1, 2, 3]
   order_value_multiplier: [1.0]
   max_order_value:
     - {type: fixed, value: 1000000000}

@@ -1,15 +1,14 @@
-# quality_dip_tiered champion (2026-04-28 pt2, post-audit engine fbcd36a+).
+# quality_dip_tiered champion (2026-04-24, post-audit engine fbcd36a+).
 #
-# Full-period (2010-2026): CAGR=17.73%, MDD=-39.30%, Calmar=0.451, Sharpe=0.759
-# R5 champion. Pareto-promoted from R3's tsl=8/ppi=3 (18.39%/-47.37%/0.388/0.761):
-#   -0.66pp CAGR but +8.07pp MDD reduction → +16% Calmar, Sharpe unchanged.
+# Full-period (2010-2026): CAGR=18.39%, MDD=-47.4%, Calmar=0.388, Sharpe=0.76
+# R3 champion by Calmar (also ~top-3 by CAGR in R2/R3 plateau).
 #
 # Params: yr=2, n_tiers=2, tier_mult=1.5, base_dip=4, peak=30, regime=NIFTYBEES>200,
-#         tsl=10, max_hold=504, sort=top_gainer, pos=15, ppi=2
+#         tsl=8, max_hold=504, sort=top_gainer, pos=15, ppi=3
 #
-# Mechanism: ppi=3→2 cuts third-tier DCA re-entries that deepened drawdowns;
-# tsl=8→10 gives positions room to breathe, fewer false stops at the 8-10% bracket.
-# Backup of pre-R5 config: config_champion_pre_r5.yaml.
+# DCA thesis works on NSE: n_tiers=2 (tier1 at 4%, tier2 at 6%) beats single-entry qdb
+# (11.63%) decisively. Tighter dip threshold (4% vs qdb's 5%) and shorter peak (30 vs 63)
+# generate more frequent entries.
 
 static:
   strategy_type: quality_dip_tiered
@@ -41,7 +40,7 @@ entry:
   regime_sma_period: [200]
 
 exit:
-  trailing_stop_pct: [10]
+  trailing_stop_pct: [8]
   max_hold_days: [504]
 
 simulation:
@@ -49,7 +48,7 @@ simulation:
   order_sorting_type: [top_gainer]
   order_ranking_window_days: [30]
   max_positions: [15]
-  max_positions_per_instrument: [2]
+  max_positions_per_instrument: [3]
   order_value_multiplier: [1.0]
   max_order_value:
     - {type: fixed, value: 1000000000}

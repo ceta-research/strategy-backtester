@@ -6,7 +6,7 @@ progressively deeper dip from rolling peak.
 **Data:** `nse.nse_charting_day`
 **Session:** 2026-04-24 (post-audit engine, commit fbcd36a+)
 
-## Status: COMPLETE
+## Status: COMPLETE (R5 promotion 2026-04-28 pt2)
 
 - [x] Round 0: Baseline
 - [x] Round 1: Sensitivity (3 sub-sweeps, 81 configs)
@@ -16,16 +16,131 @@ progressively deeper dip from rolling peak.
 - [x] Round 4b: Walk-forward (5 folds, std Cal 0.494 borderline PASS)
 - [ ] Round 4c: Cross-data-source (deferred per precedent)
 - [ ] Round 4d: Cross-exchange (deferred)
+- [x] **Round 5: Exit/concentration overlay refit (72 configs, R5/R5b/R5c)**
 
-## Champion
+## Champion (current, post-R5 promotion 2026-04-28)
 
 | Period | CAGR | MDD | Calmar | Sharpe | Trades |
 |--------|------|-----|--------|--------|--------|
-| **Full (2010-2026)** | **18.39%** | -47.4% | **0.388** | 0.76 | 582 |
-| OOS (2020-2026)      | 27.18%    | -37.8% | 0.718    | —    | —    |
+| **Full (2010-2026)** | **17.73%** | **-39.30%** | **0.451** | **0.759** | 535 |
 
 **Params:** `yr=2, n_tiers=2, tier_mult=1.5, base_dip=4, peak=30, regime=NIFTYBEES>SMA200,
-tsl=8, max_hold=504, sort=top_gainer, pos=15, ppi=3`
+tsl=10, max_hold=504, sort=top_gainer, pos=15, ppi=2`
+
+### Promotion history
+
+| Date | Champion | CAGR | MDD | Cal | Sharpe |
+|---|---|---:|---:|---:|---:|
+| 2026-04-24 | tsl=8, ppi=3 | 18.39% | -47.37% | 0.388 | 0.761 |
+| **2026-04-28** | **tsl=10, ppi=2 (current)** | **17.73%** | **-39.30%** | **0.451** | **0.759** |
+
+### Why the new champion is better (Pareto-relevant)
+
+| Metric | Old | New | Δ |
+|---|---:|---:|---:|
+| CAGR | 18.39% | 17.73% | -0.66pp |
+| MDD | -47.37% | -39.30% | **+8.07pp** |
+| Calmar | 0.388 | **0.451** | **+16.2%** |
+| Sharpe | 0.761 | 0.759 | -0.002 (noise) |
+
+The MDD reduction is meaningful; Sharpe is unchanged within noise. CAGR cost
+of -0.66pp is acceptable for live deployment where deep drawdowns are
+operationally costly.
+
+### Mechanism
+
+- **ppi=3 → ppi=2**: cuts the third-tier DCA re-entry that was deepening drawdowns
+  while contributing diminishing CAGR. 582 trades → 535 trades.
+- **tsl=8 → tsl=10**: gives positions room to breathe past the 8-10% bracket
+  where many false stops occurred. Trade count reduction of 47 (8% fewer)
+  reflects stops avoided.
+
+### 3-leg ensemble check
+
+Re-ran QDT-as-third-leg ensembles after R5 promotion:
+
+| Variant | CAGR | MDD | Cal | Sharpe |
+|---|---:|---:|---:|---:|
+| 2-leg eod_b+eod_t invvol qtly (champion) | 18.79% | -23.81% | 0.789 | **1.281** |
+| 3-leg +QDT-pre-R5 invvol qtly | 19.01% | -30.23% | 0.629 | 1.242 |
+| 3-leg +QDT-post-R5 invvol qtly | 18.77% | -25.88% | **0.725** | 1.230 |
+| 3-leg +QDT-post-R5 equal qtly | 18.80% | -26.53% | 0.709 | 1.188 |
+
+QDT's better solo MDD lifts the 3-leg's Calmar from 0.629 → 0.725 (+15%) but
+the 2-leg champion still dominates on both Sharpe and Cal. Confirms the prior
+N-leg conclusion: 2-leg eod_b+eod_t stays the champion.
+
+### Backup of pre-R5 config
+
+`config_champion_pre_r5.yaml` retained for traceability.
+
+---
+
+## Round 5: Exit/concentration overlay refit (72 configs)
+
+**Goal:** shave the 4.5-year MDD without losing CAGR. Hypothesis: deep MDD
+driven by holding losers (max_hold=504d) AND DCA re-entries (ppi=3) deepening
+drawdowns; tightening either should help.
+
+### R5 sweep (36 configs): tsl × max_hold × ppi
+
+Grid: tsl[6,8,10] × max_hold[126,252,378,504] × ppi[1,2,3] = 36.
+
+Top 5 by Calmar:
+
+| config | tsl | max_hold | ppi | CAGR | MDD | Cal | Sharpe |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `1_1_12_2` ⭐ | 10 | 504 | 2 | 17.73% | -39.30% | **0.451** | 0.759 |
+| `1_1_8_3` (old champ) | 8 | 504 | 3 | 18.39% | -47.37% | 0.388 | 0.761 |
+| `1_1_8_2` | 8 | 504 | 2 | 16.86% | -46.97% | 0.359 | 0.698 |
+| `1_1_1_2` | 6 | 126 | 2 | 15.01% | -44.65% | 0.336 | 0.581 |
+
+**Finding:** The (tsl=10, max_hold=504, ppi=2) config is the only Pareto improver
+in the sweep. Cleanly dominant by Calmar, near-equal Sharpe, modest CAGR cost.
+
+### R5b zoom (9 configs): looser tsl × max_hold
+
+Grid: tsl[10,12,15] × max_hold[378,504,720] at ppi=2 = 9.
+
+Best: same `tsl=10, max_hold=504, ppi=2` (Cal 0.451). Looser tsl (12, 15) and
+extreme max_hold (720) all produce lower Calmar. Confirms the R5 winner is at
+a local optimum.
+
+### R5c entry recheck (27 configs): yr × dip × peak at new exit
+
+Grid: yr[1,2,3] × base_dip[3,4,5] × peak_lookback[20,30,45] at the new
+(tsl=10, max_hold=504, ppi=2) baseline = 27.
+
+Best: same yr=2, dip=4, peak=30 (matches prior R3 champion entry params).
+Confirms entry-side champion is independent of exit refit.
+
+### R5 files
+
+| File | Purpose |
+|---|---|
+| `config_round5_overlay.yaml` | R5 sweep: tsl × max_hold × ppi |
+| `config_round5b_zoom.yaml` | R5b zoom: looser tsl × max_hold at ppi=2 |
+| `config_round5c_entry.yaml` | R5c: yr × dip × peak recheck |
+| `results/quality_dip_tiered/round5_overlay.json` | R5 result (36 configs) |
+| `results/quality_dip_tiered/round5b_zoom.json` | R5b result (9) |
+| `results/quality_dip_tiered/round5c_entry.json` | R5c result (27) |
+
+### Untested angles (not pursued in R5)
+
+- **Sector concentration cap** would require engine-level work in the signal
+  generator. Not pursued because R5 already achieved meaningful Pareto gain
+  via existing parameters; sector cap is a deeper refactor for marginal upside.
+- **`force_exit_on_regime_flip`** support is in `engine/signals/quality_dip_tiered.py`
+  via the regime gate but only as an entry-block; full force-exit was not added
+  because DCA strategies that hold averaged-down losers would dump positions
+  exactly at the bottom under force-exit. Mechanism-incompatible with the
+  strategy thesis.
+- **Lower `peak_lookback_days` (e.g. 15)** untested. R3 confirmed 30 > 20 > 45.
+
+---
+
+## Original (pre-R5) champion details below
+
 
 ### Walk-forward (5 folds, 3-yr rolling)
 
