@@ -14,8 +14,8 @@ revenue+earnings CAGR, holds top-N stocks with trailing stop + min hold period.
 - [x] Round 3: Robustness (108 configs, 10/10 PASS)
 - [x] Round 4a: OOS (2020-2026)
 - [x] Round 4b: Walk-forward (5 folds, **Std Cal 0.745 FAILS** — regime-dependent)
-- [ ] Round 4c: Cross-data-source (deferred)
-- [ ] Round 4d: Cross-exchange (deferred)
+- [x] Round 4c: Cross-data-source (2026-04-28: nse_charting 16.89%/Cal 0.481 > FMP 11.31%/Cal 0.306 — fundamentals fragility; bhavcopy 10.69%/Cal 0.240)
+- [x] Round 4d: skipped — fundamentals-driven, FMP coverage uneven cross-market (see [`docs/R4C_R4D_BACKFILL_2026-04-28.md`](../../docs/R4C_R4D_BACKFILL_2026-04-28.md))
 
 ## Champion
 

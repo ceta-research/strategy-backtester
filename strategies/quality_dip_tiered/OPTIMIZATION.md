@@ -14,8 +14,8 @@ progressively deeper dip from rolling peak.
 - [x] Round 3: Robustness (108 configs, 10/10 PASS)
 - [x] Round 4a: OOS (2020-2026)
 - [x] Round 4b: Walk-forward (5 folds, std Cal 0.494 borderline PASS)
-- [ ] Round 4c: Cross-data-source (deferred per precedent)
-- [ ] Round 4d: Cross-exchange (deferred)
+- [x] Round 4c: Cross-data-source (2026-04-28: nse_charting 17.73%/Cal 0.451; FMP 20.50%/Cal 0.509 — both usable; bhavcopy 12.13%/Cal 0.183 weak)
+- [x] Round 4d: skipped — DCA strategy NSE-tuned for midcap dynamics (see [`docs/R4C_R4D_BACKFILL_2026-04-28.md`](../../docs/R4C_R4D_BACKFILL_2026-04-28.md))
 - [x] **Round 5: Exit/concentration overlay refit (72 configs, R5/R5b/R5c)**
 
 ## Champion (current, post-R5 promotion 2026-04-28)

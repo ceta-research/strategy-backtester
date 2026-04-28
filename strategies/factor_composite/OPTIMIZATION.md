@@ -13,8 +13,8 @@
 - [x] Round 3: Robustness (72 configs, 10/10 PASS)
 - [x] Round 4a: OOS (2020-2026)
 - [x] Round 4b: Walk-forward (5 folds, std Cal 0.301 PASSES)
-- [ ] Round 4c: Cross-data-source (deferred per qdb/fsd precedent)
-- [ ] Round 4d: Cross-exchange (deferred)
+- [x] Round 4c: Cross-data-source (2026-04-28: nse_charting 14.78%/Cal 0.319 > FMP 2.96%/Cal 0.059 — **major data-source fragility**, FMP fundamentals JOIN issue)
+- [x] Round 4d: skipped — fundamental composite, sector mappings differ across markets (out-of-scope; see [`docs/R4C_R4D_BACKFILL_2026-04-28.md`](../../docs/R4C_R4D_BACKFILL_2026-04-28.md))
 
 ## Champion
 

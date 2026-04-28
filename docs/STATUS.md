@@ -12,7 +12,7 @@
 
 | Date | Focus | Commits | Key outcome |
 |---|---|---|---|
-| 2026-04-28 pt2 | N-leg ensemble + QDT R5 refit | (this session) | (1) Tested 3-leg eod_b+eod_t+low_pe (full + modern, invvol + equal). 2-leg champion stays (Sharpe 1.281). Writeup: [`strategies/ensembles/N_LEG_EXPERIMENT_2026-04-28.md`](../strategies/ensembles/N_LEG_EXPERIMENT_2026-04-28.md). (2) QDT R5 refit (72 configs across R5/R5b/R5c): new champion `tsl=10, ppi=2` gives Cal 0.388→0.451 / MDD -47.4%→-39.3% at near-zero Sharpe cost. 3-leg-with-QDT also improves (Cal 0.629→0.725) but still doesn't beat 2-leg. |
+| 2026-04-28 pt2 | N-leg ensemble + QDT R5 refit + R4c/R4d backfill | (this session) | (1) Tested 3-leg eod_b+eod_t+low_pe (full + modern, invvol + equal). 2-leg champion stays (Sharpe 1.281). Writeup: [`strategies/ensembles/N_LEG_EXPERIMENT_2026-04-28.md`](../strategies/ensembles/N_LEG_EXPERIMENT_2026-04-28.md). (2) QDT R5 refit (72 configs): new champion `tsl=10, ppi=2` gives Cal 0.388→0.451 / MDD -47.4%→-39.3% at near-zero Sharpe cost. (3) R4c done for all 6 backlog strategies + R4d for 2 price-only (eod_technical, ml_supertrend). Findings: bhavcopy uniformly worse; FMP fragile for fundamentals strategies (factor_composite -12pp, low_pe -8.7pp); NSE dominant 2-4× cross-exchange. Writeup: [`R4C_R4D_BACKFILL_2026-04-28.md`](R4C_R4D_BACKFILL_2026-04-28.md). |
 | 2026-04-28 | eod_t regime+holdout (negative); Sharpe-doc realign; LIVE_TRADING ensemble rewrite; 2025 gate run | `14bbe35`..`0c046e2` | eod_t regime+holdout investigation — both phases failed Pareto, methodology mechanism-specific. Sharpe references realigned: doc 1.334 was CAGR/vol, engine canonical is 1.183 — all canonical docs aligned. LIVE_TRADING_INTEGRATION rewritten for ensemble winner. 2025 OOS gate ran on QDT/TV/low_pe — all 3 fail (no 2025 collapse), regime+holdout deprioritized indefinitely. |
 | 2026-04-27 pt2 | Ensemble runner Phase 1-6 + 2010+ best | `fc3d0f2`..`af35ac5` (8 commits) | Ensemble runner shipped. Best 2010+ ensemble: eod_b+eod_t invvol qtly, Sharpe 1.281 |
 | 2026-04-27 | eod_breakout regime+holdout champion | `ba1c208` | Strict Pareto improvement: 15.20%→17.68% CAGR, 2025 -16.57%→+18.67% |
@@ -167,7 +167,7 @@ git diff fbcd36a HEAD -- engine/pipeline.py engine/utils.py engine/simulator.py 
 
 - 49 stale results files (pre-`ba95a05` charges) — see [`archive/pre-engine-2026-03/CROSS_EXCHANGE_STALE_RATES.md`](archive/pre-engine-2026-03/CROSS_EXCHANGE_STALE_RATES.md). Not blocking; affects only R4d cross-exchange validation.
 - Regression snapshots in `tests/regression/snapshots/` show drift vs fresh runs (data growth). Re-pinning decision pending.
-- R4c (cross-data) + R4d (cross-exchange) for 6 newer COMPLETE strategies (`factor_composite`, `quality_dip_tiered`, `trending_value`, `eod_technical`, `low_pe`, `ml_supertrend`).
+- ~~R4c (cross-data) + R4d (cross-exchange) for 6 newer COMPLETE strategies~~ **DONE 2026-04-28 pt2.** R4c run for all 6; R4d run for 2 price-only strategies (eod_technical, ml_supertrend); R4d skipped for 4 fundamental strategies as out-of-scope. Full results: [`R4C_R4D_BACKFILL_2026-04-28.md`](R4C_R4D_BACKFILL_2026-04-28.md).
 - 1 P1 + 2 P2 + 6 P3 audit hygiene items (see [`archive/audit-2026-04/AUDIT_CHECKLIST.md`](archive/audit-2026-04/AUDIT_CHECKLIST.md)).
 - Add deflated Sharpe to `OPTIMIZATION_RUNBOOK.md` as standard requirement.
 - Add same-bar bias check to `OPTIMIZATION_PROMPT.md` (gap_fill lesson).

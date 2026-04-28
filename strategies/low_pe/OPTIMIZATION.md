@@ -29,6 +29,8 @@ underperformance.
 | **Modern R2 (2018-26)** | 32 | **14.49%** | **1.016** | Champion below |
 | R4a OOS 2020-26 | 1 | 17.76% | 1.471 | OOS > IS (robust in regime) |
 | R4b walk-forward | 6 folds | — | 1.72 mean | 5/6 positive, Std Cal 1.34 FAILS |
+| R4c cross-data (2026-04-28) | 3 sources | — | — | nse_charting (modern) 12.26%/Cal 1.016; FMP 3.52%/Cal 0.268 — **major fragility**; bhavcopy 10.88%/Cal 0.730 surprisingly close. |
+| R4d cross-exchange | — | — | — | Skipped: fundamentals-only, mktcap thresholds INR-calibrated, FMP coverage uneven cross-market. See [`docs/R4C_R4D_BACKFILL_2026-04-28.md`](../../docs/R4C_R4D_BACKFILL_2026-04-28.md). |
 
 ## Champion (modern window)
 

@@ -15,8 +15,8 @@ modules (predates `eod_breakout`'s modern framework).
 - [x] Round 3: (skipped — R2 already 10/10 robust with dense grid)
 - [x] Round 4a: OOS (2020-2026)
 - [x] Round 4b: Walk-forward (5 folds, Std Cal 0.723)
-- [ ] Round 4c: Cross-data-source (deferred)
-- [ ] Round 4d: Cross-exchange (deferred)
+- [x] Round 4c: Cross-data-source (2026-04-28: nse_charting primary 19.63%/Cal 0.757 > FMP 19.26%/Cal 0.592 > bhavcopy 14.87%/Cal 0.411)
+- [x] Round 4d: Cross-exchange (2026-04-28: NSE dominant 2-4×; KR/TW/UK modest; China graveyard; US scanner-threshold-filtered to 0 orders). Full results: [`docs/R4C_R4D_BACKFILL_2026-04-28.md`](../../docs/R4C_R4D_BACKFILL_2026-04-28.md).
 - [x] Regime+holdout (2026-04-28) — **negative result, methodology does not transfer**
 
 ## Regime+holdout investigation (2026-04-28)

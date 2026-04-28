@@ -26,6 +26,8 @@ Sharpe ≈ 0** after multiple-test correction for 108 R2 configs — observed Sh
 | R1c (exits) | 32 | 8.82% | 0.197 | tsl=12, hold=252, NO ST exit |
 | **R2 (combined)** | 108 | **13.84%** | **0.415** | champion below |
 | R4a OOS 2020-26 | 1 | **23.58%** | **0.883** | OOS > IS (1.79×) |
+| R4c cross-data (2026-04-28) | 3 sources | — | — | nse_charting 13.20%/0.415; FMP 14.44%/0.567 slightly better; bhavcopy 10.93%/0.288 weak. |
+| R4d cross-exchange (2026-04-28) | 9 markets | — | — | NSE dominant; KR/TW/UK modest positive; China SHZ negative. See [`docs/R4C_R4D_BACKFILL_2026-04-28.md`](../../docs/R4C_R4D_BACKFILL_2026-04-28.md). |
 | R4b walk-forward | 5 folds | 6.64-30.44% | 0.21-1.26 | 5/5 positive, Std Cal 0.387 PASSES |
 
 ### R1a screening insights
