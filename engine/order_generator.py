@@ -20,9 +20,19 @@ from engine.exits import (
 
 class OrderGenerationUtil:
 
-    def __init__(self, df_tick_data: pl.DataFrame):
+    def __init__(self, df_tick_data: pl.DataFrame, audit_mode: bool = False,
+                 audit_collector: dict = None):
         self.df_tick_data = df_tick_data
         self.order_config_mapping = {}
+        # Audit hooks (Phase 2c, 2026-04-28). When audit_mode is False the
+        # collector is never touched and the code path is byte-identical to
+        # the pre-hook version.
+        self.audit_mode = bool(audit_mode)
+        self.audit_collector = audit_collector if self.audit_mode else None
+        # (instrument, entry_epoch, entry_config_id) -> at_entry_context dict.
+        # Populated in update_config_order_map when audit_mode; consumed in
+        # the post-Pool join to build trade_log_audits.
+        self._audit_at_entry: dict = {}
 
     @staticmethod
     def add_direction_score(df_tick_data: pl.DataFrame, direction_score_config: dict) -> pl.DataFrame:
@@ -64,18 +74,62 @@ class OrderGenerationUtil:
             .alias("n_day_high"),
         ])
 
-        df_tick_data = df_tick_data.with_columns(
-            (
-                (pl.col("close") > pl.col("n_day_ma"))
-                & (pl.col("close") >= pl.col("n_day_high"))
-                & (pl.col("close") > pl.col("open"))
-                & (pl.col("scanner_config_ids").is_not_null())
-                & (pl.col("direction_score") > entry_config["direction_score"]["score"])
-            ).alias("can_enter")
+        ds_thr = entry_config["direction_score"]["score"]
+        can_enter_expr = (
+            (pl.col("close") > pl.col("n_day_ma"))
+            & (pl.col("close") >= pl.col("n_day_high"))
+            & (pl.col("close") > pl.col("open"))
+            & (pl.col("scanner_config_ids").is_not_null())
+            & (pl.col("direction_score") > ds_thr)
         )
+        new_cols = [can_enter_expr.alias("can_enter")]
+        # HOOK C: per-clause flag mirror columns. When audit_mode=False the
+        # only column added is `can_enter` (identical to pre-hook).
+        if self.audit_mode:
+            new_cols.extend([
+                (pl.col("close") > pl.col("n_day_ma")).alias("clause_close_gt_ma"),
+                (pl.col("close") >= pl.col("n_day_high")).alias("clause_close_ge_ndhigh"),
+                (pl.col("close") > pl.col("open")).alias("clause_close_gt_open"),
+                pl.col("scanner_config_ids").is_not_null().alias("clause_scanner_pass"),
+                (pl.col("direction_score") > ds_thr).alias("clause_ds_gt_thr"),
+            ])
+        df_tick_data = df_tick_data.with_columns(new_cols)
         return df_tick_data
 
     def update_config_order_map(self, df_tick_data: pl.DataFrame, entry_config_id: int):
+        # HOOK D: emit per-clause flags + all_clauses_pass over the FULL
+        # candidate set (passed and failed) before the can_enter filter.
+        # When audit_mode=False this block is skipped entirely.
+        if self.audit_mode and self.audit_collector is not None:
+            clause_names = [
+                "clause_close_gt_ma", "clause_close_ge_ndhigh",
+                "clause_close_gt_open", "clause_scanner_pass",
+                "clause_ds_gt_thr",
+            ]
+            df_audit = df_tick_data.with_columns(
+                pl.col("can_enter").alias("all_clauses_pass")
+            ).select(
+                ["instrument", "date_epoch"] + clause_names + ["all_clauses_pass"]
+            ).with_columns(
+                pl.lit(entry_config_id).alias("entry_config_id")
+            )
+            self.audit_collector.setdefault("entry_audits", []).append(df_audit)
+
+            # Capture at-entry context (close, n_day_high, direction_score)
+            # for can_enter==True rows. Keyed by (instrument, entry_epoch,
+            # entry_config_id) — entry_epoch is next_epoch (MOC convention).
+            df_at_entry = df_tick_data.filter(pl.col("can_enter")).select([
+                "instrument", "next_epoch", "close", "n_day_high",
+                "direction_score",
+            ])
+            for row in df_at_entry.iter_rows(named=True):
+                key = (row["instrument"], row["next_epoch"], entry_config_id)
+                self._audit_at_entry[key] = {
+                    "entry_close_signal": row["close"],
+                    "entry_n_day_high": row["n_day_high"],
+                    "entry_direction_score": row["direction_score"],
+                }
+
         df_tick_data = df_tick_data.filter(pl.col("can_enter"))
 
         instruments = df_tick_data["instrument"].to_list()
@@ -354,7 +408,12 @@ def process(context: dict, df_tick_data_original: pl.DataFrame) -> pl.DataFrame:
     # Drop rows without next-day data (last day per instrument)
     df_tick_data_original = df_tick_data_original.filter(pl.col("next_epoch").is_not_null())
 
-    order_generation_util = OrderGenerationUtil(df_tick_data_original)
+    audit_mode = bool(context.get("audit_mode", False))
+    audit_collector = context.get("audit_collector") if audit_mode else None
+
+    order_generation_util = OrderGenerationUtil(
+        df_tick_data_original, audit_mode=audit_mode, audit_collector=audit_collector
+    )
 
     print(f"  Order gen: {df_tick_data_original.height} rows, "
           f"{df_tick_data_original['instrument'].n_unique()} instruments")
@@ -369,6 +428,44 @@ def process(context: dict, df_tick_data_original: pl.DataFrame) -> pl.DataFrame:
     _checkpoint = time.time()
     order_generation_util.generate_exit_attributes(context)
     print(f"  Exit attributes: {round(time.time() - _checkpoint, 2)}s")
+
+    # HOOK F: post-Pool join. Walk order_config_mapping (per-trade exit
+    # info) × _audit_at_entry (per-trade at-entry context) and emit
+    # combined per-trade audit rows. Skipped when audit_mode=False.
+    if audit_mode and audit_collector is not None:
+        ocm = order_generation_util.order_config_mapping
+        at_entry = order_generation_util._audit_at_entry
+        for instrument, entries in ocm.items():
+            for entry_epoch, exits in entries.items():
+                if not isinstance(exits, dict):
+                    continue
+                for exit_epoch, attrs in exits.items():
+                    if not isinstance(attrs, dict):
+                        continue
+                    entry_config_ids = attrs.get("entry_config_ids", "")
+                    # entry_config_ids may be a comma-separated list. Take
+                    # the first id for at-entry-context lookup; the same
+                    # at-entry context applies for all configs at the same
+                    # (instrument, entry_epoch).
+                    first_id_str = (entry_config_ids or "").split(",")[0].strip()
+                    try:
+                        first_id = int(first_id_str)
+                    except ValueError:
+                        first_id = None
+                    ctx = at_entry.get((instrument, entry_epoch, first_id), {})
+                    audit_collector.setdefault("trade_log_audits", []).append({
+                        "instrument": instrument,
+                        "entry_epoch": entry_epoch,
+                        "exit_epoch": exit_epoch,
+                        "entry_price": attrs.get("entry_price"),
+                        "exit_price": attrs.get("exit_price"),
+                        "exit_reason": attrs.get("exit_reason"),
+                        "entry_close_signal": ctx.get("entry_close_signal"),
+                        "entry_n_day_high": ctx.get("entry_n_day_high"),
+                        "entry_direction_score": ctx.get("entry_direction_score"),
+                        "entry_config_ids": entry_config_ids,
+                        "exit_config_ids": attrs.get("exit_config_ids"),
+                    })
 
     df_orders = order_generation_util.generate_order_df()
     print(f"  Orders generated: {df_orders.height}")

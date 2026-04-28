@@ -1,5 +1,7 @@
 # Session handover — 2026-04-28 pt7 (Phase 2b complete)
 
+> **Superseded by [`2026-04-28_pt8_handover.md`](2026-04-28_pt8_handover.md)** — Phase 2c is now complete. Read pt8 first.
+
 **Predecessor:** [`2026-04-28_pt6_handover.md`](2026-04-28_pt6_handover.md) — Phases 0+1+2a checkpoint.
 
 This is a **progress checkpoint**. Plan in pt5 is still current. Phase 2b

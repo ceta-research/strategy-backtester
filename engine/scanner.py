@@ -79,6 +79,12 @@ def process(context: dict, df_tick_data_original: pl.DataFrame) -> pl.DataFrame:
     )
     shortlist_tracker = {}
 
+    # Audit hooks (Phase 2c inspection drill, 2026-04-28). When
+    # audit_mode is False, the per-clause reject summary is skipped and
+    # behavior is byte-identical to the pre-hook version.
+    audit_mode = bool(context.get("audit_mode", False))
+    audit_collector = context.get("audit_collector") if audit_mode else None
+
     for scanner_config in get_scanner_config_iterator(context):
         df_tick_data = df_tick_data_original.clone()
 
@@ -132,6 +138,37 @@ def process(context: dict, df_tick_data_original: pl.DataFrame) -> pl.DataFrame:
         )
 
         df_tick_data = df_tick_data.drop_nulls()
+
+        # HOOK B: per-clause reject summary. Compute clause-pass booleans
+        # on a sibling DataFrame (df_tick_data unchanged), then group by
+        # date_epoch to emit per-(date, scanner_config) reject counts. Done
+        # before the filters so we can count rejects accurately.
+        if audit_mode and audit_collector is not None:
+            df_clause_eval = df_tick_data.with_columns([
+                (pl.col("close") > scanner_config["price_threshold"])
+                .alias("_price_pass"),
+                (pl.col("avg_txn_turnover") > avg_day_transaction_threshold)
+                .alias("_avg_txn_pass"),
+                (pl.col("gain") > n_day_gain_threshold)
+                .alias("_n_day_gain_pass"),
+            ])
+            summary = (
+                df_clause_eval.group_by("date_epoch", maintain_order=True)
+                .agg([
+                    pl.len().alias("candidate_count"),
+                    (~pl.col("_price_pass")).sum().alias("price_rejects"),
+                    (~pl.col("_avg_txn_pass")).sum().alias("avg_txn_rejects"),
+                    (~pl.col("_n_day_gain_pass")).sum().alias("n_day_gain_rejects"),
+                    (pl.col("_price_pass")
+                     & pl.col("_avg_txn_pass")
+                     & pl.col("_n_day_gain_pass")).sum().alias("pass_count"),
+                ])
+                .with_columns(
+                    pl.lit(scanner_config["id"]).alias("scanner_config_id")
+                )
+            )
+            audit_collector.setdefault("scanner_reject_summaries", []).append(summary)
+
         # price_threshold is a PER-BAR filter, not a "stock ever exceeded X"
         # filter. A stock trading at ₹55 today and ₹45 last week will have
         # last week's row dropped and today's retained. The universe is
