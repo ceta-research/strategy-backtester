@@ -16,6 +16,7 @@ Exit:
   Price gap >20% triggers forced exit at 80% of last close.
 """
 
+import math
 import time
 
 import polars as pl
@@ -81,6 +82,17 @@ class EodBreakoutSignalGenerator:
             force_exit_on_regime_flip = entry_config.get(
                 "force_exit_on_regime_flip", False
             )
+            # Universe-level vol filter (NEW 2026-04-28 pt3). Sentinel >= 500
+            # means filter disabled — when disabled, NO vol computation is done
+            # and the entry_filter is byte-identical to pre-change behavior.
+            max_stock_vol_pct = entry_config.get("max_stock_vol_pct", 999)
+            vol_lookback_days = entry_config.get("vol_lookback_days", 60)
+            vol_filter_active = max_stock_vol_pct < 500
+            if vol_filter_active and vol_lookback_days < 2:
+                raise ValueError(
+                    f"vol_lookback_days must be >= 2 when filter active; "
+                    f"got {vol_lookback_days}"
+                )
 
             bull_epochs = regime_cache.get(
                 (regime_instrument, regime_sma_period), set()
@@ -125,6 +137,25 @@ class EodBreakoutSignalGenerator:
             )
             df_signals = df_signals.join(direction_scores, on="date_epoch", how="left")
 
+            # Optional: trailing-window annualized vol filter (universe-level).
+            # Computes per-instrument rolling std of simple daily returns over
+            # `vol_lookback_days`, annualized by sqrt(252). Stocks with
+            # insufficient history get NULL vol and are excluded by the filter
+            # clause below. Skipped entirely when filter is inactive — no
+            # change to df_signals shape vs pre-change pipeline.
+            if vol_filter_active:
+                df_signals = df_signals.with_columns(
+                    pl.col("close").pct_change().over("instrument").alias("_return_for_vol")
+                ).with_columns(
+                    (pl.col("_return_for_vol")
+                     .rolling_std(
+                         window_size=vol_lookback_days,
+                         min_samples=vol_lookback_days,
+                     )
+                     .over("instrument") * math.sqrt(252)
+                    ).alias("trailing_vol_annual")
+                )
+
             # Trim to sim range, merge scanner IDs
             df_signals = df_signals.filter(pl.col("date_epoch") >= start_epoch)
             df_signals = df_signals.with_columns(
@@ -150,6 +181,11 @@ class EodBreakoutSignalGenerator:
                 entry_filter = entry_filter & pl.col("date_epoch").is_in(
                     list(bull_epochs)
                 )
+            if vol_filter_active:
+                entry_filter = entry_filter & (
+                    pl.col("trailing_vol_annual").is_not_null()
+                    & (pl.col("trailing_vol_annual") < max_stock_vol_pct / 100)
+                )
 
             entry_rows = (
                 df_signals.filter(entry_filter)
@@ -164,9 +200,13 @@ class EodBreakoutSignalGenerator:
                 f", regime={regime_instrument}>SMA{regime_sma_period}"
                 if use_regime else ""
             )
+            vol_str = (
+                f", vol<{max_stock_vol_pct}%@{vol_lookback_days}d"
+                if vol_filter_active else ""
+            )
             print(f"  Entry candidates: {len(entry_rows)} "
                   f"(n_day_high={n_day_high_window}, n_day_ma={n_day_ma_window}, "
-                  f"ds_threshold={ds_threshold}{regime_str})")
+                  f"ds_threshold={ds_threshold}{regime_str}{vol_str})")
 
             # Build per-instrument exit data for walk-forward
             exit_data = {}
@@ -257,6 +297,12 @@ class EodBreakoutSignalGenerator:
             "force_exit_on_regime_flip": entry_cfg.get(
                 "force_exit_on_regime_flip", [False]
             ),
+            # Universe-level vol filter (NEW 2026-04-28 pt3). Sentinel >= 500
+            # disables the filter; in that case no vol computation is done
+            # and behavior is byte-identical to pre-change. Default 999 means
+            # disabled, matching legacy configs.
+            "max_stock_vol_pct": entry_cfg.get("max_stock_vol_pct", [999]),
+            "vol_lookback_days": entry_cfg.get("vol_lookback_days", [60]),
         }
 
     @staticmethod
