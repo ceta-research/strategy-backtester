@@ -102,6 +102,11 @@ def _build_exit_config_default(exit_cfg: dict) -> dict:
     return {
         "min_hold_time_days": exit_cfg.get("min_hold_time_days", [0]),
         "trailing_stop_pct": exit_cfg.get("trailing_stop_pct", [15]),
+        # Phase 5 adaptive TSL (2026-04-28): once MFE from entry exceeds
+        # tsl_tighten_after_pct, the effective TSL tightens to tsl_tight_pct.
+        # Default 999 = disabled (byte-identical to legacy behavior).
+        "tsl_tighten_after_pct": exit_cfg.get("tsl_tighten_after_pct", [999]),
+        "tsl_tight_pct": exit_cfg.get("tsl_tight_pct", [0]),
     }
 
 

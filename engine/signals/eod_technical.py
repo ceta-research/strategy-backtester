@@ -312,6 +312,9 @@ class EodTechnicalSignalGenerator:
         return {
             "min_hold_time_days": exit_cfg.get("min_hold_time_days", [0]),
             "trailing_stop_pct": exit_cfg.get("trailing_stop_pct", [15]),
+            # Phase 5 adaptive TSL
+            "tsl_tighten_after_pct": exit_cfg.get("tsl_tighten_after_pct", [999]),
+            "tsl_tight_pct": exit_cfg.get("tsl_tight_pct", [0]),
         }
 
 

@@ -126,7 +126,10 @@ def max_hold_reached(this_epoch: int, entry_epoch: int,
 def trailing_stop(close_price: float, max_price_since_entry: float,
                   trailing_stop_pct: float,
                   next_epoch: int, next_open: Optional[float],
-                  this_epoch: int) -> Optional[ExitDecision]:
+                  this_epoch: int,
+                  entry_price: float = 0.0,
+                  tsl_tighten_after_pct: float = 999.0,
+                  tsl_tight_pct: float = 0.0) -> Optional[ExitDecision]:
     """TSL: if drawdown from peak since entry exceeds threshold, exit.
 
     Execution model (MOC-ish): signal at this_epoch's close, exit at
@@ -135,13 +138,27 @@ def trailing_stop(close_price: float, max_price_since_entry: float,
     close at this_epoch.
 
     trailing_stop_pct == 0 disables TSL (returns None always).
+
+    Adaptive TSL (Phase 5, 2026-04-28): when the trade's MFE from
+    entry_price exceeds `tsl_tighten_after_pct`%, the effective TSL
+    tightens from `trailing_stop_pct` to `tsl_tight_pct`. Default
+    `tsl_tighten_after_pct=999` (disabled) preserves byte-identical
+    behavior.
     """
     if trailing_stop_pct <= 0:
         return None
     if max_price_since_entry <= 0:
         return None
+
+    # Adaptive TSL: tighten once MFE exceeds threshold.
+    effective_tsl = trailing_stop_pct
+    if entry_price > 0 and tsl_tighten_after_pct < 999:
+        mfe_from_entry_pct = (max_price_since_entry - entry_price) / entry_price * 100.0
+        if mfe_from_entry_pct > tsl_tighten_after_pct:
+            effective_tsl = tsl_tight_pct if tsl_tight_pct > 0 else trailing_stop_pct
+
     drawdown_pct = (max_price_since_entry - close_price) * 100.0 / max_price_since_entry
-    if drawdown_pct <= trailing_stop_pct:
+    if drawdown_pct <= effective_tsl:
         return None
     if next_open is not None and next_open > 0:
         return ExitDecision(reason="trailing_stop", exit_price=next_open,

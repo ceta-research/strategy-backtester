@@ -327,6 +327,10 @@ class EodBreakoutSignalGenerator:
                         bull_epochs=bull_epochs if (
                             use_regime and force_exit_on_regime_flip
                         ) else None,
+                        entry_price=entry_price,
+                        tsl_tighten_after_pct=exit_config.get(
+                            "tsl_tighten_after_pct", 999.0),
+                        tsl_tight_pct=exit_config.get("tsl_tight_pct", 0.0),
                     )
 
                     if exit_epoch is None or exit_price is None:
@@ -408,12 +412,18 @@ class EodBreakoutSignalGenerator:
         return {
             "min_hold_time_days": exit_cfg.get("min_hold_time_days", [0]),
             "trailing_stop_pct": exit_cfg.get("trailing_stop_pct", [15]),
+            # Phase 5 adaptive TSL: tighten once MFE > threshold.
+            "tsl_tighten_after_pct": exit_cfg.get("tsl_tighten_after_pct", [999]),
+            "tsl_tight_pct": exit_cfg.get("tsl_tight_pct", [0]),
         }
 
 
 def _walk_forward_tsl(epochs, closes, opens, next_opens, next_epochs,
                       start_idx, entry_epoch, trailing_stop_pct, min_hold_days,
-                      bull_epochs=None):
+                      bull_epochs=None,
+                      entry_price=0.0,
+                      tsl_tighten_after_pct=999.0,
+                      tsl_tight_pct=0.0):
     """Walk forward from entry to find TSL exit, matching ATO_Simulator logic.
 
     TSL: exit at next-day open when drawdown from max price > trailing_stop_pct.
@@ -424,6 +434,11 @@ def _walk_forward_tsl(epochs, closes, opens, next_opens, next_epochs,
     positions are force-exited at next-day open on the first bar past
     `min_hold_days` where the epoch is NOT in bull_epochs (regime flipped
     bearish). This is option (ii) from the bias audit.
+
+    Adaptive TSL (Phase 5, 2026-04-28): when MFE from `entry_price` exceeds
+    `tsl_tighten_after_pct`%, the effective TSL tightens from
+    `trailing_stop_pct` to `tsl_tight_pct`. Default 999 = disabled (byte-
+    identical to legacy behavior).
 
     Returns (exit_epoch, exit_price, exit_reason) or (None, None, None).
 
@@ -468,10 +483,16 @@ def _walk_forward_tsl(epochs, closes, opens, next_opens, next_epochs,
                     return next_ep, next_open, "regime_flip"
             return epochs[j], c, "regime_flip"
 
-        # TSL check
+        # TSL check — adaptive: tighten once MFE exceeds threshold.
         if max_price > 0:
+            effective_tsl = trailing_stop_pct
+            if entry_price > 0 and tsl_tighten_after_pct < 999:
+                mfe_from_entry_pct = (max_price - entry_price) / entry_price * 100
+                if mfe_from_entry_pct > tsl_tighten_after_pct:
+                    effective_tsl = tsl_tight_pct if tsl_tight_pct > 0 else trailing_stop_pct
+
             drawdown_pct = (max_price - c) / max_price * 100
-            if drawdown_pct > trailing_stop_pct:
+            if drawdown_pct > effective_tsl:
                 # Exit at next-day open
                 if j + 1 < len(epochs):
                     next_open = next_opens[j]

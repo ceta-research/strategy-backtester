@@ -335,9 +335,13 @@ def generate_exit_attributes_for_instrument(instrument, instrument_order_config,
                     continue
 
                 # 4. Trailing stop loss (MOC: exit at next_open if available).
+                # Adaptive TSL: pass entry_price + tightening params if set.
                 decision = trailing_stop(
                     close_price, max_price, exit_config["trailing_stop_pct"],
-                    next_epoch, next_open_price, this_epoch)
+                    next_epoch, next_open_price, this_epoch,
+                    entry_price=order_attributes.get("entry_price", 0.0),
+                    tsl_tighten_after_pct=exit_config.get("tsl_tighten_after_pct", 999.0),
+                    tsl_tight_pct=exit_config.get("tsl_tight_pct", 0.0))
                 if decision is not None:
                     _record_exit(instrument_order_config, entry_epoch,
                                  order_attributes, decision, exit_config_id,
