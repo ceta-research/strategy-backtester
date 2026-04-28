@@ -324,6 +324,35 @@ def run_one(strategy: str) -> dict:
     )
     audit_io.write_audit_readme(out_dir, metadata)
 
+    # `audit_io.write_audit_readme` hardcodes a generic artifact table that
+    # always names the scanner artifact `scanner_reject_summary.parquet`.
+    # The runner emits either `scanner_reject_summary.parquet` (eod_t) or
+    # `scanner_snapshot.parquet` (eod_b) — different shapes. Append an
+    # accurate file listing so a reader can identify what's actually on
+    # disk without running `ls`.
+    artifacts_for_readme = [
+        ("entry_audit.parquet", ea_path, ea_rows),
+        ("trade_log_audit.parquet", tla_path, tla_rows),
+        (os.path.basename(sc_path) if sc_path else None, sc_path, sc_rows),
+        ("filter_marginals.parquet", fm_path, fm_rows),
+        ("simulator_trade_log.parquet", sim_t_path, sim_t_rows),
+        ("equity_curve.parquet", eq_path, eq_rows),
+    ]
+    addendum = ["\n## Files actually written\n",
+                "| File | Rows |\n", "|---|---:|\n"]
+    for name, path, rows in artifacts_for_readme:
+        if path is not None and name is not None:
+            addendum.append(f"| `{name}` | {rows:,} |\n")
+    addendum.append(
+        "\nNote: the scanner artifact differs by strategy — "
+        "`scanner_snapshot.parquet` (eod_breakout: per-row pass flag) vs "
+        "`scanner_reject_summary.parquet` (eod_technical: per-day "
+        "aggregate of rejects by clause).\n"
+    )
+    readme_path = os.path.join(out_dir, "README.md")
+    with open(readme_path, "a") as f:
+        f.write("".join(addendum))
+
     summary = {
         "strategy": strategy,
         "out_dir": os.path.relpath(out_dir, REPO_ROOT),
