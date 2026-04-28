@@ -343,6 +343,12 @@ class EodBreakoutSignalGenerator:
                         "scanner_config_ids": entry["scanner_config_ids"],
                         "entry_config_ids": str(entry_config["id"]),
                         "exit_config_ids": str(exit_config["id"]),
+                        # Propagate exit_reason so simulator carries the real
+                        # taxonomy (anomalous_drop / regime_flip / trailing_stop)
+                        # instead of falling back to "natural". Phase 4
+                        # (2026-04-28) — the audit's exit_reason was already
+                        # informative; this just plumbs it through.
+                        "exit_reason": exit_reason,
                     })
                     orders_this_config += 1
 
