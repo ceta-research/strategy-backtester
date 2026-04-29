@@ -24,6 +24,7 @@ from engine.config_loader import (
     get_exit_config_iterator,
 )
 from engine.signals.base import register_strategy, add_next_day_values, run_scanner, walk_forward_exit, finalize_orders, build_regime_filter
+from engine.internal_regime import compute_internal_regime_epochs
 
 TRADING_DAYS_PER_YEAR = 252
 
@@ -71,9 +72,30 @@ class QualityDipTieredSignalGenerator:
             rescreen_days = entry_config["rescreen_interval_days"]
             regime_instrument = entry_config.get("regime_instrument", "")
             regime_sma_period = entry_config.get("regime_sma_period", 0)
+            force_exit_on_regime_flip = entry_config.get(
+                "force_exit_on_regime_flip", False
+            )
+            ir_sma = entry_config.get("internal_regime_sma_period", 0)
+            ir_thr = entry_config.get("internal_regime_threshold", 0.5)
 
-            # Get regime filter
+            # External regime filter
             bull_epochs = regime_cache.get((regime_instrument, regime_sma_period), set())
+            use_external = bool(bull_epochs)
+
+            # Internal regime from scanner universe
+            use_internal = ir_sma > 0
+            if use_internal:
+                ir_cache_key = ("int", ir_sma, ir_thr)
+                if ir_cache_key not in regime_cache:
+                    regime_cache[ir_cache_key] = compute_internal_regime_epochs(
+                        df_trimmed, sma_period=ir_sma, threshold=ir_thr
+                    )
+                internal_bull = regime_cache[ir_cache_key]
+                if use_external:
+                    bull_epochs = bull_epochs & internal_bull
+                else:
+                    bull_epochs = internal_bull
+
             use_regime = bool(bull_epochs)
 
             # Compute tier-specific dip thresholds
@@ -228,6 +250,9 @@ class QualityDipTieredSignalGenerator:
                             trailing_stop_pct, max_hold_days,
                             # Dip-buy: entry is below peak. Wait for recovery.
                             require_peak_recovery=True,
+                            bull_epochs=bull_epochs if (
+                                use_regime and force_exit_on_regime_flip
+                            ) else None,
                         )
 
                         if exit_epoch is None or exit_price is None:
@@ -261,6 +286,15 @@ class QualityDipTieredSignalGenerator:
             "rescreen_interval_days": entry_cfg.get("rescreen_interval_days", [63]),
             "regime_instrument": entry_cfg.get("regime_instrument", [""]),
             "regime_sma_period": entry_cfg.get("regime_sma_period", [0]),
+            "force_exit_on_regime_flip": entry_cfg.get(
+                "force_exit_on_regime_flip", [False]
+            ),
+            "internal_regime_sma_period": entry_cfg.get(
+                "internal_regime_sma_period", [0]
+            ),
+            "internal_regime_threshold": entry_cfg.get(
+                "internal_regime_threshold", [0.5]
+            ),
         }
 
     @staticmethod

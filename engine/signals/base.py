@@ -246,6 +246,7 @@ def walk_forward_exit(
     *,
     require_peak_recovery: bool,
     opens: list = None,
+    bull_epochs: set = None,
 ) -> tuple:
     """Walk forward from entry to find exit via TSL (with optional peak recovery gate).
 
@@ -308,6 +309,8 @@ def walk_forward_exit(
             hold_days = (epochs[j] - entry_epoch) / 86400
             if max_hold_days > 0 and hold_days >= max_hold_days:
                 return _exit_at(j)
+            if bull_epochs is not None and epochs[j] not in bull_epochs:
+                return _exit_at(j)
             if c >= peak_price:
                 return _exit_at(j)
     else:
@@ -320,6 +323,8 @@ def walk_forward_exit(
                 trail_high = c
             hold_days = (epochs[j] - entry_epoch) / 86400
             if max_hold_days > 0 and hold_days >= max_hold_days:
+                return _exit_at(j)
+            if bull_epochs is not None and epochs[j] not in bull_epochs:
                 return _exit_at(j)
             if c >= peak_price:
                 reached_peak = True
