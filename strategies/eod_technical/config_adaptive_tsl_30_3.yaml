@@ -1,0 +1,51 @@
+# eod_technical variant: adaptive TSL (30/3) (2026-04-28).
+#
+# Champion-identical except exit adds adaptive trailing stop:
+# once MFE from entry > 30%, TSL tightens from 10% to 3%.
+#
+# Full-period (2010-2026): CAGR=20.98%, MDD=-24.68%, Calmar=0.850, Sharpe=0.995
+# Trades=1529 (vs champion 1303).
+#
+# Trade-off: gains +1.35pp CAGR, +1.27pp MDD vs champion. But gives back
+# ~25pp in sustained bull years (2021, 2023) while gaining ~20-39pp in
+# volatile/choppy years (2019, 2020). Drawdown is better in 13/17 years.
+
+static:
+  strategy_type: eod_technical
+  start_margin: 10000000
+  start_epoch: 1262304000      # 2010-01-01
+  end_epoch: 1773878400        # 2026-03-30
+  prefetch_days: 500
+  data_granularity: day
+  data_provider: nse_charting
+
+scanner:
+  instruments:
+    - [{exchange: NSE, symbols: []}]
+  price_threshold: [50]
+  avg_day_transaction_threshold:
+    - {period: 125, threshold: 70000000}
+  n_day_gain_threshold:
+    - {n: 360, threshold: -999}
+
+entry:
+  n_day_ma: [3]
+  n_day_high: [5]
+  direction_score:
+    - {n_day_ma: 3, score: 0.54}
+
+exit:
+  min_hold_time_days: [3]
+  trailing_stop_pct: [10]
+  tsl_tighten_after_pct: [30]
+  tsl_tight_pct: [3]
+
+simulation:
+  default_sorting_type: [top_gainer]
+  order_sorting_type: [top_gainer]
+  order_ranking_window_days: [30]
+  max_positions: [15]
+  max_positions_per_instrument: [1]
+  order_value_multiplier: [1.0]
+  max_order_value:
+    - {type: fixed, value: 1000000000}
