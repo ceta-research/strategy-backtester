@@ -1,30 +1,22 @@
-# eod_breakout champion (2026-04-30, IR hysteresis promoted).
-#
-# Internal regime SMA50, enter bull at score > 0.4, exit bull at score < 0.35.
-# Hysteresis eliminates whipsaw in ambiguous regime years.
-# No direction_score, no min hold, force-exit on regime flip.
-#
-# Full-period (2010-2026): CAGR=22.26%, MDD=-16.49%, Sharpe=1.505, Calmar=1.350
-# Trades=1889. Best single-strategy result.
-#
-# Prior champion (NIFTYBEES regime, DS=0.40): config_champion_pre_ir_hyst.yaml
-# CAGR=17.68%, MDD=-26.75%, Calmar=0.661.
+# eod_breakout champion params applied to US market.
+# Adapted: price threshold $20 (vs INR 99), turnover $50M (vs INR 70Cr),
+# start_margin $1M (vs INR 1Cr).
 
 static:
   strategy_type: eod_breakout
-  start_margin: 10000000
+  start_margin: 1000000
   start_epoch: 1262304000     # 2010-01-01
   end_epoch: 1773878400       # 2026-03-19
   prefetch_days: 500
   data_granularity: day
-  data_provider: nse_charting
+  data_provider: cr
 
 scanner:
   instruments:
-    - [{exchange: NSE, symbols: []}]
-  price_threshold: [99]
+    - [{exchange: US, symbols: []}]
+  price_threshold: [20]
   avg_day_transaction_threshold:
-    - {period: 125, threshold: 70000000}
+    - {period: 125, threshold: 50000000}
   n_day_gain_threshold:
     - {n: 360, threshold: 0}
 
