@@ -1,0 +1,18 @@
+# 2-leg ensemble: eod_b IR no-min-hold + eod_t adaptive TSL.
+# Both legs use the best variants found in the internal regime session.
+
+ensemble:
+  name: eod_ir_eodt_atsl_invvol_quarterly
+  description: "eod_b IR SMA50/0.4 no-min-hold (Cal 1.069) + eod_t ATSL 30/3 (CAGR 20.98%), invvol quarterly"
+  starting_capital: 10000000
+  alignment: intersection
+  rebalance: quarterly
+  weighting: inverse_vol
+
+  legs:
+    - name: eod_breakout_ir
+      result_path: results/eod_breakout/ir_no_min_hold.json
+      rank: 1
+    - name: eod_technical_atsl
+      result_path: results/eod_technical/adaptive_tsl_30_3_baseline.json
+      rank: 1

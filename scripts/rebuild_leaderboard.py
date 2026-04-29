@@ -35,8 +35,7 @@ STRATEGIES = [
     {
         "name": "eod_technical (adaptive TSL 30/3)",
         "config": "strategies/eod_technical/config_adaptive_tsl_30_3.yaml",
-        "result": "results/eod_technical/adaptive_tsl_sweep.json",
-        "result_config_id": "1_1_18_1",
+        "result": "results/eod_technical/adaptive_tsl_30_3_baseline.json",
         "status": "VARIANT",
         "notes": "Champion + once MFE>30%, TSL tightens to 3%. Trades bull years for DD control.",
     },
@@ -52,7 +51,21 @@ STRATEGIES = [
         "config": "strategies/eod_breakout/config_no_ds_regime.yaml",
         "result": "results/eod_breakout/no_ds_regime_baseline.json",
         "status": "VARIANT",
-        "notes": "DS disabled, regime-only. Contrarian breakouts are stronger.",
+        "notes": "DS disabled, NIFTYBEES regime-only.",
+    },
+    {
+        "name": "eod_breakout (IR SMA50/0.4)",
+        "config": "strategies/eod_breakout/config_ir_best.yaml",
+        "result": "results/eod_breakout/internal_regime_sweep.json",
+        "status": "VARIANT",
+        "notes": "Internal regime (scanner breadth), force-exit, mh=7. Best CAGR.",
+    },
+    {
+        "name": "eod_breakout (IR no min hold)",
+        "config": "strategies/eod_breakout/config_ir_no_min_hold.yaml",
+        "result": "results/eod_breakout/ir_no_min_hold.json",
+        "status": "VARIANT",
+        "notes": "IR SMA50/0.4, no min hold. Best Calmar (1.069).",
     },
     {
         "name": "quality_dip_tiered",
