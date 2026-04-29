@@ -1,0 +1,54 @@
+# eod_technical scanner-threshold sweep (Phase 4, 2026-04-28).
+#
+# Hypothesis (from FINDINGS_eod_technical.md / FINDINGS_cross.md): scanner
+# pass-rate drifted ~14% (2010) -> ~45% (2024) on the same static config.
+# The thresholds calibrated on early data may now be too lax. Sweep raises
+# them and tests a couple of looser values for shape.
+#
+# Grid: 4 price thresholds x 4 turnover thresholds = 16 scanner configs.
+# Champion is (50, 70M). Each scanner config re-runs order generation +
+# simulation. ~70s per config -> ~19 minutes total.
+#
+# All other settings are champion-identical so the comparison isolates
+# the scanner stage.
+
+static:
+  strategy_type: eod_technical
+  start_margin: 10000000
+  start_epoch: 1262304000      # 2010-01-01
+  end_epoch: 1773878400        # 2026-03-30
+  prefetch_days: 500
+  data_granularity: day
+  data_provider: nse_charting
+
+scanner:
+  instruments:
+    - [{exchange: NSE, symbols: []}]
+  price_threshold: [25, 50, 100, 200]
+  avg_day_transaction_threshold:
+    - {period: 125, threshold: 50000000}    # 50M, looser than champion
+    - {period: 125, threshold: 70000000}    # 70M, champion
+    - {period: 125, threshold: 150000000}   # 150M, ~2x champion
+    - {period: 125, threshold: 300000000}   # 300M, ~4x champion
+  n_day_gain_threshold:
+    - {n: 360, threshold: -999}             # inert (audit P3d Q6 confirmed)
+
+entry:
+  n_day_ma: [3]
+  n_day_high: [5]
+  direction_score:
+    - {n_day_ma: 3, score: 0.54}
+
+exit:
+  min_hold_time_days: [3]
+  trailing_stop_pct: [10]
+
+simulation:
+  default_sorting_type: [top_gainer]
+  order_sorting_type: [top_gainer]
+  order_ranking_window_days: [30]
+  max_positions: [15]
+  max_positions_per_instrument: [1]
+  order_value_multiplier: [1.0]
+  max_order_value:
+    - {type: fixed, value: 1000000000}

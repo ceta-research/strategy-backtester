@@ -1,0 +1,37 @@
+static:
+  strategy_type: eod_technical
+  start_margin: 1000000
+  start_epoch: 1262304000      # 2010-01-01
+  end_epoch: 1735689600        # 2025-01-01
+  prefetch_days: 400
+  data_granularity: day
+
+scanner:
+  instruments:
+    - [{exchange: NSE, symbols: []}]
+  price_threshold: [50]
+  avg_day_transaction_threshold:
+    - {period: 125, threshold: 70000000}
+  n_day_gain_threshold:
+    - {n: 360, threshold: 0}
+    - {n: 180, threshold: 0}
+
+entry:
+  n_day_ma: [3, 5]
+  n_day_high: [2, 5]
+  direction_score:
+    - {n_day_ma: 3, score: 0.54}
+
+exit:
+  min_hold_time_days: [0, 4, 10]
+  trailing_stop_pct: [10, 15, 20]
+
+simulation:
+  default_sorting_type: [top_gainer]
+  order_sorting_type: [top_performer]
+  order_ranking_window_days: [180]
+  max_positions: [10, 20, 30]
+  max_positions_per_instrument: [1]
+  order_value_multiplier: [1]
+  max_order_value:
+    - {type: percentage_of_instrument_avg_txn, value: 4.5}

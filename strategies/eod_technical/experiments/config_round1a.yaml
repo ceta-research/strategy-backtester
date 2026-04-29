@@ -1,0 +1,40 @@
+# R1a: core entry × exit. n_day_ma × n_day_high × tsl × sort
+# 3 × 4 × 4 × 2 = 96 configs
+
+static:
+  strategy_type: eod_technical
+  start_margin: 10000000
+  start_epoch: 1262304000
+  end_epoch: 1773878400
+  prefetch_days: 500
+  data_granularity: day
+  data_provider: nse_charting
+
+scanner:
+  instruments:
+    - [{exchange: NSE, symbols: []}]
+  price_threshold: [50]
+  avg_day_transaction_threshold:
+    - {period: 125, threshold: 70000000}
+  n_day_gain_threshold:
+    - {n: 360, threshold: -999}
+
+entry:
+  n_day_ma: [3, 5, 7]
+  n_day_high: [2, 3, 5, 7]
+  direction_score:
+    - {n_day_ma: 3, score: 0.54}
+
+exit:
+  min_hold_time_days: [0]
+  trailing_stop_pct: [5, 8, 10, 15]
+
+simulation:
+  default_sorting_type: [top_gainer]
+  order_sorting_type: [top_gainer, top_performer]
+  order_ranking_window_days: [30]
+  max_positions: [15]
+  max_positions_per_instrument: [1]
+  order_value_multiplier: [1.0]
+  max_order_value:
+    - {type: fixed, value: 1000000000}

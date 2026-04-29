@@ -34,6 +34,7 @@ from engine.signals.base import (
     build_regime_filter,
 )
 from engine.exits import anomalous_drop
+from engine.internal_regime import compute_internal_regime_epochs
 
 SECONDS_IN_ONE_DAY = 86400
 PRICE_DROP_THRESHOLD = 20.0  # % — forced exit on gap
@@ -115,10 +116,48 @@ class EodBreakoutSignalGenerator:
                     f"got {vol_lookback_days}"
                 )
 
+            # Internal regime params (scanner-universe breadth)
+            ir_sma = entry_config.get("internal_regime_sma_period", 0)
+            ir_thr = entry_config.get("internal_regime_threshold", 0.5)
+
+            # Separate exit regime params (hybrid mode). When set, force-exit
+            # uses exit_regime (e.g. NIFTYBEES) while entry uses internal.
+            exit_regime_instrument = entry_config.get(
+                "exit_regime_instrument", "")
+            exit_regime_sma_period = entry_config.get(
+                "exit_regime_sma_period", 0)
+
             bull_epochs = regime_cache.get(
                 (regime_instrument, regime_sma_period), set()
             )
+            use_external = bool(bull_epochs)
+
+            # Internal regime: compute from scanner-passed universe
+            use_internal = ir_sma > 0
+            if use_internal:
+                ir_cache_key = ("int", ir_sma, ir_thr)
+                if ir_cache_key not in regime_cache:
+                    regime_cache[ir_cache_key] = compute_internal_regime_epochs(
+                        df_trimmed, sma_period=ir_sma, threshold=ir_thr
+                    )
+                internal_bull = regime_cache[ir_cache_key]
+                if use_external:
+                    bull_epochs = bull_epochs & internal_bull
+                else:
+                    bull_epochs = internal_bull
+
             use_regime = bool(bull_epochs)
+
+            # Hybrid: separate exit regime for force-exit
+            exit_bull_epochs = bull_epochs  # default: same as entry
+            if exit_regime_instrument and exit_regime_sma_period > 0:
+                exit_key = (exit_regime_instrument, exit_regime_sma_period)
+                if exit_key not in regime_cache:
+                    regime_cache[exit_key] = build_regime_filter(
+                        df_tick_data, exit_regime_instrument,
+                        exit_regime_sma_period
+                    )
+                exit_bull_epochs = regime_cache[exit_key]
 
             df_signals = df_ind.clone()
 
@@ -267,10 +306,15 @@ class EodBreakoutSignalGenerator:
                 .to_dicts()
             )
 
-            regime_str = (
-                f", regime={regime_instrument}>SMA{regime_sma_period}"
-                if use_regime else ""
-            )
+            if use_internal and use_external:
+                regime_str = (f", regime={regime_instrument}>SMA{regime_sma_period}"
+                              f"+internal(SMA{ir_sma},thr={ir_thr})")
+            elif use_internal:
+                regime_str = f", regime=internal(SMA{ir_sma},thr={ir_thr})"
+            elif use_regime:
+                regime_str = f", regime={regime_instrument}>SMA{regime_sma_period}"
+            else:
+                regime_str = ""
             vol_str = (
                 f", vol<{max_stock_vol_pct}%@{vol_lookback_days}d"
                 if vol_filter_active else ""
@@ -324,7 +368,7 @@ class EodBreakoutSignalGenerator:
                         ed["next_opens"], ed["next_epochs"],
                         start_idx, entry_epoch,
                         trailing_stop_pct, min_hold_days,
-                        bull_epochs=bull_epochs if (
+                        bull_epochs=exit_bull_epochs if (
                             use_regime and force_exit_on_regime_flip
                         ) else None,
                         entry_price=entry_price,
@@ -405,6 +449,21 @@ class EodBreakoutSignalGenerator:
             # disabled, matching legacy configs.
             "max_stock_vol_pct": entry_cfg.get("max_stock_vol_pct", [999]),
             "vol_lookback_days": entry_cfg.get("vol_lookback_days", [60]),
+            # Internal regime (scanner-universe breadth). 0 = disabled.
+            "internal_regime_sma_period": entry_cfg.get(
+                "internal_regime_sma_period", [0]
+            ),
+            "internal_regime_threshold": entry_cfg.get(
+                "internal_regime_threshold", [0.5]
+            ),
+            # Hybrid: separate exit regime for force-exit. When set,
+            # entry uses internal regime, force-exit uses this external.
+            "exit_regime_instrument": entry_cfg.get(
+                "exit_regime_instrument", [""]
+            ),
+            "exit_regime_sma_period": entry_cfg.get(
+                "exit_regime_sma_period", [0]
+            ),
         }
 
     @staticmethod

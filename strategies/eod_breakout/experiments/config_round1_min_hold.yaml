@@ -1,0 +1,40 @@
+# Round 1: Sweep min_hold_time_days (8 values)
+# All other params fixed at baseline
+
+static:
+  strategy_type: eod_breakout
+  start_margin: 10000000
+  start_epoch: 1262304000
+  end_epoch: 1773878400
+  prefetch_days: 500
+  data_granularity: day
+  data_provider: nse_charting
+
+scanner:
+  instruments:
+    - [{exchange: NSE, symbols: []}]
+  price_threshold: [50]
+  avg_day_transaction_threshold:
+    - {period: 125, threshold: 70000000}
+  n_day_gain_threshold:
+    - {n: 360, threshold: 0}
+
+entry:
+  n_day_high: [2]
+  n_day_ma: [3]
+  direction_score:
+    - {n_day_ma: 3, score: 0.54}
+
+exit:
+  min_hold_time_days: [0, 2, 4, 7, 10, 15, 21, 30]
+  trailing_stop_pct: [15]
+
+simulation:
+  default_sorting_type: [top_gainer]
+  order_sorting_type: [top_gainer]
+  order_ranking_window_days: [180]
+  max_positions: [20]
+  max_positions_per_instrument: [1]
+  order_value_multiplier: [1]
+  max_order_value:
+    - {type: percentage_of_instrument_avg_txn, value: 4.5}

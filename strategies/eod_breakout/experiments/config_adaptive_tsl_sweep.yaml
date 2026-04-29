@@ -1,0 +1,49 @@
+# eod_breakout adaptive TSL sweep (Phase 5e, 2026-04-28).
+#
+# Champion-identical except exit.tsl_tighten_after_pct / tsl_tight_pct.
+# Champion: CAGR 17.68%, MDD -26.75%, Calmar 0.661, Sharpe 1.183, TSL=8%.
+# Mean MFE (IS) = 13.85%, mean give_back = 11.95%.
+
+static:
+  strategy_type: eod_breakout
+  start_margin: 10000000
+  start_epoch: 1262304000     # 2010-01-01
+  end_epoch: 1773878400       # 2026-03-19
+  prefetch_days: 500
+  data_granularity: day
+  data_provider: nse_charting
+
+scanner:
+  instruments:
+    - [{exchange: NSE, symbols: []}]
+  price_threshold: [99]
+  avg_day_transaction_threshold:
+    - {period: 125, threshold: 70000000}
+  n_day_gain_threshold:
+    - {n: 360, threshold: 0}
+
+entry:
+  n_day_high: [3]
+  n_day_ma: [10]
+  direction_score:
+    - {n_day_ma: 5, score: 0.40}
+  regime_instrument: ["NSE:NIFTYBEES"]
+  regime_sma_period: [100]
+  force_exit_on_regime_flip: [true]
+
+exit:
+  min_hold_time_days: [7]
+  trailing_stop_pct: [8]
+  # Adaptive TSL sweep: once MFE > threshold, tighten from 8% to tight_pct.
+  tsl_tighten_after_pct: [999, 10, 15, 20, 30]
+  tsl_tight_pct: [0, 3, 5]
+
+simulation:
+  default_sorting_type: [top_gainer]
+  order_sorting_type: [top_gainer]
+  order_ranking_window_days: [180]
+  max_positions: [15]
+  max_positions_per_instrument: [1]
+  order_value_multiplier: [1]
+  max_order_value:
+    - {type: percentage_of_instrument_avg_txn, value: 4.5}

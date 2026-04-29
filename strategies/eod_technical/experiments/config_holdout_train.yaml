@@ -1,0 +1,53 @@
+# Holdout sweep: R2-equivalent grid trained on 2010-2024 only.
+# 2025-onward is the live drawdown — picking a champion using only 2010-2024
+# data and then testing on 2025+ separates parameter sensitivity from
+# regime fragility. Mirrors eod_breakout/config_holdout_train.yaml.
+#
+# Grid: ndma[3,5,7] × ndh[3,5,7] × ds[2 variants] × mh[0,3,7] × tsl[8,10,12,15]
+#       × max_pos[10,15,20] × top_gainer
+# = 3 × 3 × 2 × 3 × 4 × 3 = 648 configs
+#
+# direction_score variants from eod_breakout finding:
+#   {3, 0.54} — current champion default
+#   {5, 0.40} — looser breadth, longer MA (eod_breakout holdout winner)
+#
+# top_performer dropped: R2 confirmed top_gainer wins; top_performer is 3-5x slower.
+
+static:
+  strategy_type: eod_technical
+  start_margin: 10000000
+  start_epoch: 1262304000      # 2010-01-01
+  end_epoch: 1735689600        # 2025-01-01 (HOLDOUT BOUNDARY)
+  prefetch_days: 500
+  data_granularity: day
+  data_provider: nse_charting
+
+scanner:
+  instruments:
+    - [{exchange: NSE, symbols: []}]
+  price_threshold: [50]
+  avg_day_transaction_threshold:
+    - {period: 125, threshold: 70000000}
+  n_day_gain_threshold:
+    - {n: 360, threshold: -999}
+
+entry:
+  n_day_ma: [3, 5, 7]
+  n_day_high: [3, 5, 7]
+  direction_score:
+    - {n_day_ma: 3, score: 0.54}
+    - {n_day_ma: 5, score: 0.40}
+
+exit:
+  min_hold_time_days: [0, 3, 7]
+  trailing_stop_pct: [8, 10, 12, 15]
+
+simulation:
+  default_sorting_type: [top_gainer]
+  order_sorting_type: [top_gainer]
+  order_ranking_window_days: [30]
+  max_positions: [10, 15, 20]
+  max_positions_per_instrument: [1]
+  order_value_multiplier: [1.0]
+  max_order_value:
+    - {type: fixed, value: 1000000000}

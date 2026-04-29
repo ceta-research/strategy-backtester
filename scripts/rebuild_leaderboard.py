@@ -50,15 +50,9 @@ STRATEGIES = [
     {
         "name": "eod_breakout (no DS + regime)",
         "config": "strategies/eod_breakout/config_no_ds_regime.yaml",
-        "result": None,
+        "result": "results/eod_breakout/no_ds_regime_baseline.json",
         "status": "VARIANT",
         "notes": "DS disabled, regime-only. Contrarian breakouts are stronger.",
-        # Verified 2026-04-28 from temp run. Re-run config to regenerate.
-        "manual_stats": {
-            "cagr": 0.1973, "max_drawdown": -0.2752,
-            "sharpe_ratio": 1.320, "calmar_ratio": 0.717,
-            "total_trades": 1861,
-        },
     },
     {
         "name": "quality_dip_tiered",
