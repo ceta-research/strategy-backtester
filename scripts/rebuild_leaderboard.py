@@ -112,9 +112,16 @@ STRATEGIES = [
     {
         "name": "momentum_top_gainers",
         "config": "strategies/momentum_top_gainers/config_champion.yaml",
-        "result": "results/momentum_top_gainers/round2_full.json",
+        "result": "results/momentum_top_gainers/champion_verify_2026-04-29.json",
         "status": "ACTIVE",
-        "notes": "Top-N momentum with periodic rebalance",
+        "notes": "Top-N momentum with periodic rebalance. Re-verified 2026-04-29 (was 21.73% on old engine, now 10.72%).",
+    },
+    {
+        "name": "earnings_dip",
+        "config": None,
+        "result": "results/earnings_dip/champion_verify.json",
+        "status": "ACTIVE",
+        "notes": "Earnings dip-buy, modern 2020+ only. 46 trades, low frequency.",
     },
     {
         "name": "quality_dip_buy",
@@ -130,7 +137,7 @@ STRATEGIES = [
         "status": "ACTIVE",
         "notes": "Buy forced-selling dips in quality stocks",
     },
-    # === RETIRED (not worth tracking — low CAGR or broken) ===
+    # === RETIRED (moved to strategies/retired/, low CAGR or broken) ===
     {"name": "bb_mean_reversion", "result": "results/bb_mean_reversion/round1.json", "status": "RETIRED", "notes": "Bollinger band MR"},
     {"name": "connors_rsi", "result": "results/connors_rsi/round1.json", "status": "RETIRED", "notes": "ConnorsRSI MR"},
     {"name": "darvas_box", "result": "results/darvas_box/round1.json", "status": "RETIRED", "notes": "Darvas box breakout"},
