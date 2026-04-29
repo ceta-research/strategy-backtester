@@ -1,8 +1,9 @@
 # Strategy Backtester — Current Status
 
-**Last updated:** 2026-04-28 (pt10)
+**Last updated:** 2026-04-29 (pt11)
 **Engine baseline:** commit `fbcd36a` (post-audit, all P0/P1 fixes landed)
-**Latest session handover:** [`sessions/2026-04-28_pt10_handover.md`](sessions/2026-04-28_pt10_handover.md) (Inspection drill COMPLETE — Phase 3 done, FINDINGS docs landed; Phase 4 hypothesis work is a separate session)
+**Latest session handover:** [`sessions/2026-04-29_pt11_handover.md`](sessions/2026-04-29_pt11_handover.md) (Phases 4+5 complete: hypothesis testing, per-trade feature analysis, adaptive TSL, repo reorganization)
+**Leaderboard:** [`LEADERBOARD.md`](LEADERBOARD.md) — all 32 strategies ranked (rebuild: `python3 scripts/rebuild_leaderboard.py`)
 **Drill plan:** [`sessions/2026-04-28_pt5_inspection_plan.md`](sessions/2026-04-28_pt5_inspection_plan.md) (revised plan covering eod_b + eod_t at deep-audit depth)
 
 > **Maintenance convention:** This is the living source-of-truth doc. Every session must update STATUS.md before closing — at minimum: header date, latest handover link, session log entry, leaderboards if changed, deferred work. Per-session narratives go to `sessions/`.
