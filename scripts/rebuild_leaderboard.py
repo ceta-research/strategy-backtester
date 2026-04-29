@@ -58,14 +58,21 @@ STRATEGIES = [
         "config": "strategies/eod_breakout/config_ir_best.yaml",
         "result": "results/eod_breakout/internal_regime_sweep.json",
         "status": "VARIANT",
-        "notes": "Internal regime (scanner breadth), force-exit, mh=7. Best CAGR.",
+        "notes": "Internal regime (scanner breadth), force-exit, mh=7.",
     },
     {
         "name": "eod_breakout (IR no min hold)",
         "config": "strategies/eod_breakout/config_ir_no_min_hold.yaml",
         "result": "results/eod_breakout/ir_no_min_hold.json",
         "status": "VARIANT",
-        "notes": "IR SMA50/0.4, no min hold. Best Calmar (1.069).",
+        "notes": "IR SMA50/0.4, no min hold. Calmar 1.069.",
+    },
+    {
+        "name": "eod_breakout (IR hysteresis)",
+        "config": "strategies/eod_breakout/config_ir_hyst_best.yaml",
+        "result": "results/eod_breakout/ir_hysteresis_sweep.json",
+        "status": "VARIANT",
+        "notes": "IR SMA50, enter>0.4/exit<0.35 hysteresis. Best overall (Calmar 1.350, Sharpe 1.505).",
     },
     {
         "name": "quality_dip_tiered",

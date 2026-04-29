@@ -1,0 +1,52 @@
+# eod_breakout: internal regime with hysteresis (best variant).
+#
+# Internal regime SMA50, enter bull at score > 0.4, exit bull at score < 0.35.
+# Hysteresis eliminates whipsaw in ambiguous years (2025: -7% → +6.5%).
+# No direction_score, no min hold, force-exit on regime flip.
+#
+# Full-period (2010-2026): CAGR=22.26%, MDD=-16.49%, Sharpe=1.505, Calmar=1.350
+# Trades=1889. Best single-strategy result.
+
+static:
+  strategy_type: eod_breakout
+  start_margin: 10000000
+  start_epoch: 1262304000
+  end_epoch: 1773878400
+  prefetch_days: 500
+  data_granularity: day
+  data_provider: nse_charting
+
+scanner:
+  instruments:
+    - [{exchange: NSE, symbols: []}]
+  price_threshold: [99]
+  avg_day_transaction_threshold:
+    - {period: 125, threshold: 70000000}
+  n_day_gain_threshold:
+    - {n: 360, threshold: 0}
+
+entry:
+  n_day_high: [3]
+  n_day_ma: [10]
+  direction_score:
+    - {n_day_ma: 5, score: 0.0}
+  regime_instrument: [""]
+  regime_sma_period: [0]
+  force_exit_on_regime_flip: [true]
+  internal_regime_sma_period: [50]
+  internal_regime_threshold: [0.4]
+  internal_regime_exit_threshold: [0.35]
+
+exit:
+  min_hold_time_days: [0]
+  trailing_stop_pct: [8]
+
+simulation:
+  default_sorting_type: [top_gainer]
+  order_sorting_type: [top_gainer]
+  order_ranking_window_days: [180]
+  max_positions: [15]
+  max_positions_per_instrument: [1]
+  order_value_multiplier: [1]
+  max_order_value:
+    - {type: percentage_of_instrument_avg_txn, value: 4.5}
