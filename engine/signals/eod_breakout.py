@@ -34,7 +34,7 @@ from engine.signals.base import (
     build_regime_filter,
 )
 from engine.exits import anomalous_drop
-from engine.internal_regime import compute_internal_regime_epochs
+from engine.internal_regime import compute_internal_regime_epochs, compute_internal_regime_epochs_hysteresis
 
 SECONDS_IN_ONE_DAY = 86400
 PRICE_DROP_THRESHOLD = 20.0  # % — forced exit on gap
@@ -133,13 +133,24 @@ class EodBreakoutSignalGenerator:
             use_external = bool(bull_epochs)
 
             # Internal regime: compute from scanner-passed universe
+            ir_exit_thr = entry_config.get("internal_regime_exit_threshold", 0)
             use_internal = ir_sma > 0
             if use_internal:
-                ir_cache_key = ("int", ir_sma, ir_thr)
-                if ir_cache_key not in regime_cache:
-                    regime_cache[ir_cache_key] = compute_internal_regime_epochs(
-                        df_trimmed, sma_period=ir_sma, threshold=ir_thr
-                    )
+                if ir_exit_thr > 0:
+                    # Hysteresis mode: separate entry/exit thresholds
+                    ir_cache_key = ("int_hyst", ir_sma, ir_thr, ir_exit_thr)
+                    if ir_cache_key not in regime_cache:
+                        regime_cache[ir_cache_key] = compute_internal_regime_epochs_hysteresis(
+                            df_trimmed, sma_period=ir_sma,
+                            entry_threshold=ir_thr, exit_threshold=ir_exit_thr
+                        )
+                else:
+                    # Simple threshold mode
+                    ir_cache_key = ("int", ir_sma, ir_thr)
+                    if ir_cache_key not in regime_cache:
+                        regime_cache[ir_cache_key] = compute_internal_regime_epochs(
+                            df_trimmed, sma_period=ir_sma, threshold=ir_thr
+                        )
                 internal_bull = regime_cache[ir_cache_key]
                 if use_external:
                     bull_epochs = bull_epochs & internal_bull
@@ -455,6 +466,11 @@ class EodBreakoutSignalGenerator:
             ),
             "internal_regime_threshold": entry_cfg.get(
                 "internal_regime_threshold", [0.5]
+            ),
+            # Hysteresis: exit threshold (0 = disabled, uses simple threshold).
+            # When > 0: enter bull at internal_regime_threshold, exit at this.
+            "internal_regime_exit_threshold": entry_cfg.get(
+                "internal_regime_exit_threshold", [0]
             ),
             # Hybrid: separate exit regime for force-exit. When set,
             # entry uses internal regime, force-exit uses this external.

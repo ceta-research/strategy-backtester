@@ -70,8 +70,82 @@ def compute_internal_regime_epochs(
     )
 
     # Bull epochs: days where regime_score > threshold.
+    # Simple threshold (no hysteresis):
     bull_days = daily.filter(pl.col("regime_score") > threshold)
     return set(bull_days["date_epoch"].to_list())
+
+
+def compute_internal_regime_epochs_hysteresis(
+    df_scanned: pl.DataFrame,
+    sma_period: int = 50,
+    entry_threshold: float = 0.45,
+    exit_threshold: float = 0.35,
+) -> set:
+    """Compute internal regime with hysteresis (asymmetric thresholds).
+
+    State machine:
+      - Start BEARISH
+      - BEARISH → BULLISH when score > entry_threshold
+      - BULLISH → BEARISH when score < exit_threshold
+      - Between exit_threshold and entry_threshold: no change (dead zone)
+
+    This eliminates whipsaw when the score hovers near a single threshold.
+
+    Args:
+        df_scanned: Same as compute_internal_regime_epochs.
+        sma_period: Rolling window for per-instrument SMA.
+        entry_threshold: Score must exceed this to flip BULLISH.
+        exit_threshold: Score must drop below this to flip BEARISH.
+
+    Returns:
+        Set of date_epoch values where regime is BULLISH.
+    """
+    if df_scanned.is_empty():
+        return set()
+
+    df = df_scanned.filter(
+        pl.col("scanner_config_ids").is_not_null()
+    ).select(["instrument", "date_epoch", "close"])
+
+    if df.is_empty():
+        return set()
+
+    df = df.sort(["instrument", "date_epoch"]).with_columns(
+        pl.col("close")
+          .rolling_mean(window_size=sma_period, min_samples=max(1, sma_period // 2))
+          .over("instrument")
+          .alias("_sma")
+    )
+
+    daily = (
+        df.group_by("date_epoch", maintain_order=True)
+          .agg([
+              (pl.col("close") > pl.col("_sma")).mean().alias("regime_score"),
+          ])
+          .sort("date_epoch")
+    )
+
+    # State machine walk
+    epochs = daily["date_epoch"].to_list()
+    scores = daily["regime_score"].to_list()
+
+    bull_set = set()
+    is_bull = False  # start bearish
+
+    for i, (epoch, score) in enumerate(zip(epochs, scores)):
+        if score is None:
+            continue
+        if is_bull:
+            if score < exit_threshold:
+                is_bull = False
+            else:
+                bull_set.add(epoch)
+        else:
+            if score > entry_threshold:
+                is_bull = True
+                bull_set.add(epoch)
+
+    return bull_set
 
 
 def compute_internal_regime_series(
