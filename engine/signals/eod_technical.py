@@ -32,12 +32,15 @@ import polars as pl
 from engine import scanner, order_generator
 from engine.config_loader import get_entry_config_iterator, get_exit_config_iterator
 from engine.constants import SECONDS_IN_ONE_DAY
+from engine.internal_regime import compute_internal_regime_epochs
 from engine.signals.base import register_strategy, build_regime_filter
 
 
 def _entry_has_regime(entry_config: dict) -> bool:
-    return bool(entry_config.get("regime_instrument", "")) and \
-        entry_config.get("regime_sma_period", 0) > 0
+    has_external = (bool(entry_config.get("regime_instrument", "")) and
+                    entry_config.get("regime_sma_period", 0) > 0)
+    has_internal = entry_config.get("internal_regime_sma_period", 0) > 0
+    return has_external or has_internal
 
 
 class EodTechnicalSignalGenerator:
@@ -85,26 +88,48 @@ class EodTechnicalSignalGenerator:
                 rp = ec.get("regime_sma_period", 0)
                 fe = ec.get("force_exit_on_regime_flip", False)
 
-                use_regime = bool(ri) and rp > 0
-                if use_regime:
-                    cache_key = (ri, rp)
+                # Internal regime params (Phase 5, 2026-04-28)
+                ir_sma = ec.get("internal_regime_sma_period", 0)
+                ir_thr = ec.get("internal_regime_threshold", 0.5)
+
+                # External regime (NIFTYBEES etc.)
+                use_external = bool(ri) and rp > 0
+                if use_external:
+                    cache_key = ("ext", ri, rp)
                     if cache_key not in bull_cache:
                         bull_cache[cache_key] = build_regime_filter(
                             df_tick_data, ri, rp
                         )
                     bull_epochs = bull_cache[cache_key]
-                    use_regime = bool(bull_epochs)
+                    use_external = bool(bull_epochs)
                 else:
                     bull_epochs = set()
 
-                # Override context with a single-config entry input. We pass
-                # only the params that get_entry_config_iterator can re-emit
-                # (each as a single-element list / single value).
+                # Override context with a single-config entry input.
                 context["entry_config_input"] = self._single_entry_input(ec)
 
                 # Scanner — unchanged universe filter.
                 t0 = time.time()
                 df_scanned = scanner.process(context, df_tick_data)
+
+                # Internal regime: compute from scanner-passed universe.
+                use_internal = ir_sma > 0
+                if use_internal:
+                    cache_key = ("int", ir_sma, ir_thr)
+                    if cache_key not in bull_cache:
+                        bull_cache[cache_key] = compute_internal_regime_epochs(
+                            df_scanned, sma_period=ir_sma, threshold=ir_thr
+                        )
+                    internal_bull = bull_cache[cache_key]
+                    # If both external and internal are active, intersect.
+                    # If only internal, use it alone.
+                    if use_external:
+                        bull_epochs = bull_epochs & internal_bull
+                    else:
+                        bull_epochs = internal_bull
+                    use_regime = bool(bull_epochs)
+                else:
+                    use_regime = use_external
 
                 # Apply regime entry gate by nullifying scanner_config_ids on
                 # off-regime signal days. add_entry_signal_inplace's
@@ -298,12 +323,20 @@ class EodTechnicalSignalGenerator:
             "direction_score": entry_cfg.get("direction_score", [
                 {"n_day_ma": 3, "score": 0.54}
             ]),
-            # Optional regime gate (entries only; exits via force_exit flag).
+            # Optional external regime gate (entries only).
             # Empty string / 0 = disabled. Mirrors eod_breakout schema.
             "regime_instrument": entry_cfg.get("regime_instrument", [""]),
             "regime_sma_period": entry_cfg.get("regime_sma_period", [0]),
             "force_exit_on_regime_flip": entry_cfg.get(
                 "force_exit_on_regime_flip", [False]
+            ),
+            # Internal regime (Phase 5, 2026-04-28): fraction of scanner-
+            # passed universe with close > SMA(N). 0 = disabled.
+            "internal_regime_sma_period": entry_cfg.get(
+                "internal_regime_sma_period", [0]
+            ),
+            "internal_regime_threshold": entry_cfg.get(
+                "internal_regime_threshold", [0.5]
             ),
         }
 
