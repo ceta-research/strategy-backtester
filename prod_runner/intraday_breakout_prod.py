@@ -292,7 +292,14 @@ def simulate_intraday_day(
     eod_exit_minute = config.get("eod_exit_minute", 925)
     max_positions = config.get("max_positions", 5)
     slippage_bps = config.get("slippage_bps", 5)  # per side
-    order_value = margin / max_positions if max_positions > 0 else 0
+
+    # Position sizing: base_position_slots controls per-trade size.
+    # margin / base_position_slots = order value per trade.
+    # max_positions caps how many trades we take.
+    # When base_position_slots < max_positions, we deploy more capital
+    # on high-signal days without diluting per-trade size.
+    base_position_slots = config.get("base_position_slots", max_positions)
+    order_value = margin / base_position_slots if base_position_slots > 0 else 0
 
     if order_value <= 0 or minute_df.is_empty():
         return [], 0.0
@@ -301,8 +308,13 @@ def simulate_intraday_day(
     day_pnl = 0.0
     positions_taken = 0
 
+    margin_used = 0.0
+
     for inst in eligible_instruments:
         if positions_taken >= max_positions:
+            break
+        # Margin check: don't over-deploy
+        if margin_used + order_value > margin:
             break
 
         fmp_sym = inst.replace("NSE:", "") + ".NS"
@@ -316,20 +328,59 @@ def simulate_intraday_day(
 
         bars = inst_bars.to_dicts()
 
-        # Find entry
+        # Entry mode:
+        #   "market" (default): enter at breakout bar, apply slippage_bps
+        #   "limit":  place limit at prior_high. If open > prior_high (gap-up),
+        #             fill at open. If open < prior_high and bar crosses it,
+        #             fill at exact prior_high (0 slippage).
+        #   "limit_no_gap": same as limit but SKIP gap-up stocks entirely.
+        entry_mode = config.get("entry_mode", "market")
+        max_gap_bps = config.get("max_gap_bps", 9999)  # for limit mode: skip gaps > this
+
         entry_price = None
         entry_idx = None
         entry_minute = None
 
-        for i, bar in enumerate(bars):
-            if bar["bar_minute"] > max_entry_minute:
-                break
-            if bar["high"] and bar["high"] > prior_high:
-                # Apply entry slippage
-                entry_price = prior_high * (1 + slippage_bps / 10000)
-                entry_idx = i
-                entry_minute = bar["bar_minute"]
-                break
+        first_bar = bars[0] if bars else None
+
+        if entry_mode in ("limit", "limit_no_gap") and first_bar:
+            first_open = first_bar.get("open")
+            if first_open and first_open > 0:
+                if first_open > prior_high:
+                    # Gap-up: stock opens above our limit
+                    gap_bps = (first_open - prior_high) / prior_high * 10000
+                    if entry_mode == "limit_no_gap":
+                        # Skip this stock entirely
+                        continue
+                    elif gap_bps > max_gap_bps:
+                        # Gap too large, skip
+                        continue
+                    else:
+                        # Fill at open price (worse than limit)
+                        entry_price = first_open
+                        entry_idx = 0
+                        entry_minute = first_bar.get("bar_minute", 555)
+                else:
+                    # Open below limit — look for intraday cross
+                    for i, bar in enumerate(bars):
+                        if bar["bar_minute"] > max_entry_minute:
+                            break
+                        if bar["high"] and bar["high"] > prior_high:
+                            # Fill at exact limit price (0 slippage)
+                            entry_price = prior_high
+                            entry_idx = i
+                            entry_minute = bar["bar_minute"]
+                            break
+        else:
+            # Market order mode (original logic)
+            for i, bar in enumerate(bars):
+                if bar["bar_minute"] > max_entry_minute:
+                    break
+                if bar["high"] and bar["high"] > prior_high:
+                    entry_price = prior_high * (1 + slippage_bps / 10000)
+                    entry_idx = i
+                    entry_minute = bar["bar_minute"]
+                    break
 
         if entry_price is None:
             continue
@@ -396,6 +447,7 @@ def simulate_intraday_day(
 
         day_pnl += pnl
         positions_taken += 1
+        margin_used += order_value
 
     return trades, day_pnl
 
@@ -445,6 +497,24 @@ def run_pipeline(config: dict) -> dict:
             minute_by_date[date_key] = df_minute.filter(pl.col("date_key") == date_key)
     print(f"  Indexed {len(minute_by_date)} trading days")
 
+    # Pre-compute per-symbol per-day high FROM MINUTE DATA.
+    # This avoids split-adjustment mismatch between daily (NSE charting)
+    # and minute (FMP) data sources. The daily high for breakout level
+    # must come from the same price basis as minute entries/exits.
+    print("  Computing per-day highs from minute data...")
+    minute_daily_highs: dict[int, dict[str, float]] = {}  # {date_key: {fmp_symbol: high}}
+    if df_minute.height > 0:
+        daily_high_df = (
+            df_minute.group_by(["date_key", "symbol"])
+            .agg(pl.col("high").max().alias("day_high"))
+        )
+        for row in daily_high_df.to_dicts():
+            dk = row["date_key"]
+            if dk not in minute_daily_highs:
+                minute_daily_highs[dk] = {}
+            minute_daily_highs[dk][row["symbol"]] = row["day_high"]
+    print(f"  Computed daily highs for {len(minute_daily_highs)} days")
+
     # Phase 2: Compute regime
     print("\n--- Computing regime ---")
     regime_sma = config.get("internal_regime_sma_period", 50)
@@ -465,7 +535,8 @@ def run_pipeline(config: dict) -> dict:
 
     # Phase 3: Build sweep configs
     sweep_keys = ["target_pct", "stop_pct", "trailing_stop_pct", "max_entry_bar",
-                   "max_positions", "eod_exit_minute", "slippage_bps"]
+                   "max_positions", "eod_exit_minute", "slippage_bps",
+                   "entry_mode", "max_gap_bps", "base_position_slots"]
     sweep_params = {}
     for k in sweep_keys:
         v = config.get(k)
@@ -495,11 +566,13 @@ def run_pipeline(config: dict) -> dict:
             m_end_epoch = int(datetime.strptime(month_end, "%Y-%m-%d")
                               .replace(tzinfo=timezone.utc).timestamp())
 
-            signals, sig_highs = compute_daily_signals(
+            signals, _daily_highs = compute_daily_signals(
                 df_daily, universe, m_start_epoch, m_end_epoch,
                 n_day_high=n_day_high, n_day_ma=n_day_ma,
                 regime_bull_epochs=bull_epochs,
             )
+            # _daily_highs from daily data is NOT used for execution prices
+            # (split-adjustment mismatch). We use minute-derived highs instead.
 
             if not signals:
                 continue
@@ -524,9 +597,23 @@ def run_pipeline(config: dict) -> dict:
                 if minute_df.is_empty():
                     continue
 
+                # Build signal-day highs from MINUTE data (consistent price basis).
+                # Signal day = epoch. Its date_key:
+                signal_date_key = epoch // SECONDS_IN_ONE_DAY
+                signal_minute_highs = minute_daily_highs.get(signal_date_key, {})
+
+                # Convert instrument names to match minute data format
+                # signals[epoch] has bare symbols like "RELIANCE"
+                # minute_daily_highs has FMP format like "RELIANCE.NS"
+                sig_highs_for_sim = {}
+                for inst in signals[epoch]:
+                    fmp_sym = inst.replace("NSE:", "") + ".NS"
+                    if fmp_sym in signal_minute_highs:
+                        sig_highs_for_sim[inst] = signal_minute_highs[fmp_sym]
+
                 day_trades, day_pnl = simulate_intraday_day(
                     minute_df, signals[epoch],
-                    sig_highs.get(epoch, {}),
+                    sig_highs_for_sim,
                     sim_params, margin,
                 )
 
