@@ -1,7 +1,7 @@
 # Intraday Breakout — STATUS & Tracking
 
 **Created:** 2026-04-29
-**Status:** R0 COMPLETE, R1 PENDING
+**Status:** R1 COMPLETE, R2 PENDING
 **Parent strategy:** eod_breakout (IR hysteresis, Calmar 1.350)
 **Prod workspace:** `swas@80.241.215.48:/home/swas/backtester/`
 **Prod runner:** `intraday_breakout_prod.py`
@@ -20,6 +20,10 @@ viable minute source for 2023-2025.
 
 Timestamps: LOCAL time labeled UTC (NSE 09:15-15:30 stored as "UTC").
 
+**CRITICAL:** NSE daily and FMP minute use different split-adjustment bases.
+Prior-day highs for entry MUST be derived from minute data, not daily.
+Daily data used ONLY for signal generation (relative comparisons are safe).
+
 ---
 
 ## Architecture
@@ -27,44 +31,113 @@ Timestamps: LOCAL time labeled UTC (NSE 09:15-15:30 stored as "UTC").
 Hybrid daily + minute:
 1. **Monthly universe**: top 50 NSE stocks by avg daily turnover (>50Cr)
 2. **Daily signal**: close >= 3d high, close > 10d MA, close > open, IR hysteresis bull
-3. **Intraday entry**: next day, buy when minute bar high > signal day's high
+3. **Intraday entry**: next day, buy when minute bar high > signal day's high (from minute data)
 4. **Intraday exit**: fixed target / fixed stop / EOD close (15:25)
 5. **All positions close same day** — no overnight risk
 
 ---
 
-## R0: Baseline Results (2022-2025)
+## R0: Baseline Results (2022-2025, split-fixed)
 
-| Metric | No slippage | 5bps slippage |
-|---|---:|---:|
-| CAGR | 22.38% | 8.19% |
-| MDD | -2.21% | -8.68% |
-| Sharpe | 2.558 | 0.275 |
-| Calmar | 10.114 | 0.943 |
-| Trades | 2,543 | 2,543 |
-| Win rate | 48% | 44% |
+| Metric | No slippage | 3bps | 5bps |
+|---|---:|---:|---:|
+| CAGR | 16.28% | 8.38% | 3.80% |
+| MDD | -5.75% | -7.69% | -12.49% |
+| Calmar | 2.834 | 1.089 | 0.304 |
+| Trades | 2,280 | 2,276 | 2,294 |
+| Win rate | 42% | 40% | 39% |
 
-**Config:** target=1.5%, stop=0.75%, max_entry_bar=120 (first 2 hours),
-max_positions=5, eod_exit=15:25.
+Config: target=1.5%, stop=0.75%, max_entry_bar=120, max_positions=5.
 
-**Yearly breakdown (no slippage):**
+**Note:** Pre-split-fix numbers (22-35% CAGR) were inflated by phantom
+breakouts from price-basis mismatch between daily and minute data.
 
-| Year | Trades | Return |
-|---:|---:|---:|
-| 2022 | 82 | -0.3% |
-| 2023 | 848 | +40.7% |
-| 2024 | 860 | +37.6% |
-| 2025 | 753 | +16.2% |
+---
 
-**Trade characteristics:**
-- 91% of entries in first hour (09:15-10:15)
-- Exit distribution: 32% target, 44% stop, 24% EOD close
-- EOD close trades avg +0.23% (positive — trend continuation)
-- Avg 4.1 positions/day, trades 62% of days
-- Order value: 200K-450K per position (equal weight)
+## R1: Parameter Sweep (split-fixed, 0 slippage)
 
-**Key concern:** Slippage sensitivity. 5bps/side cuts CAGR from 22% to 8%.
-For top-50 large-caps, realistic slippage is 2-3bps. True CAGR likely 14-18%.
+### R1a: Target (stop=0.75, entry=120) → winner: **1.00%**
+
+| Target | CAGR | MDD | Calmar | WR |
+|---:|---:|---:|---:|---:|
+| 0.50% | 9.15% | -1.75% | 5.237 | 69% |
+| **1.00%** | **9.91%** | **-2.33%** | **4.247** | **51%** |
+| 2.00% | 8.10% | -3.34% | 2.424 | 45% |
+| 3.00% | 8.37% | -6.12% | 1.367 | 43% |
+
+### R1b: Stop (target=1.0, entry=120) → winner: **0.50%**
+
+| Stop | CAGR | MDD | Calmar | WR |
+|---:|---:|---:|---:|---:|
+| 0.25% | 8.50% | -2.10% | 4.042 | 31% |
+| **0.50%** | **9.90%** | **-2.28%** | **4.339** | **44%** |
+| 0.75% | 9.91% | -2.33% | 4.247 | 51% |
+| 1.50% | 9.10% | -4.40% | 2.069 | 58% |
+
+### R1c: Entry window (target=1.0, stop=0.5) → winner: **15 bars (09:30)**
+
+| Entry | CAGR | MDD | Calmar |
+|---:|---:|---:|---:|
+| **15 bars** | **11.76%** | **-1.66%** | **7.064** |
+| 30 bars | 11.19% | -1.71% | 6.558 |
+| 60 bars | 10.67% | -1.81% | 5.883 |
+| 120 bars | 9.90% | -2.28% | 4.339 |
+| 375 bars | 8.26% | -2.47% | 3.347 |
+
+### R1d: Positions (target=1.0, stop=0.5, entry=15) → winner: **5**
+
+| Positions | CAGR | MDD | Calmar |
+|---:|---:|---:|---:|
+| 1 | 10.47% | -10.78% | 0.972 |
+| 3 | 11.65% | -4.54% | 2.566 |
+| **5** | **11.76%** | **-1.66%** | **7.064** |
+| 8 | 9.06% | -1.49% | 6.080 |
+| 10 | 7.68% | -1.40% | 5.482 |
+
+### R1e: Slippage sensitivity (best config)
+
+| Slippage | CAGR | MDD | Calmar |
+|---:|---:|---:|---:|
+| **0 bps** | **11.76%** | **-1.66%** | **7.064** |
+| 1 bps | 8.45% | -1.87% | 4.521 |
+| 2 bps | 6.06% | -2.25% | 2.700 |
+| 3 bps | 3.54% | -3.58% | 0.989 |
+| 5 bps | -1.59% | -14.24% | -0.111 |
+
+**Breakeven slippage: ~3 bps/side.**
+
+### R1 Best Config
+
+**target=1.0%, stop=0.5%, entry=15 bars, positions=5**
+
+| Slippage | CAGR | MDD | Calmar | Assessment |
+|---:|---:|---:|---:|---|
+| 0 bps | 11.76% | -1.66% | 7.064 | Theoretical max |
+| 1 bps | 8.45% | -1.87% | 4.521 | Achievable with algo |
+| 2 bps | 6.06% | -2.25% | 2.700 | Achievable with limit orders |
+| 3 bps | 3.54% | -3.58% | 0.989 | Breakeven |
+
+**Verdict:** Real edge exists but thin. Viable only with tight execution
+(limit orders or algo). Not viable for manual market-order trading.
+
+---
+
+## Slippage Analysis (from minute bar data)
+
+Measured on top-20 NSE stocks, 2024:
+- Median 1-min bar range (all day): 7.9 bps
+- Median 1-min bar range (first 15 min): **17.0 bps** (wider at open)
+- Large-caps (HDFCBANK, RELIANCE): 6-7 bps
+- Mid-caps (IRFC, RVNL): 10-11 bps
+
+Limit order fill analysis (7,903 signal-instrument pairs):
+- 42.3% fill at exact limit price (0 slippage)
+- 25.6% gap-up (fill at open, median 34 bps worse)
+- 32.1% no fill (stock never reaches limit)
+
+**Limit orders don't help** — gap-up stocks are the strongest breakouts.
+Skipping them loses the best trades (confirmed: limit-only variants
+produce negative returns).
 
 ---
 
@@ -73,116 +146,54 @@ For top-50 large-caps, realistic slippage is 2-3bps. True CAGR likely 14-18%.
 Adapted from EOD OPTIMIZATION_PROMPT.md. Each round narrows the search space.
 
 ### R0: Baseline validation (COMPLETE)
-- Single config, validate pipeline end-to-end
-- Verify all positions close same day
-- Verify charges are correct (intraday STT 0.025%)
-- Verify entry/exit logic is honest (no look-ahead)
-
-### R1: Coarse sweep (NEXT)
-Sweep ONE parameter at a time while holding others at R0 baseline.
-This identifies which parameters matter before doing Cartesian product.
-
-**R1a: Target/stop ratio**
-- target_pct: [0.5, 0.75, 1.0, 1.5, 2.0, 2.5, 3.0]
-- stop_pct: hold at 0.75
-- Goal: find optimal target size
-
-**R1b: Stop size**
-- stop_pct: [0.25, 0.5, 0.75, 1.0, 1.5]
-- target_pct: hold at R1a winner
-- Goal: find optimal stop size
-
-**R1c: Entry window**
-- max_entry_bar: [30, 60, 120, 180, 240, 375]
-- target/stop: hold at R1a/R1b winners
-- Goal: is early entry better?
-
-**R1d: Max positions**
-- max_positions: [3, 5, 8, 10, 15]
-- Goal: can we deploy more capital?
-
-**R1e: Slippage sensitivity**
-- slippage_bps: [0, 1, 2, 3, 5, 10]
-- At R1a-R1d winner config
-- Goal: find the breakeven slippage
-
-### R2: Fine grid
-- Narrow sweep around R1 winners (e.g., if R1a says target=2.0,
-  sweep 1.5/1.75/2.0/2.25/2.5)
-- Cartesian product of top 2-3 values per param
-
-### R3: Robustness
-- IS/OOS split: 2022-2024 train, 2025 test
-- Per-year stability: does each year show positive returns?
-- Monte Carlo: shuffle trade order, check Sharpe stability
-
+### R1: Coarse sweep (COMPLETE)
+### R2: Fine grid (PENDING)
+### R3: Robustness — IS/OOS, yearly stability
 ### R4: Variants & Extensions
-- [ ] Rolling 15-30 min intraday high (instead of prior-day high)
-- [ ] Volume confirmation at entry (bar volume > 1.5x avg)
-- [ ] VWAP-based entry (enter at VWAP instead of exact breakout)
-- [ ] Trailing stop on minute bars (instead of fixed target)
-- [ ] Universe size: 50 vs 100 vs 200
-- [ ] Ranking: top_gainer momentum vs volume-weighted
-- [ ] Shorting: sell breakdown below prior-day low
-- [ ] Index trading: NIFTYBEES/NIFTY50 instead of individual stocks
-- [ ] Leverage: 2x-5x MIS margin
-- [ ] Daily filter modes: regime-only, no filter
 
 ---
 
 ## Ideas Backlog
 
 ### Entry improvements
-- Use VWAP of first 5 bars as entry confirmation (not just breakout)
-- Volume heuristic: require entry bar volume > 1.5x 20-day avg bar volume
+- Volume heuristic: require entry bar volume > 1.5x avg
 - Gap-up filter: only trade if stock gaps up from previous close
-- Time-weighted entry: weight earlier entries higher
-- Limit order at prior_high instead of market order (removes slippage but risks non-fill)
+- VWAP confirmation at entry
+- Rolling 15-30 min intraday high (instead of prior-day high)
 
 ### Exit improvements
-- Trailing stop on minute bars (tighten as profit grows)
+- Trailing stop on minute bars
 - Partial profit booking (exit 50% at target, trail rest)
-- VWAP exit: exit when price crosses below intraday VWAP
+- VWAP exit
 - Time-based scaling: widen target in morning, tighten in afternoon
 
 ### Position management
-- Allocate more than 5 positions (intraday can handle 10-15)
-- Use leverage (Zerodha MIS: 5x on equity intraday)
-- Risk-based sizing: smaller positions on wider stops
-- Correlation check: avoid 5 positions in same sector
+- Leverage (Zerodha MIS: 5x on equity intraday)
+- Risk-based sizing
+- Sector correlation check
 
 ### Universe
-- Nifty 50 only (most liquid, tightest spreads)
-- Sector rotation: trade leading sectors
+- Nifty 50 only (tightest spreads)
 - Index ETFs: NIFTYBEES, BANKBEES
-- Futures: NIFTY/BANKNIFTY futures (lower costs, higher leverage)
+- Futures: NIFTY/BANKNIFTY (lower costs, higher leverage)
 
-### Regime / signal
-- Intraday regime: market breadth computed from minute data
-- Gap analysis: are gap-up breakouts stronger?
-- Pre-market data: use pre-market auction price for signal
+### Other
+- Shorting: sell breakdown below prior-day low
+- Regime-only mode (no breakout filter)
+- Intraday regime from minute data
 
 ---
 
 ## Execution Environment
 
 **Prod machine:** `swas@80.241.215.48`
-- CPU: AMD EPYC
-- RAM: 251GB (59GB free)
-- Disk: 104GB free
-- Python 3.10, Polars 1.39, PyYAML
+- CPU: AMD EPYC, RAM: 251GB, Python 3.10, Polars 1.39
 
 **Data paths:**
 - Daily: `/opt/insydia/data/data_source=nse/charting/granularity=day/`
 - Minute (FMP): `/opt/insydia/data/data_source=fmp/tick_data/stock/granularity=1min/exchange=NSE/`
 
-**Performance:** ~65s per config (load 13s + simulate 50s). 80-config sweep ~90 min.
-
-**Workflow:**
-1. Edit config locally
-2. scp to prod: `scp config.yaml swas@80.241.215.48:/home/swas/backtester/`
-3. Run: `ssh prod "cd /home/swas/backtester && python3 intraday_breakout_prod.py config.yaml --output result.json"`
-4. Copy results back: `scp swas@80.241.215.48:/home/swas/backtester/result.json .`
+**Performance:** ~50s per config on prod (load ~15s + simulate ~35s).
 
 ---
 
@@ -192,3 +203,5 @@ This identifies which parameters matter before doing Cartesian product.
 |---|---|
 | `c187935` | Initial intraday breakout pipeline |
 | `17c62c3` | Fix entry price: use signal day high |
+| `d50aa2b` | R0 results, prod runner, STATUS doc |
+| `269ecda` | Fix split-adjustment mismatch (minute-derived highs) |
