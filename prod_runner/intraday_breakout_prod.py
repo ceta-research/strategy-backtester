@@ -336,12 +336,19 @@ def simulate_intraday_day(
         #   "limit_no_gap": same as limit but SKIP gap-up stocks entirely.
         entry_mode = config.get("entry_mode", "market")
         max_gap_bps = config.get("max_gap_bps", 9999)  # for limit mode: skip gaps > this
+        require_gap_up = config.get("require_gap_up", False)
 
         entry_price = None
         entry_idx = None
         entry_minute = None
 
         first_bar = bars[0] if bars else None
+
+        # Gap-up filter: only trade stocks that open above prior-day high
+        if require_gap_up and first_bar:
+            first_open = first_bar.get("open")
+            if not first_open or first_open <= prior_high:
+                continue  # skip: didn't gap up
 
         if entry_mode in ("limit", "limit_no_gap") and first_bar:
             first_open = first_bar.get("open")
@@ -536,7 +543,8 @@ def run_pipeline(config: dict) -> dict:
     # Phase 3: Build sweep configs
     sweep_keys = ["target_pct", "stop_pct", "trailing_stop_pct", "max_entry_bar",
                    "max_positions", "eod_exit_minute", "slippage_bps",
-                   "entry_mode", "max_gap_bps", "base_position_slots"]
+                   "entry_mode", "max_gap_bps", "base_position_slots",
+                   "require_gap_up"]
     sweep_params = {}
     for k in sweep_keys:
         v = config.get(k)

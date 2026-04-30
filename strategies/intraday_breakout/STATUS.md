@@ -1,7 +1,7 @@
 # Intraday Breakout — STATUS & Tracking
 
 **Created:** 2026-04-29
-**Status:** R1 COMPLETE, R2 PENDING
+**Status:** GAP-UP VARIANT FOUND, TUNING PENDING
 **Parent strategy:** eod_breakout (IR hysteresis, Calmar 1.350)
 **Prod workspace:** `swas@80.241.215.48:/home/swas/backtester/`
 **Prod runner:** `intraday_breakout_prod.py`
@@ -117,8 +117,95 @@ breakouts from price-basis mismatch between daily and minute data.
 | 2 bps | 6.06% | -2.25% | 2.700 | Achievable with limit orders |
 | 3 bps | 3.54% | -3.58% | 0.989 | Breakeven |
 
-**Verdict:** Real edge exists but thin. Viable only with tight execution
-(limit orders or algo). Not viable for manual market-order trading.
+**Verdict:** Thin edge at all-entries level. See gap-up variant below.
+
+---
+
+## GAP-UP VARIANT (breakthrough finding)
+
+Loss analysis revealed that non-gap entries (stocks that DON'T open above
+prior-day high) are NET NEGATIVE (-100K total P&L, 35% WR). All the edge
+comes from gap-up entries (stocks that open above prior-day high at 09:15).
+
+### Gap-up only results
+
+| Slippage | CAGR | MDD | Sharpe | Calmar | Trades | WR |
+|---:|---:|---:|---:|---:|---:|---:|
+| 0 bps | **24.14%** | **-0.81%** | 4.674 | **29.839** | 1,425 | **58%** |
+| 1 bps | 22.72% | -0.83% | 4.396 | 27.460 | 1,432 | 58% |
+| 2 bps | 21.17% | -0.74% | 3.974 | 28.619 | 1,431 | 57% |
+| 3 bps | 19.81% | -0.86% | 3.641 | 22.929 | 1,426 | 57% |
+| 5 bps | **16.49%** | **-0.90%** | 2.837 | **18.282** | 1,430 | 55% |
+
+**Profitable at ANY realistic slippage.** Even 5bps gives 16.49% CAGR.
+
+### Comparison to all-entries
+
+| | All entries | Gap-up only |
+|---|---:|---:|
+| CAGR (0 slip) | 11.76% | **24.14%** (+12.4pp) |
+| MDD | -1.66% | **-0.81%** (+0.85pp) |
+| Calmar | 7.064 | **29.839** (4.2x) |
+| Win rate | 45% | **58%** (+13pp) |
+
+### With Zerodha MIS leverage (free, no extra charges)
+
+| Slippage | 1x | 3x | 5x | 5x MDD |
+|---:|---:|---:|---:|---:|
+| 0 bps | 24% | ~72% | ~121% | ~-4.1% |
+| 2 bps | 21% | ~63% | ~106% | ~-3.7% |
+| 5 bps | 16% | ~49% | ~82% | ~-4.5% |
+
+### Yearly (0 slippage)
+
+| Year | Trades | Trades/wk | WR | Return |
+|---:|---:|---:|---:|---:|
+| 2022 | 32 | <1 | 56% | +1.9% |
+| 2023 | 471 | 9 | 60% | +35.1% |
+| 2024 | 518 | 9 | 55% | +32.3% |
+| 2025 | 404 | 7 | 60% | +30.4% |
+
+### The algorithm
+
+```
+EVERY EVENING (after market close):
+  1. Universe: top 50 NSE stocks by avg daily turnover (monthly rebalance)
+  2. For each stock, check daily signal:
+     - close >= 3-day rolling high (breakout)
+     - close > 10-day MA (trend)
+     - close > open (bullish candle)
+     - internal regime bullish (>40% of universe above 50d SMA,
+       hysteresis: stays bull until <35%)
+  3. Stocks passing ALL → "eligible for tomorrow"
+
+NEXT MORNING 09:15:
+  4. For each eligible stock: did it GAP UP?
+     (first bar open > yesterday's high from minute data)
+     - YES → BUY at open (market order)
+     - NO  → SKIP
+  5. Max 5 positions, each = margin / 5
+
+DURING DAY (09:15 - 15:25):
+  6. Watch each position:
+     - Price hits +1.0% → SELL (target)
+     - Price hits -0.5% → SELL (stop)
+     - 15:25 → SELL all (EOD close, no overnight)
+```
+
+---
+
+## Next Steps (resume here)
+
+1. **Tune gap-up variant** — sweep target/stop around current best
+   (target 0.75-1.5%, stop 0.25-0.75%) with gap-up filter
+2. **Minimum gap size** — does requiring a larger gap (e.g., >10bps)
+   improve win rate further?
+3. **Volume at open** — does high first-bar volume predict better trades?
+4. **Symbol filtering** — blacklist worst performers (PNB, SUNPHARMA etc.)
+5. **Trailing stop** — instead of fixed target, trail winners
+6. **Yearly IS/OOS** — train on 2023-2024, test on 2025
+7. **Leverage simulation** — actually model 3x/5x with margin calls
+8. **Live paper trading** — forward test with Kite API
 
 ---
 
@@ -205,3 +292,5 @@ Adapted from EOD OPTIMIZATION_PROMPT.md. Each round narrows the search space.
 | `17c62c3` | Fix entry price: use signal day high |
 | `d50aa2b` | R0 results, prod runner, STATUS doc |
 | `269ecda` | Fix split-adjustment mismatch (minute-derived highs) |
+| `3ec06a9` | R1 sweep complete, STATUS updated |
+| _(next)_ | Gap-up variant: 24% CAGR, Calmar 29.8 |
