@@ -48,22 +48,33 @@ def fetch_daily_data(client: CetaResearch, start_date: str, end_date: str,
     pf_dt = dt - timedelta(days=int(prefetch_days * 1.5))  # calendar days
     pf_date = pf_dt.strftime("%Y-%m-%d")
 
+    # nse_charting_day has: date_epoch, symbol, open, high, low, close, volume
+    pf_epoch = int(pf_dt.replace(tzinfo=timezone.utc).timestamp())
+    end_epoch = int(datetime.strptime(end_date, "%Y-%m-%d")
+                    .replace(tzinfo=timezone.utc).timestamp())
+
     sql = f"""
     SELECT
         symbol AS instrument,
-        CAST(epoch(date) AS BIGINT) AS date_epoch,
+        date_epoch,
         open, high, low, close, volume,
         close * volume AS turnover
     FROM nse.nse_charting_day
-    WHERE date BETWEEN '{pf_date}' AND '{end_date}'
+    WHERE date_epoch BETWEEN {pf_epoch} AND {end_epoch}
       AND close > 0
       AND volume > 0
-    ORDER BY symbol, date
+    ORDER BY symbol, date_epoch
     """
     print(f"  Fetching daily OHLCV: {pf_date} to {end_date}")
     rows = client.query(sql, memory_mb=16384, threads=6, timeout=600,
                         format="parquet")
-    df = pl.DataFrame(rows) if isinstance(rows, list) else rows
+    if isinstance(rows, bytes):
+        import io
+        df = pl.read_parquet(io.BytesIO(rows))
+    elif isinstance(rows, list):
+        df = pl.DataFrame(rows)
+    else:
+        df = rows
     print(f"  Daily data: {df.height} rows, {df['instrument'].n_unique()} instruments")
     return df
 
@@ -109,17 +120,15 @@ def fetch_minute_bars_batch(client: CetaResearch,
                             month_start: str, month_end: str) -> dict:
     """Fetch minute bars for all eligible stocks in a month, one query.
 
-    Returns dict of {date_str: pl.DataFrame of minute bars for that day}.
+    FMP minute data schema: dateEpoch, symbol, open, high, low, close, volume.
+    Timestamps are LOCAL time labeled UTC (NSE: 09:15-15:30 IST stored as UTC).
+
+    Returns dict of {date_str: pl.DataFrame with columns: symbol, bar_minute, OHLCV}.
     """
     # Collect all unique symbols needed this month
     all_symbols = set()
-    date_strs = {}
     for epoch, symbols in daily_signals.items():
-        dt = datetime.fromtimestamp(epoch, tz=timezone.utc)
-        date_str = dt.strftime("%Y-%m-%d")
-        date_strs[epoch] = date_str
         for s in symbols:
-            # Convert instrument format: NSE:SYMBOL -> SYMBOL.NS (FMP format)
             fmp_sym = s.replace("NSE:", "") + ".NS"
             all_symbols.add(fmp_sym)
 
@@ -128,26 +137,39 @@ def fetch_minute_bars_batch(client: CetaResearch,
 
     sym_list = ", ".join(f"'{s}'" for s in sorted(all_symbols))
 
+    # Convert date range to epochs
+    m_start_epoch = int(datetime.strptime(month_start, "%Y-%m-%d")
+                        .replace(tzinfo=timezone.utc).timestamp())
+    m_end_epoch = int(datetime.strptime(month_end, "%Y-%m-%d")
+                      .replace(tzinfo=timezone.utc).timestamp()) + SECONDS_IN_ONE_DAY
+
+    # Compute bar_minute from dateEpoch: (epoch % 86400) / 60
+    # NSE session: 555 (09:15) to 930 (15:30) in "UTC" minutes (= IST)
     sql = f"""
     SELECT
         symbol,
-        CAST(date AS DATE) AS trade_date,
-        date AS bar_timestamp,
-        EXTRACT(HOUR FROM date) * 60 + EXTRACT(MINUTE FROM date) AS bar_minute,
+        dateEpoch,
+        CAST(CAST(to_timestamp(dateEpoch) AS DATE) AS VARCHAR) AS trade_date,
+        CAST((dateEpoch % 86400) / 60 AS INTEGER) AS bar_minute,
         open, high, low, close, volume
     FROM fmp.stock_prices_minute
     WHERE symbol IN ({sym_list})
-      AND CAST(date AS DATE) BETWEEN '{month_start}' AND '{month_end}'
-      AND EXTRACT(HOUR FROM date) >= 9
-      AND EXTRACT(HOUR FROM date) < 16
-    ORDER BY symbol, date
+      AND dateEpoch BETWEEN {m_start_epoch} AND {m_end_epoch}
+      AND CAST((dateEpoch % 86400) / 60 AS INTEGER) BETWEEN 555 AND 930
+    ORDER BY symbol, dateEpoch
     """
     print(f"    Fetching minute bars: {len(all_symbols)} symbols, {month_start} to {month_end}")
     try:
         rows = client.query(sql, memory_mb=8192, threads=6, timeout=300,
                             format="parquet")
-        df = pl.DataFrame(rows) if isinstance(rows, list) else rows
-        print(f"    Minute data: {df.height} rows")
+        if isinstance(rows, bytes):
+            import io
+            df = pl.read_parquet(io.BytesIO(rows))
+        elif isinstance(rows, list):
+            df = pl.DataFrame(rows)
+        else:
+            df = rows
+        print(f"    Minute data: {df.height} rows, {df['symbol'].n_unique() if df.height > 0 else 0} symbols")
 
         # Group by trade_date
         result = {}
@@ -279,13 +301,14 @@ def compute_daily_signals(
 def simulate_intraday_day(
     minute_df: pl.DataFrame,
     eligible_instruments: list[str],
-    prior_day_highs: dict[str, float],
+    signal_day_highs: dict[str, float],
     config: dict,
     margin: float,
 ) -> tuple[list[dict], float]:
     """Simulate one trading day on minute bars.
 
-    Entry: price breaks above prior day's high.
+    Entry: price breaks above the signal day's high (prior day from
+    execution perspective).
     Exit: target/stop/trailing/time-stop/EOD close.
 
     Returns (trade_list, day_pnl).
@@ -293,7 +316,8 @@ def simulate_intraday_day(
     target_pct = config.get("target_pct", 1.5) / 100
     stop_pct = config.get("stop_pct", 0.75) / 100
     trailing_stop_pct = config.get("trailing_stop_pct", 0) / 100
-    max_entry_bar = config.get("max_entry_bar", 120)  # max bar_minute for entry
+    max_entry_bar = config.get("max_entry_bar", 120)  # bars from session start
+    max_entry_minute = 555 + max_entry_bar  # 555 = 09:15, so +120 = 11:15
     eod_exit_minute = config.get("eod_exit_minute", 925)  # 15:25 = 925
     max_positions = config.get("max_positions", 5)
     order_value = margin / max_positions if max_positions > 0 else 0
@@ -311,7 +335,7 @@ def simulate_intraday_day(
 
         # Get instrument's FMP symbol
         fmp_sym = inst.replace("NSE:", "") + ".NS"
-        prior_high = prior_day_highs.get(inst)
+        prior_high = signal_day_highs.get(inst)
         if prior_high is None or prior_high <= 0:
             continue
 
@@ -328,7 +352,7 @@ def simulate_intraday_day(
         entry_minute = None
 
         for i, bar in enumerate(bars):
-            if bar["bar_minute"] > max_entry_bar + 555:  # 555 = 9*60+15 (session start)
+            if bar["bar_minute"] > max_entry_minute:
                 break
             if bar["high"] and bar["high"] > prior_high:
                 # Entry at breakout price (prior_high + small buffer)
@@ -497,9 +521,9 @@ def run_intraday_breakout_pipeline(config_path: str) -> SweepResult:
                 print(f"    {month_start}: 0 signal days, skipping minute fetch")
                 continue
 
-            # Compute prior-day highs for the universe
-            prior_highs = _compute_prior_day_highs(df_daily, universe,
-                                                    m_start_epoch, m_end_epoch)
+            # Get signal-day highs (breakout level for next-day intraday entry)
+            signal_day_highs = _compute_signal_day_highs(df_daily, universe,
+                                                          m_start_epoch, m_end_epoch)
 
             # Phase 3: Fetch minute data for eligible stocks
             minute_data = fetch_minute_bars_batch(
@@ -524,7 +548,7 @@ def run_intraday_breakout_pipeline(config_path: str) -> SweepResult:
 
                 day_trades, day_pnl = simulate_intraday_day(
                     minute_df, signals[epoch],
-                    prior_highs.get(epoch, {}),
+                    signal_day_highs.get(epoch, {}),
                     params, margin,
                 )
 
@@ -604,32 +628,27 @@ def _month_boundaries(start_date: str, end_date: str) -> list[tuple]:
     return months
 
 
-def _compute_prior_day_highs(df_daily: pl.DataFrame, universe: list[str],
-                              start_epoch: int, end_epoch: int) -> dict:
-    """Compute prior day's high for each instrument on each date.
+def _compute_signal_day_highs(df_daily: pl.DataFrame, universe: list[str],
+                               start_epoch: int, end_epoch: int) -> dict:
+    """Get the high of each instrument on each date (the signal day).
 
-    Returns: {date_epoch: {instrument: prior_day_high}}
+    For intraday execution on day E+1, the breakout level is day E's high.
+
+    Returns: {date_epoch: {instrument: signal_day_high}}
     """
     df = (df_daily
-          .filter(pl.col("instrument").is_in(universe))
-          .sort(["instrument", "date_epoch"]))
-
-    df = df.with_columns(
-        pl.col("high").shift(1).over("instrument").alias("prior_high")
-    )
-
-    df = df.filter(
-        (pl.col("date_epoch") >= start_epoch)
-        & (pl.col("date_epoch") <= end_epoch)
-        & pl.col("prior_high").is_not_null()
-    )
+          .filter(
+              pl.col("instrument").is_in(universe)
+              & (pl.col("date_epoch") >= start_epoch)
+              & (pl.col("date_epoch") <= end_epoch)
+          ))
 
     result: dict = {}
-    for row in df.select(["date_epoch", "instrument", "prior_high"]).to_dicts():
+    for row in df.select(["date_epoch", "instrument", "high"]).to_dicts():
         epoch = row["date_epoch"]
         if epoch not in result:
             result[epoch] = {}
-        result[epoch][row["instrument"]] = row["prior_high"]
+        result[epoch][row["instrument"]] = row["high"]
 
     return result
 
