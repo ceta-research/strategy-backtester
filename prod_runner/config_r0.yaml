@@ -1,0 +1,30 @@
+# R0: Baseline with slippage (matches CR API run + 5bps slippage)
+static:
+  start_date: "2020-01-01"
+  end_date: "2025-12-31"
+  initial_capital: 1000000
+  prefetch_days: 500
+
+universe:
+  top_n: 50
+  min_avg_turnover: 500000000
+
+daily_signal:
+  n_day_high: 3
+  n_day_ma: 10
+  internal_regime_sma_period: 50
+  internal_regime_threshold: 0.4
+  internal_regime_exit_threshold: 0.35
+
+intraday_entry:
+  max_entry_bar: 120
+
+intraday_exit:
+  target_pct: 1.5
+  stop_pct: 0.75
+  trailing_stop_pct: 0
+  eod_exit_minute: 925
+
+simulation:
+  max_positions: 5
+  slippage_bps: 5
