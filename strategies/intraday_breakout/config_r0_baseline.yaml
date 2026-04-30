@@ -1,0 +1,35 @@
+# Intraday Breakout — Round 0 Baseline
+# Single config to validate pipeline end-to-end.
+# Start with 3 months of data for quick iteration.
+
+static:
+  strategy_type: intraday_breakout
+  start_date: "2024-01-01"
+  end_date: "2024-03-31"
+  initial_capital: 1000000
+  exchange: NSE
+  prefetch_days: 500
+  chunk_months: 1
+
+universe:
+  top_n: 50
+  min_avg_turnover: 500000000
+
+daily_signal:
+  n_day_high: 3
+  n_day_ma: 10
+  internal_regime_sma_period: 50
+  internal_regime_threshold: 0.4
+  internal_regime_exit_threshold: 0.35
+
+intraday_entry:
+  max_entry_bar: 120
+
+intraday_exit:
+  target_pct: 1.5
+  stop_pct: 0.75
+  trailing_stop_pct: 0
+  eod_exit_minute: 925
+
+simulation:
+  max_positions: 5
