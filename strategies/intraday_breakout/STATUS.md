@@ -71,6 +71,85 @@ Artifacts:
 
 ---
 
+## Phase B — Momentum-filtered universe (in progress, 2026-05-01)
+
+**Hypothesis:** the failure mode of pure ORB may be universe selection, not entry mechanism. Filtering to stocks in a confirmed daily uptrend ("bull-run only") might capture continuation behavior that random-universe breakouts miss. Directly motivated by Jegadeesh-Titman momentum effect (well-replicated since 1993).
+
+**Setup:**
+- Universe: top 15 by trailing 20-day return, weekly rebalance, with filters (>10d SMA, >50d SMA, 5d return > 0 — the "not slowing down" anti-filter)
+- Same intraday execution as Pure ORB (15-min OR, breakout entry, target/stop/EOD)
+- Wider target/stop (1.5% / 0.7%) to give momentum room to continue
+- Period 2022-2025, 0bps + 3bps slippage
+- All bug fixes carried over
+
+**Decision gate:** CAGR > 5% at 0bps → momentum filter is materially helping. Else: confirms entry-mechanism is dead regardless of universe.
+
+Artifacts: `tuning/run_phase_b_momentum_filter.py`, `tuning/phase_b_momentum.{log,json}`
+
+**Result: hypothesis CONFIRMED — momentum filter helps materially, but absolute edge is still marginal.**
+
+| Year | Pure ORB (Phase A) | Phase B (mom filter) | Δ |
+|---|---:|---:|---:|
+| 2022 | −4.3% | +4.3% | +8.6pp |
+| 2023 | −5.4% | **+26.6%** | +32pp |
+| 2024 | −17.2% | −2.2% | +15pp |
+| 2025 | −11.1% | +5.3% | +16pp |
+| **Overall 0bps** | **CAGR −11.3% / MDD −38.9%** | **CAGR +7.6% / MDD −13.5%** | +19pp |
+| Overall 3bps | −21.8% | −2.8% | +19pp |
+
+Filter consistently lifts every year by 8-32pp. Sharpe 1.33, Calmar 0.56 at 0bps. WR unchanged (~37%); the filter doesn't change *frequency* of wins, it changes the *expected value* per trade — winners on uptrending stocks run further before mean-reverting back to stop.
+
+**Limitations:**
+- Slippage destroys it: −2.8% CAGR at 3bps. Real-world execution would need limit orders or tighter spreads.
+- 2023 dominates (+26.6%). Other years are +4-5%. Edge has temporal concentration risk.
+- 2024 (strongest bull year) is still a slight loss — momentum filter helps but doesn't fully fix the "everything-up bull market = noisy breakouts" problem.
+
+**Phase B verdict (REVISED 2026-05-01 after survivorship check):** the +7.6% CAGR was almost entirely survivorship bias.
+
+### Survivorship verification (Nifty 50 / Nifty 100 re-test)
+
+NSE daily dataset is survivorship-only (zero stocks present in 2022 are missing from 2026 — all delisted companies are absent). Re-ran Phase B with universe restricted to current Nifty 50 and Nifty 100 members (large-caps almost never delist):
+
+| Variant | Slip | CAGR | MDD | WR |
+|---|---:|---:|---:|---:|
+| Phase B (broad, biased) | 0bps | +7.6% | −13.5% | 37.4% |
+| Phase B (broad, biased) | 3bps | −2.8% | −25.9% | 36.0% |
+| **Nifty 50 (clean)** | **0bps** | **−7.5%** | **−28.3%** | **40.0%** |
+| **Nifty 50 (clean)** | **3bps** | **−17.4%** | **−53.9%** | **36.7%** |
+| **Nifty 100 (clean)** | **0bps** | **−9.9%** | **−35.2%** | **38.1%** |
+| **Nifty 100 (clean)** | **3bps** | **−20.0%** | **−59.5%** | **35.4%** |
+
+Survivorship inflation was 15-17pp — far larger than expected for an intraday strategy. Mechanism: the momentum filter (top by 20-day return) systematically over-selects survivors who happen to have strong recent returns. Stocks that were momentum picks but later crashed and delisted are absent.
+
+### Why large-caps fail harder (not just neutral)
+
+Exit-type distribution shifts dramatically in clean universe:
+- Biased Phase B: 34% target / 4% EOD close
+- Nifty 50: **15% target / 41% EOD close**
+
+Large-caps don't break out cleanly — they drift. Two-sided liquidity → mean reversion overwhelms momentum. WR actually goes UP (40% vs 37%) but outcome distribution shifts to many small losses, few big wins. Asymmetric stop bleeds equity.
+
+### Drawdown shape (from biased Phase B, for reference)
+
+Even if the +7.6% were real, the drawdown profile (one 14-month bleed from 2024-05 to 2025-07, depth −13.5%, 5-month consecutive losing streak) makes leverage unviable for the user's "10% / <3% MDD" target. With 5x prop leverage, MDD would be ~−67% → instant liquidation.
+
+Artifacts:
+- `tuning/run_phase_b_nifty.py`, `tuning/phase_b_nifty.{log,json}`
+- `tuning/analyze_phase_b_drawdown.py`, `tuning/phase_b_drawdown_analysis.json`
+
+---
+
+## Final intraday-breakout verdict (2026-05-01)
+
+Three honest tests across two days, all dead:
+1. Original gap-up "champion" (+24% claim) → −2% after bug fixes
+2. Pure ORB (no daily data, top-50 turnover) → −11% raw, every year negative
+3. Momentum-filtered ORB → +7.6% biased, −7.5% to −9.9% in survivorship-clean Nifty 50/100
+
+**Conclusion: intraday breakout entries on NSE 2022-2025 lack inherent edge regardless of: entry mechanism (prior-day vs opening range), universe selection (broad turnover vs momentum-filtered vs Nifty 50/100), or execution detail (gap-up filter, market vs limit orders).** Mean reversion appears to dominate the minute-bar dynamics.
+
+Pivot direction: pair trading / stat-arb (structurally less affected by survivorship) and other mean-reversion setups.
+
 ## Data Coverage
 
 | Source | Date range | Top 50 coverage | Notes |
