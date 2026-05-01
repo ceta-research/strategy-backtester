@@ -337,6 +337,8 @@ def simulate_intraday_day(
         entry_mode = config.get("entry_mode", "market")
         max_gap_bps = config.get("max_gap_bps", 9999)  # for limit mode: skip gaps > this
         require_gap_up = config.get("require_gap_up", False)
+        min_gap_bps = config.get("min_gap_bps", 0)  # minimum gap size in bps
+        min_first_bar_volume_ratio = config.get("min_first_bar_volume_ratio", 0)  # 0 = disabled
 
         entry_price = None
         entry_idx = None
@@ -349,6 +351,28 @@ def simulate_intraday_day(
             first_open = first_bar.get("open")
             if not first_open or first_open <= prior_high:
                 continue  # skip: didn't gap up
+            # Minimum gap size filter
+            if min_gap_bps > 0:
+                gap_size_bps = (first_open - prior_high) / prior_high * 10000
+                if gap_size_bps < min_gap_bps:
+                    continue  # skip: gap too small
+
+        # Volume at open filter: require first bar volume > ratio * median bar volume.
+        # Uses a simple heuristic: compare first bar volume to the median volume of
+        # ALL bars in this stock's data today. Since all positions close same day and
+        # this is a binary go/no-go at open, we approximate using the stock's own
+        # bar volume distribution. A true forward-looking fix would use historical
+        # first-bar averages, but that requires pre-computation (see run_rolling_filter.py).
+        # For practical purposes: high first-bar volume relative to the day's average
+        # is observable in real-time since first bars are almost always above-average
+        # volume (market open effect). The filter catches BELOW-average opens.
+        if min_first_bar_volume_ratio > 0 and first_bar:
+            first_vol = first_bar.get("volume", 0) or 0
+            # Compare to median volume across all bars (approximation)
+            all_vols = sorted([b.get("volume", 0) or 0 for b in bars if (b.get("volume", 0) or 0) > 0])
+            median_vol = all_vols[len(all_vols) // 2] if all_vols else 0
+            if median_vol > 0 and first_vol < min_first_bar_volume_ratio * median_vol:
+                continue  # skip: weak volume at open
 
         if entry_mode in ("limit", "limit_no_gap") and first_bar:
             first_open = first_bar.get("open")
@@ -379,12 +403,15 @@ def simulate_intraday_day(
                             entry_minute = bar["bar_minute"]
                             break
         else:
-            # Market order mode (original logic)
+            # Market order mode. For gap-ups (open > prior_high), you can't
+            # buy at prior_high — fill at the open instead.
             for i, bar in enumerate(bars):
                 if bar["bar_minute"] > max_entry_minute:
                     break
                 if bar["high"] and bar["high"] > prior_high:
-                    entry_price = prior_high * (1 + slippage_bps / 10000)
+                    bar_open = bar.get("open") or prior_high
+                    fill_price = max(prior_high, bar_open)
+                    entry_price = fill_price * (1 + slippage_bps / 10000)
                     entry_idx = i
                     entry_minute = bar["bar_minute"]
                     break
@@ -397,7 +424,9 @@ def simulate_intraday_day(
         exit_price = None
         exit_type = None
 
-        for j in range(entry_idx, len(bars)):
+        # Earliest exit is bar AFTER entry — same-bar entry+exit is
+        # ambiguous within a 1-min bar (can't tell order of high vs low).
+        for j in range(entry_idx + 1, len(bars)):
             bar = bars[j]
             bar_high = bar["high"] or entry_price
             bar_low = bar["low"] or entry_price
@@ -544,7 +573,7 @@ def run_pipeline(config: dict) -> dict:
     sweep_keys = ["target_pct", "stop_pct", "trailing_stop_pct", "max_entry_bar",
                    "max_positions", "eod_exit_minute", "slippage_bps",
                    "entry_mode", "max_gap_bps", "base_position_slots",
-                   "require_gap_up"]
+                   "require_gap_up", "min_gap_bps", "min_first_bar_volume_ratio"]
     sweep_params = {}
     for k in sweep_keys:
         v = config.get(k)

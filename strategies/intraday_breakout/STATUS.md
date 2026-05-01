@@ -1,10 +1,73 @@
 # Intraday Breakout — STATUS & Tracking
 
 **Created:** 2026-04-29
-**Status:** GAP-UP VARIANT FOUND, TUNING PENDING
+**Status:** ⚠️ AUDIT FAILED 2026-05-01 — STRATEGY DEAD AS BUILT
 **Parent strategy:** eod_breakout (IR hysteresis, Calmar 1.350)
 **Prod workspace:** `swas@80.241.215.48:/home/swas/backtester/`
 **Prod runner:** `intraday_breakout_prod.py`
+
+---
+
+## ⚠️ AUDIT RESULT (2026-05-01)
+
+The pre-audit results below (24% CAGR / Calmar 29.8 / etc.) were **artifacts of two bugs**:
+
+1. **Entry price for gap-ups** — code filled at `prior_high` for stocks that opened above `prior_high`. You can't physically buy below the open.
+2. **Same-bar entry+exit** — exit loop started at `range(entry_idx, ...)` so the entry bar's high/low could trigger target/stop on the same minute as entry.
+
+**After fixing both** (target=1.0 / stop=0.5 / max_pos=5 / entry=15 bars / gap-up only):
+
+| Metric | PRE-FIX | POST-FIX | Delta |
+|---|---:|---:|---:|
+| CAGR (0bps) | +24.14% | **−2.18%** | −26.3pp |
+| MDD (0bps) | −0.81% | **−10.47%** | −9.7pp |
+| Calmar (0bps) | 29.84 | **−0.21** | −30.0 |
+| Win rate (0bps) | 58% | **36%** | −22pp |
+| CAGR (3bps) | +19.81% | **−6.45%** | −26.3pp |
+| MDD (3bps) | −0.86% | **−23.64%** | −22.8pp |
+
+Decision gate (CAGR > 5% at 0 slip) failed. **All sweep results below — including the R2 "champion" target=1.2/stop=0.25 and the leverage projections — are invalidated.**
+
+Audit artifacts:
+- `tuning/audit_baseline.log` (full run output)
+- `tuning/audit_baseline_result.json` (numbers)
+- `tuning/run_audit_baseline.py` (reproducer)
+- Pre-audit code preserved on prod: `intraday_breakout_prod.py.pre_audit`
+- Pre-audit log files preserved on prod: `*.log.pre_audit`
+
+**The remaining 6 audit stages (3–8) were not run** because Stage 1+2 already conclusively killed the strategy.
+
+---
+
+## ⚠️ PURE ORB EXTENSION (2026-05-01) — also dead
+
+Tested whether a *cleaner* intraday breakout (no daily data, no cross-day-mismatch bug surface) had any edge. Setup:
+
+- Universe = top 50 by trailing 30-day minute turnover, monthly rebalance
+- Setup = 15-min opening range high
+- Entry = first post-OR bar with high > OR-high, fill at `max(OR_high, bar_open) * (1+slip)`
+- Exit = target 1% / stop 0.5% / EOD 15:25, exit loop from `entry_idx + 1`
+- No regime, no daily data, single-day positions
+- Period 2022–2025
+
+**Result: NO EDGE in any year.** Loses money every year, including strongest bull year (2024 = −17.2%):
+
+| Year | Trades | PnL %initial | WR |
+|---|---:|---:|---:|
+| 2022 | 211 | −4.3% | 31% |
+| 2023 | 1,215 | −5.4% | 37% |
+| 2024 | 1,224 | **−17.2%** | 33% |
+| 2025 | 1,225 | −11.1% | 35% |
+| Overall (0bps) | 3,875 | CAGR=−11.3%, MDD=−38.9%, Calmar=−0.29 |
+| Overall (3bps) | 3,875 | CAGR=−21.8%, MDD=−62.6% |
+
+Stops hit ~2x more than targets (2,344 vs 1,133) — same structural asymmetry as the gap-up version. **2024 (strongest bull) was the worst year**, which is the smoking gun: trending markets generate more failed breakouts (mean-reversion overwhelms continuation), not fewer.
+
+Artifacts:
+- `tuning/run_pure_orb_phase_a.py` — reproducer
+- `tuning/pure_orb_phase_a.{log,json}` — output
+
+**Conclusion across both audits:** any intraday strategy whose entry rule is "buy after price crosses level X" appears to have no inherent edge on NSE minute data 2022–2025, regardless of how X is defined (prior-day high, opening-range high). The "alpha" reported in the original session was bug-driven. Next direction (pair trading / mean-reversion) tracked separately.
 
 ---
 

@@ -1,0 +1,80 @@
+{
+  "0": {
+    "metrics": {
+      "cagr": -11.26,
+      "mdd": -38.94,
+      "sharpe": -2.753,
+      "calmar": -0.289,
+      "trades": 3875,
+      "win_rate": 34.6,
+      "final": 620553.89
+    },
+    "per_year": {
+      "2022": {
+        "trades": 211,
+        "pnl_pct_of_initial": -4.28,
+        "win_rate": 30.8
+      },
+      "2023": {
+        "trades": 1215,
+        "pnl_pct_of_initial": -5.41,
+        "win_rate": 37.3
+      },
+      "2024": {
+        "trades": 1224,
+        "pnl_pct_of_initial": -17.2,
+        "win_rate": 32.8
+      },
+      "2025": {
+        "trades": 1225,
+        "pnl_pct_of_initial": -11.05,
+        "win_rate": 34.5
+      }
+    },
+    "exit_types": {
+      "target": 1133,
+      "stop": 2344,
+      "eod_close": 386,
+      "eod_close_fallback": 12
+    }
+  },
+  "3": {
+    "metrics": {
+      "cagr": -21.76,
+      "mdd": -62.61,
+      "sharpe": -5.702,
+      "calmar": -0.348,
+      "trades": 3875,
+      "win_rate": 32.5,
+      "final": 375216.74
+    },
+    "per_year": {
+      "2022": {
+        "trades": 211,
+        "pnl_pct_of_initial": -7.26,
+        "win_rate": 28.0
+      },
+      "2023": {
+        "trades": 1215,
+        "pnl_pct_of_initial": -15.91,
+        "win_rate": 35.3
+      },
+      "2024": {
+        "trades": 1224,
+        "pnl_pct_of_initial": -23.97,
+        "win_rate": 30.6
+      },
+      "2025": {
+        "trades": 1225,
+        "pnl_pct_of_initial": -15.34,
+        "win_rate": 32.2
+      }
+    },
+    "exit_types": {
+      "target": 1073,
+      "stop": 2420,
+      "eod_close": 370,
+      "eod_close_fallback": 12
+    }
+  }
+}

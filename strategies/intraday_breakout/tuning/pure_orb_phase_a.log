@@ -1,0 +1,83 @@
+======================================================================
+PURE INTRADAY OPENING-RANGE BREAKOUT — Phase A baseline
+======================================================================
+{
+  "start_date": "2022-01-01",
+  "end_date": "2025-12-31",
+  "initial_capital": 1000000,
+  "top_n": 50,
+  "min_avg_turnover": 50000000,
+  "universe_lookback_days": 30,
+  "opening_range_minutes": 15,
+  "target_pct": 1.0,
+  "stop_pct": 0.5,
+  "max_positions": 5,
+  "eod_exit_minute": 925
+}
+  Loading minute data: 29 files...
+    Loaded 20/29 files...
+  Minute data: 403,290,612 rows, 2671 symbols (33.9s)
+
+--- Running ORB(slip=0bps) ---
+  Building monthly universes...
+  48/48 months have non-empty universe
+  Running per-day simulation...
+    Day 100/1035 (2022-05-23): margin=999,644, trades_so_far=3
+    Day 200/1035 (2022-10-10): margin=999,644, trades_so_far=3
+    Day 300/1035 (2023-02-27): margin=928,901, trades_so_far=411
+    Day 400/1035 (2023-07-18): margin=893,227, trades_so_far=876
+    Day 500/1035 (2023-12-05): margin=886,395, trades_so_far=1341
+    Day 600/1035 (2024-04-25): margin=909,208, trades_so_far=1810
+    Day 700/1035 (2024-09-12): margin=833,463, trades_so_far=2285
+    Day 800/1035 (2025-01-31): margin=719,099, trades_so_far=2765
+    Day 900/1035 (2025-06-23): margin=660,504, trades_so_far=3235
+    Day 1000/1035 (2025-11-10): margin=611,775, trades_so_far=3705
+  Simulation done in 226s, 239s total
+
+  RESULT slip=0bps: CAGR=-11.26% MDD=-38.94% Sharpe=-2.753 Calmar=-0.289 Trades=3875 WR=34.6% Final=Rs 620,554
+
+--- Running ORB(slip=3bps) ---
+  Building monthly universes...
+  48/48 months have non-empty universe
+  Running per-day simulation...
+    Day 100/1035 (2022-05-23): margin=999,464, trades_so_far=3
+    Day 200/1035 (2022-10-10): margin=999,464, trades_so_far=3
+    Day 300/1035 (2023-02-27): margin=886,380, trades_so_far=411
+    Day 400/1035 (2023-07-18): margin=809,977, trades_so_far=876
+    Day 500/1035 (2023-12-05): margin=761,238, trades_so_far=1341
+    Day 600/1035 (2024-04-25): margin=732,958, trades_so_far=1810
+    Day 700/1035 (2024-09-12): margin=630,442, trades_so_far=2285
+    Day 800/1035 (2025-01-31): margin=508,457, trades_so_far=2765
+    Day 900/1035 (2025-06-23): margin=437,564, trades_so_far=3235
+    Day 1000/1035 (2025-11-10): margin=378,847, trades_so_far=3705
+  Simulation done in 256s, 269s total
+
+  RESULT slip=3bps: CAGR=-21.76% MDD=-62.61% Sharpe=-5.702 Calmar=-0.348 Trades=3875 WR=32.5% Final=Rs 375,217
+
+======================================================================
+PHASE A — SUMMARY
+======================================================================
+
+Slippage = 0 bps
+  Overall: CAGR=-11.26%  MDD=-38.94%  Calmar=-0.289  Sharpe=-2.753  Trades=3875  WR=34.6%
+  Per-year:
+    2022:   211 trades, PnL= -4.28% of initial, WR=30.8%
+    2023:  1215 trades, PnL= -5.41% of initial, WR=37.3%
+    2024:  1224 trades, PnL=-17.20% of initial, WR=32.8%
+    2025:  1225 trades, PnL=-11.05% of initial, WR=34.5%
+  Exit types: {'target': 1133, 'stop': 2344, 'eod_close': 386, 'eod_close_fallback': 12}
+
+Slippage = 3 bps
+  Overall: CAGR=-21.76%  MDD=-62.61%  Calmar=-0.348  Sharpe=-5.702  Trades=3875  WR=32.5%
+  Per-year:
+    2022:   211 trades, PnL= -7.26% of initial, WR=28.0%
+    2023:  1215 trades, PnL=-15.91% of initial, WR=35.3%
+    2024:  1224 trades, PnL=-23.97% of initial, WR=30.6%
+    2025:  1225 trades, PnL=-15.34% of initial, WR=32.2%
+  Exit types: {'target': 1073, 'stop': 2420, 'eod_close': 370, 'eod_close_fallback': 12}
+
+======================================================================
+DECISION GATE
+======================================================================
+  RESULT: NO EDGE (CAGR=-11.26% <= 0% at 0 slip)
+  ACTION: Pure ORB has no basic edge. Pivot to a different setup.

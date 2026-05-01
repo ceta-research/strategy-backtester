@@ -1,0 +1,74 @@
+
+============================================================
+AUDIT BASELINE — slippage=0 bps (gap-up, t=1.0/s=0.5)
+============================================================
+
+--- Loading data ---
+  Daily data: 2,759,808 rows, 2414 instruments (0.8s)
+  Universe symbols (all months): 280
+  Loading minute data: 30 files...
+    Loaded 20/30 files...
+  Minute data: 68,304,454 rows, 266 symbols (10.5s)
+  Indexing minute data by date...
+  Indexed 1615 trading days
+  Computing per-day highs from minute data...
+  Computed daily highs for 1615 days
+
+--- Computing regime ---
+  Regime: 809 bull days (hysteresis 0.4/0.35)
+
+--- Running 1 config(s) ---
+  [1/1] CAGR=-2.18% MDD=-10.47% Sharpe=-2.748 Calmar=-0.208 Trades=1422 WR=36% (38.9s)
+
+--- Pipeline Complete: 68.2s ---
+  CAGR=-2.18%  MDD=-10.47%  Sharpe=-2.748  Calmar=-0.208  Trades=1422  WR=36%  (69s)
+
+============================================================
+AUDIT BASELINE — slippage=3 bps (gap-up, t=1.0/s=0.5)
+============================================================
+
+--- Loading data ---
+  Daily data: 2,759,808 rows, 2414 instruments (0.9s)
+  Universe symbols (all months): 280
+  Loading minute data: 30 files...
+    Loaded 20/30 files...
+  Minute data: 68,304,454 rows, 266 symbols (11.5s)
+  Indexing minute data by date...
+  Indexed 1615 trading days
+  Computing per-day highs from minute data...
+  Computed daily highs for 1615 days
+
+--- Computing regime ---
+  Regime: 809 bull days (hysteresis 0.4/0.35)
+
+--- Running 1 config(s) ---
+  [1/1] CAGR=-6.45% MDD=-23.64% Sharpe=-4.175 Calmar=-0.273 Trades=1418 WR=34% (42.7s)
+
+--- Pipeline Complete: 72.9s ---
+  CAGR=-6.45%  MDD=-23.64%  Sharpe=-4.175  Calmar=-0.273  Trades=1418  WR=34%  (73s)
+
+============================================================
+BEFORE / AFTER comparison
+============================================================
+Metric            PRE-FIX     POST-FIX        Delta
+--------------------------------------------------
+
+--- slippage=0 bps ---
+CAGR               24.14%       -2.18%      -26.32pp
+MDD                -0.81%      -10.47%       -9.66pp
+Calmar             29.840       -0.208      -30.048
+WR                    58%          36%         -22pp
+Trades               1425         1422           -3
+
+--- slippage=3 bps ---
+CAGR               19.81%       -6.45%      -26.26pp
+MDD                -0.86%      -23.64%      -22.78pp
+Calmar             22.930       -0.273      -23.203
+WR                    57%          34%         -23pp
+Trades               1425         1418           -7
+
+============================================================
+AUDIT DECISION GATE
+============================================================
+  RESULT: STRATEGY DEAD (CAGR=-2.18% < 5% at 0 slip)
+  ACTION: Stop here. Numbers were entirely artifacts.
