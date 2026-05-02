@@ -1,7 +1,8 @@
 # Open-Low Mean Reversion — STATUS & Tracking
 
-**Created:** 2026-05-01 (placeholder — to be filled in by next session)
-**Status:** SCOPED, NOT YET IMPLEMENTED
+**Created:** 2026-05-01
+**Status:** DEAD — tested 2026-05-01, all variants massively negative
+**Kill date:** 2026-05-01
 **Predecessor context:** `docs/sessions/completed/2026-05-01/SESSION_HANDOVER_INTRADAY_AUDIT_AND_PIVOT.md`
 **Why this strategy:** intraday breakout family conclusively dead across 3 formulations. Mean reversion was the *failure mode* there — make it the *mechanism* here.
 
@@ -59,15 +60,22 @@ This is structurally distinct from breakout strategies (which assume continuatio
 
 ---
 
-## R0 Plan (next session)
+## R0 Results (2026-05-01)
 
-1. Build `prod_runner` script — `open_low_meanrev_prod.py` (self-contained, parquet reads, Nifty 50 universe)
-2. R0a: constant `dip_threshold = 0.7%`, no stop, EOD-30min exit
-3. R0b: same but with `1.5%` hard stop
-4. Per-year breakdown (2022-2025), exit-type distribution, drawdown shape
-5. **Decision gate:** CAGR > 3% at 0bps slippage AND MDD < 5% → proceed to parameter sweeps. Else: pivot to next direction.
+| Variant | Slip | CAGR | MDD | Sharpe | WR | Trades |
+|---|---:|---:|---:|---:|---:|---:|
+| R0a (no stop) | 0bps | −21.69% | −63.0% | −2.87 | 59.0% | 3,770 |
+| R0a (no stop) | 3bps | −31.16% | −77.7% | −4.41 | 57.7% | 3,770 |
+| R0b (1.5× stop) | 0bps | −14.79% | −47.5% | −4.37 | 34.4% | 3,770 |
+| R0b (1.5× stop) | 3bps | −25.53% | −69.2% | −8.07 | 33.9% | 3,770 |
 
-Estimated runtime: ~5-10 min on prod (similar to Phase A/B infra).
+**Exit profiles:**
+- R0a: 51% target / 48% EOD — WR 59% but avg loss ~1.7× avg win (catching falling knives)
+- R0b: 65% stop / 32% target / 3% EOD — stop caps losses but stop-rate too high
+
+**Root cause:** Open is NOT a magnet for the dip. Dips continue and EOD exit takes large loss. Even with 59% WR (target hit rate), the asymmetry kills it.
+
+**Decision gate: FAILED. Strategy dead. Open-low mean reversion does not work on NSE Nifty 50.**
 
 ## Reuse-from-previous
 
