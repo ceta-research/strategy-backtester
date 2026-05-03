@@ -46,6 +46,9 @@ sys.path.insert(0, PROJECT_ROOT)
 from lib.equity_curve import EquityCurve
 from lib.metrics import compute_metrics_from_curve
 from lib.ensemble_curve import (
+    CONVEX_MODES,
+    DEFAULT_MAX_WEIGHT_PER_LEG,
+    DEFAULT_TARGET_VOL_ANNUAL,
     REBALANCE_PERIODS,
     WEIGHTING_MODES,
     align_curves,
@@ -79,6 +82,8 @@ def load_ensemble_config(path: str) -> dict:
     cfg.setdefault("rebalance", "none")
     cfg.setdefault("weighting", "fixed")
     cfg.setdefault("weight_lookback_days", None)
+    cfg.setdefault("convex_max_weight_per_leg", DEFAULT_MAX_WEIGHT_PER_LEG)
+    cfg.setdefault("convex_target_vol_annual", DEFAULT_TARGET_VOL_ANNUAL)
 
     if cfg["alignment"] != "intersection":
         raise NotImplementedError(
@@ -271,6 +276,8 @@ def build_output(cfg: dict, ensemble_curve: EquityCurve,
             "rebalance": cfg["rebalance"],
             "weighting": cfg["weighting"],
             "weight_lookback_days": cfg.get("weight_lookback_days"),
+            "convex_max_weight_per_leg": cfg.get("convex_max_weight_per_leg"),
+            "convex_target_vol_annual": cfg.get("convex_target_vol_annual"),
             "legs": [
                 {
                     "name": leg["name"],
@@ -311,6 +318,16 @@ def _warnings(cfg: dict) -> list[str]:
             f"this runner. Real-world rebalance adds ~5-10bps per turn (not "
             f"modeled). Subtract ~{_friction_bps(cfg['rebalance'])}bps/yr "
             f"from realized CAGR for live-deployment estimates."
+        )
+    if cfg["weighting"] in CONVEX_MODES:
+        out.append(
+            f"weighting={cfg['weighting']}: weights are recomputed at each "
+            f"rebalance from the trailing {cfg.get('weight_lookback_days', 252)}d "
+            f"window via convex QP. The first ~{(cfg.get('weight_lookback_days') or 252)//252}+ "
+            f"year(s) are warm-up (equal weights) — exclude that period for "
+            f"honest forward metrics. Per-leg drawdown attribution below uses "
+            f"the INITIAL weights (equal), not the time-varying convex weights, "
+            f"so per-leg DD shares are approximate."
         )
     if cfg["weighting"] in ("inverse_vol", "risk_parity"):
         if cfg.get("weight_lookback_days") is None:
@@ -357,11 +374,12 @@ def run_ensemble(cfg_path: str, output_path: str | None = None) -> dict:
         lookback_days=cfg.get("weight_lookback_days"),
     )
 
-    # Build ensemble (with optional adaptive per-rebalance weighting)
+    # Build ensemble (with optional adaptive or convex per-rebalance weighting)
     is_adaptive = cfg["weighting"] == "inverse_vol_adaptive"
-    if is_adaptive and cfg["rebalance"] == "none":
+    is_convex = cfg["weighting"] in CONVEX_MODES
+    if (is_adaptive or is_convex) and cfg["rebalance"] == "none":
         raise ValueError(
-            f"{cfg_path}: weighting=inverse_vol_adaptive requires "
+            f"{cfg_path}: weighting={cfg['weighting']} requires "
             f"rebalance != 'none' (got 'none')"
         )
     adaptive_lookback = cfg.get("weight_lookback_days") or 252
@@ -371,6 +389,11 @@ def run_ensemble(cfg_path: str, output_path: str | None = None) -> dict:
         rebalance=cfg["rebalance"],
         adaptive=is_adaptive,
         adaptive_lookback_days=adaptive_lookback,
+        convex_mode=cfg["weighting"] if is_convex else None,
+        convex_max_weight_per_leg=float(cfg.get("convex_max_weight_per_leg",
+                                                DEFAULT_MAX_WEIGHT_PER_LEG)),
+        convex_target_vol_annual=float(cfg.get("convex_target_vol_annual",
+                                               DEFAULT_TARGET_VOL_ANNUAL)),
     )
 
     # Drawdown attribution: re-walk to recover per-leg NAVs

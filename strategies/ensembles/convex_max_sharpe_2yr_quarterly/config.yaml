@@ -1,0 +1,29 @@
+# Convex Max-Sharpe with 2-year lookback (shorter than 5yr default).
+# Trade-off: less stable Σ estimation, but shorter warm-up = more data evaluated.
+
+ensemble:
+  name: convex_max_sharpe_2yr_quarterly
+  description: Convex Max-Sharpe, 504d lookback (~2yr), quarterly refit, 5 legs
+  starting_capital: 10000000
+  alignment: intersection
+  rebalance: quarterly
+  weighting: convex_max_sharpe
+  weight_lookback_days: 504               # 2 years
+  convex_max_weight_per_leg: 0.50
+
+  legs:
+    - name: eod_breakout
+      result_path: results/eod_breakout/champion.json
+      rank: 1
+    - name: eod_technical
+      result_path: results/eod_technical/champion_verify.json
+      rank: 1
+    - name: low_pe
+      result_path: results/low_pe/champion_full.json
+      rank: 1
+    - name: earnings_dip
+      result_path: results/earnings_dip/champion_verify.json
+      rank: 1
+    - name: quality_dip_tiered
+      result_path: results/quality_dip_tiered/champion_verify.json
+      rank: 1

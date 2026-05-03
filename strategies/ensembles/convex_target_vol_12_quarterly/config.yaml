@@ -1,0 +1,42 @@
+# Convex-optimal ensemble: maximize return s.t. annual vol <= 12%.
+# At each quarterly rebalance, solve a convex QP on prior 60 months of
+# strategy returns. Anti-concentration cap: max 50% in any single leg.
+#
+# Walk-forward (60-month lookback, quarterly refit) backtest:
+#   CAGR=23.64%  MDD=-11.54%  Sharpe=1.464  Calmar=2.049
+# vs current production (eod_eodt_invvol_quarterly_full):
+#   CAGR=18.79%  MDD=-23.81%  Sharpe=1.281  Calmar=0.789
+#
+# The first ~5 years of the backtest are warm-up (insufficient history for
+# convex fit; falls back to equal weights). For honest forward metrics,
+# evaluate the post-2018 portion.
+
+ensemble:
+  name: convex_target_vol_12_quarterly
+  description: >
+    Convex max-return s.t. vol<=12%, quarterly refit, full 2010-2026.
+    Five-leg portfolio of independently-validated strategies.
+  starting_capital: 10000000
+  alignment: intersection
+  rebalance: quarterly
+  weighting: convex_target_vol
+  weight_lookback_days: 1260              # 5 years (~60 months) of daily obs
+  convex_max_weight_per_leg: 0.50         # anti-concentration: max 50% per leg
+  convex_target_vol_annual: 0.12          # cap portfolio vol at 12% annualized
+
+  legs:
+    - name: eod_breakout
+      result_path: results/eod_breakout/champion.json
+      rank: 1
+    - name: eod_technical
+      result_path: results/eod_technical/champion_verify.json
+      rank: 1
+    - name: low_pe
+      result_path: results/low_pe/champion_full.json
+      rank: 1
+    - name: earnings_dip
+      result_path: results/earnings_dip/champion_verify.json
+      rank: 1
+    - name: quality_dip_tiered
+      result_path: results/quality_dip_tiered/champion_verify.json
+      rank: 1

@@ -1,0 +1,34 @@
+# Convex-optimal ensemble: maximize Sharpe ratio (no vol cap).
+# At each quarterly rebalance, solve max(μ'w / sqrt(w'Σw)) on prior 60 months.
+# Same legs as convex_target_vol_12 but no vol cap — pure Sharpe maximization.
+#
+# Walk-forward backtest: CAGR=23.65% MDD=-12.46% Sharpe=1.595 Calmar=1.898
+
+ensemble:
+  name: convex_max_sharpe_quarterly
+  description: >
+    Convex max-Sharpe weighting, quarterly refit, 5 strategies.
+    No explicit vol cap; only diversification (max 50% per leg).
+  starting_capital: 10000000
+  alignment: intersection
+  rebalance: quarterly
+  weighting: convex_max_sharpe
+  weight_lookback_days: 1260              # 5 years
+  convex_max_weight_per_leg: 0.50
+
+  legs:
+    - name: eod_breakout
+      result_path: results/eod_breakout/champion.json
+      rank: 1
+    - name: eod_technical
+      result_path: results/eod_technical/champion_verify.json
+      rank: 1
+    - name: low_pe
+      result_path: results/low_pe/champion_full.json
+      rank: 1
+    - name: earnings_dip
+      result_path: results/earnings_dip/champion_verify.json
+      rank: 1
+    - name: quality_dip_tiered
+      result_path: results/quality_dip_tiered/champion_verify.json
+      rank: 1

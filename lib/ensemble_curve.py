@@ -27,7 +27,15 @@ from typing import Sequence
 from lib.equity_curve import EquityCurve, Frequency
 
 REBALANCE_PERIODS = ("none", "monthly", "quarterly", "annual")
-WEIGHTING_MODES = ("fixed", "inverse_vol", "inverse_vol_adaptive", "risk_parity")
+WEIGHTING_MODES = (
+    "fixed", "inverse_vol", "inverse_vol_adaptive", "risk_parity",
+    "convex_max_sharpe", "convex_target_vol",
+)
+CONVEX_MODES = ("convex_max_sharpe", "convex_target_vol")
+# Default constraint: maximum allocation to any single strategy (anti-concentration).
+DEFAULT_MAX_WEIGHT_PER_LEG = 0.5
+# Default annual vol target for convex_target_vol when not specified.
+DEFAULT_TARGET_VOL_ANNUAL = 0.12
 
 # Default trailing-window length for adaptive inverse-vol weighting (days).
 ADAPTIVE_DEFAULT_LOOKBACK_DAYS = 252  # ~1 trading year
@@ -567,6 +575,297 @@ def rebalance_combined_curve_adaptive(
     return combined, weights_history
 
 
+def rebalance_combined_curve_convex(
+    epochs: Sequence[int],
+    aligned_values: Sequence[Sequence[float]],
+    starting_capital: float,
+    period: str,
+    mode: str = "convex_max_sharpe",
+    lookback_days: int = ADAPTIVE_DEFAULT_LOOKBACK_DAYS,
+    max_weight_per_leg: float = DEFAULT_MAX_WEIGHT_PER_LEG,
+    target_vol_annual: float = DEFAULT_TARGET_VOL_ANNUAL,
+    initial_weights: Sequence[float] | None = None,
+    weight_tolerance: float = 1e-6,
+) -> tuple[list[float], list[list[float]]]:
+    """Per-rebalance convex-optimal weighting.
+
+    At each rebalance boundary, solves the convex QP defined by `mode` on the
+    trailing `lookback_days` of returns. Same compounding/rebalance plumbing
+    as `rebalance_combined_curve_adaptive`, just a different weight rule.
+
+    Args:
+        epochs: Common epoch axis (length T).
+        aligned_values: Per-leg value series, each length T.
+        starting_capital: Notional ensemble starting NAV.
+        period: One of REBALANCE_PERIODS (must NOT be "none").
+        mode: One of CONVEX_MODES.
+        lookback_days: Trailing window for μ, Σ estimation.
+        max_weight_per_leg: Anti-concentration cap (per-leg max).
+        target_vol_annual: Annual vol cap (only used for "convex_target_vol").
+        initial_weights: Weights at t=0 (defaults to equal).
+        weight_tolerance: Allowed numeric drift on weight sum.
+
+    Returns:
+        (combined_nav, weights_history) — weights_history is the per-rebalance
+        weight vectors (first entry is initial_weights).
+
+    Caveats:
+        - Frictionless. Quarterly rebalance ~25bps/yr live drag (unmodeled).
+        - First (lookback_days // 252)+ years of the backtest are "warm-up";
+          weights default to equal until enough history accrues. For honest
+          OOS metrics, evaluate the post-warm-up portion only.
+    """
+    if mode not in CONVEX_MODES:
+        raise ValueError(
+            f"rebalance_combined_curve_convex: mode must be one of {CONVEX_MODES}, "
+            f"got {mode!r}"
+        )
+    if period == "none":
+        raise ValueError(
+            "rebalance_combined_curve_convex: period must not be 'none' "
+            "(convex weighting requires periodic rebalances)"
+        )
+    if period not in REBALANCE_PERIODS:
+        raise ValueError(
+            f"rebalance_combined_curve_convex: period must be one of "
+            f"{REBALANCE_PERIODS}, got {period!r}"
+        )
+    if lookback_days < 60:
+        raise ValueError(
+            f"rebalance_combined_curve_convex: lookback_days must be >= 60 "
+            f"(short windows make Σ ill-conditioned); got {lookback_days}"
+        )
+    if starting_capital <= 0:
+        raise ValueError(
+            f"rebalance_combined_curve_convex: starting_capital must be > 0"
+        )
+    if not (0.0 < max_weight_per_leg <= 1.0):
+        raise ValueError(
+            f"rebalance_combined_curve_convex: max_weight_per_leg must be in "
+            f"(0, 1]; got {max_weight_per_leg}"
+        )
+
+    n_legs = len(aligned_values)
+    n_points = len(epochs)
+    if n_points == 0:
+        return [], []
+
+    for i, vs in enumerate(aligned_values):
+        if len(vs) != n_points:
+            raise ValueError(
+                f"rebalance_combined_curve_convex: leg {i} length {len(vs)} "
+                f"!= {n_points}"
+            )
+        if vs[0] <= 0:
+            raise ValueError(
+                f"rebalance_combined_curve_convex: leg {i} starts at {vs[0]}"
+            )
+
+    if initial_weights is None:
+        weights = [1.0 / n_legs] * n_legs
+    else:
+        if len(initial_weights) != n_legs:
+            raise ValueError(
+                f"initial_weights length {len(initial_weights)} != legs {n_legs}"
+            )
+        if abs(sum(initial_weights) - 1.0) > weight_tolerance:
+            raise ValueError(
+                f"initial_weights must sum to 1.0; got {sum(initial_weights)}"
+            )
+        weights = list(initial_weights)
+
+    weights_history: list[list[float]] = [list(weights)]
+    leg_nav = [weights[i] * starting_capital for i in range(n_legs)]
+    combined: list[float] = [sum(leg_nav)]
+    prev_key = _period_key(epochs[0], period)
+
+    for t in range(1, n_points):
+        for i in range(n_legs):
+            prev = aligned_values[i][t - 1]
+            cur = aligned_values[i][t]
+            if prev > 0:
+                leg_nav[i] *= cur / prev
+
+        cur_key = _period_key(epochs[t], period)
+        if cur_key != prev_key:
+            new_weights = _convex_weights(
+                aligned_values, t, lookback_days, mode,
+                max_weight_per_leg=max_weight_per_leg,
+                target_vol_annual=target_vol_annual,
+            )
+            weights = new_weights
+            total = sum(leg_nav)
+            leg_nav = [weights[i] * total for i in range(n_legs)]
+            weights_history.append(list(weights))
+        prev_key = cur_key
+
+        combined.append(sum(leg_nav))
+
+    return combined, weights_history
+
+
+def _trailing_returns_window(
+    aligned_values: Sequence[Sequence[float]],
+    t: int,
+    lookback_days: int,
+) -> list[list[float]]:
+    """Per-leg trailing simple-return series ending at t-1 (no look-ahead).
+
+    Returns leg_returns[i] = list of returns for leg i over the window.
+    Empty list for any leg with insufficient history.
+    """
+    n_legs = len(aligned_values)
+    end = t  # exclusive
+    start = max(0, end - lookback_days - 1)
+    leg_returns: list[list[float]] = []
+    for i in range(n_legs):
+        window = aligned_values[i][start:end]
+        rets = []
+        for j in range(1, len(window)):
+            prev = window[j - 1]
+            if prev > 0:
+                rets.append(window[j] / prev - 1)
+            else:
+                rets.append(0.0)
+        leg_returns.append(rets)
+    return leg_returns
+
+
+def _convex_weights(
+    aligned_values: Sequence[Sequence[float]],
+    t: int,
+    lookback_days: int,
+    mode: str,
+    max_weight_per_leg: float = DEFAULT_MAX_WEIGHT_PER_LEG,
+    target_vol_annual: float = DEFAULT_TARGET_VOL_ANNUAL,
+    periods_per_year: int = 252,
+    fallback_zero_vol_floor: float = 1e-8,
+) -> list[float]:
+    """Compute convex-optimal weights from trailing returns window.
+
+    Modes:
+      - "convex_max_sharpe": maximize μ'w / sqrt(w'Σw)
+      - "convex_target_vol": maximize μ'w subject to w'Σw <= target_vol²
+
+    Constraints (both modes):
+      - sum(w_i) = 1
+      - 0 <= w_i <= max_weight_per_leg
+
+    Args:
+        aligned_values: Per-leg value series.
+        t: Current time index (window ends at t-1, no look-ahead).
+        lookback_days: Trailing observations for μ, Σ estimation.
+        mode: One of CONVEX_MODES.
+        max_weight_per_leg: Cap per leg (anti-concentration constraint).
+        target_vol_annual: Annual vol cap for "convex_target_vol".
+        periods_per_year: Annualization factor (252 for daily).
+        fallback_zero_vol_floor: Vol below this triggers equal-weight fallback.
+
+    Returns:
+        Normalized weights list of length n_legs, summing to 1.0.
+
+    Note: numpy + scipy required (already in repo dependencies).
+    """
+    import numpy as np
+    from scipy.optimize import minimize
+
+    n_legs = len(aligned_values)
+    leg_returns = _trailing_returns_window(aligned_values, t, lookback_days)
+
+    # Need every leg to have enough returns for covariance estimation.
+    min_obs = max(20, lookback_days // 4)
+    if any(len(r) < min_obs for r in leg_returns):
+        return [1.0 / n_legs] * n_legs
+
+    # Build returns matrix (T x N) and annualize stats.
+    R = np.array(leg_returns).T  # T_obs x N
+    mu = R.mean(axis=0) * periods_per_year
+    Sigma = np.cov(R.T) * periods_per_year
+
+    # Regularize ill-conditioned covariance.
+    if np.linalg.det(Sigma) < 1e-15:
+        Sigma = Sigma + np.eye(n_legs) * 1e-6
+
+    # Drop legs with effectively zero vol (cash-period legs); they get 0
+    # weight regardless of mu (Sharpe is undefined / ill-posed at zero vol).
+    diag_vol = np.sqrt(np.maximum(np.diag(Sigma), 0))
+    active = np.where(diag_vol > fallback_zero_vol_floor)[0]
+    if len(active) == 0:
+        return [1.0 / n_legs] * n_legs
+    if len(active) == 1:
+        # Only one leg has vol — give it all weight (capped).
+        weights = [0.0] * n_legs
+        weights[int(active[0])] = 1.0
+        return weights
+
+    mu_a = mu[active]
+    Sigma_a = Sigma[np.ix_(active, active)]
+
+    # Cap effective max_weight when n_legs is small enough that the cap
+    # would make the constraint infeasible (sum w = 1 with all w <= cap).
+    eff_max = max(max_weight_per_leg, 1.0 / len(active))
+
+    bounds = [(0.0, eff_max)] * len(active)
+    constraints: list[dict] = [
+        {"type": "eq", "fun": lambda w: np.sum(w) - 1.0},
+    ]
+
+    if mode == "convex_max_sharpe":
+        def neg_sharpe(w, mu=mu_a, Sigma=Sigma_a):
+            port_ret = mu @ w
+            port_vol = np.sqrt(max(w @ Sigma @ w, 1e-18))
+            if port_vol < 1e-12:
+                return 1e6
+            return -port_ret / port_vol
+
+        w0 = np.ones(len(active)) / len(active)
+        result = minimize(
+            neg_sharpe, w0, method="SLSQP",
+            bounds=bounds, constraints=constraints,
+            options={"maxiter": 200, "ftol": 1e-9},
+        )
+    elif mode == "convex_target_vol":
+        target_var = target_vol_annual ** 2
+
+        def neg_ret(w, mu=mu_a):
+            return -mu @ w
+
+        def vol_constraint(w, Sigma=Sigma_a, target_var=target_var):
+            return target_var - w @ Sigma @ w
+
+        constraints_local = constraints + [
+            {"type": "ineq", "fun": vol_constraint},
+        ]
+        w0 = np.ones(len(active)) / len(active)
+        result = minimize(
+            neg_ret, w0, method="SLSQP",
+            bounds=bounds, constraints=constraints_local,
+            options={"maxiter": 200, "ftol": 1e-9},
+        )
+    else:
+        raise ValueError(f"_convex_weights: unknown mode {mode!r}")
+
+    # Map back to full leg-space (legs without vol get 0).
+    full_w = [0.0] * n_legs
+    if not result.success:
+        # Fallback to inverse-vol on active legs if solver fails.
+        inv_vols = 1.0 / diag_vol[active]
+        normalized = inv_vols / inv_vols.sum()
+        for j, idx in enumerate(active):
+            full_w[int(idx)] = float(normalized[j])
+    else:
+        # Normalize (SLSQP can produce tiny constraint violations).
+        w_a = np.array(result.x)
+        w_a = np.clip(w_a, 0, None)
+        s = w_a.sum()
+        if s > 0:
+            w_a = w_a / s
+        for j, idx in enumerate(active):
+            full_w[int(idx)] = float(w_a[j])
+
+    return full_w
+
+
 def _adaptive_invvol_weights(
     aligned_values: Sequence[Sequence[float]],
     t: int,
@@ -743,6 +1042,10 @@ def resolve_weights(
         # The values returned here are only used as initial weights at t=0
         # (before any lookback window is available); we use equal-weight as
         # a neutral starting point.
+        n = len(curves)
+        return [1.0 / n] * n
+    if weighting in CONVEX_MODES:
+        # Convex modes recompute at each rebalance; equal-weight as initial.
         n = len(curves)
         return [1.0 / n] * n
     if weighting == "risk_parity":
@@ -988,6 +1291,9 @@ def build_ensemble_curve(
     rebalance: str = "none",
     adaptive: bool = False,
     adaptive_lookback_days: int = ADAPTIVE_DEFAULT_LOOKBACK_DAYS,
+    convex_mode: str | None = None,
+    convex_max_weight_per_leg: float = DEFAULT_MAX_WEIGHT_PER_LEG,
+    convex_target_vol_annual: float = DEFAULT_TARGET_VOL_ANNUAL,
 ) -> EquityCurve:
     """End-to-end: align N curves and produce a single combined EquityCurve.
 
@@ -1008,7 +1314,20 @@ def build_ensemble_curve(
         EquityCurve of the ensemble, ready for compute_metrics_from_curve().
     """
     common_epochs, aligned = align_curves(curves, mode=mode)
-    if adaptive:
+    if convex_mode is not None:
+        if rebalance == "none":
+            raise ValueError(
+                "build_ensemble_curve: convex_mode requires rebalance != 'none'"
+            )
+        combined_values, _ = rebalance_combined_curve_convex(
+            common_epochs, aligned, starting_capital, rebalance,
+            mode=convex_mode,
+            lookback_days=adaptive_lookback_days,
+            max_weight_per_leg=convex_max_weight_per_leg,
+            target_vol_annual=convex_target_vol_annual,
+            initial_weights=weights,
+        )
+    elif adaptive:
         if rebalance == "none":
             raise ValueError(
                 "build_ensemble_curve: adaptive=True requires rebalance != 'none'"
