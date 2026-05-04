@@ -120,6 +120,21 @@ class EodBreakoutSignalGenerator:
             ir_sma = entry_config.get("internal_regime_sma_period", 0)
             ir_thr = entry_config.get("internal_regime_threshold", 0.5)
 
+            # Quiet-flip filter (NEW 2026-05-03): skip entries when too many
+            # regime flip events occurred in the prior `flip_lookback_days`.
+            # Sentinel >= 999 means disabled (no filter; byte-identical to
+            # pre-change behavior). When enabled, requires regime to be
+            # active (use_regime True), since flip events derive from
+            # bull_epochs transitions.
+            flip_skip_threshold = entry_config.get("entry_flip_skip_threshold", 999)
+            flip_lookback_days = entry_config.get("entry_flip_lookback_days", 30)
+            flip_filter_active = flip_skip_threshold < 999
+            if flip_filter_active and flip_lookback_days < 1:
+                raise ValueError(
+                    f"entry_flip_lookback_days must be >= 1 when filter active; "
+                    f"got {flip_lookback_days}"
+                )
+
             # Separate exit regime params (hybrid mode). When set, force-exit
             # uses exit_regime (e.g. NIFTYBEES) while entry uses internal.
             exit_regime_instrument = entry_config.get(
@@ -169,6 +184,41 @@ class EodBreakoutSignalGenerator:
                         exit_regime_sma_period
                     )
                 exit_bull_epochs = regime_cache[exit_key]
+
+            # Pre-compute flip-count-in-lookback per date_epoch (only when
+            # filter active). Walks all trading days (sorted) tracking regime
+            # state from bull_epochs; records flip-event epochs when state
+             # transitions; for each unique date counts events in the prior
+            # `flip_lookback_days` (exclusive of current date).
+            #
+            # Behavior when filter inactive: skipped entirely (no compute,
+            # no column added) → entry_filter is byte-identical to legacy.
+            flip_count_by_epoch: dict[int, int] = {}
+            if flip_filter_active:
+                if not bull_epochs:
+                    # Filter requires regime; without it, all flip counts = 0
+                    pass
+                else:
+                    # All trading days from df_trimmed (universe-wide calendar)
+                    all_dates = sorted(
+                        df_trimmed["date_epoch"].unique().to_list()
+                    )
+                    flip_event_epochs: list[int] = []
+                    prev_state = None
+                    for ep in all_dates:
+                        cur_state = ep in bull_epochs
+                        if prev_state is not None and cur_state != prev_state:
+                            flip_event_epochs.append(ep)
+                        prev_state = cur_state
+                    # Per-date flip count using two-pointer walk through
+                    # sorted flip_event_epochs.
+                    fl_arr = sorted(flip_event_epochs)
+                    lookback_secs = flip_lookback_days * SECONDS_IN_ONE_DAY
+                    for ep in all_dates:
+                        cutoff = ep - lookback_secs
+                        # Count events in (cutoff, ep) exclusive of ep itself
+                        cnt = sum(1 for fe in fl_arr if cutoff < fe < ep)
+                        flip_count_by_epoch[ep] = cnt
 
             df_signals = df_ind.clone()
 
@@ -256,6 +306,18 @@ class EodBreakoutSignalGenerator:
                 entry_filter = entry_filter & (
                     pl.col("trailing_vol_annual").is_not_null()
                     & (pl.col("trailing_vol_annual") < max_stock_vol_pct / 100)
+                )
+            if flip_filter_active and flip_count_by_epoch:
+                # Build a small DataFrame mapping date_epoch -> flip_count
+                # then join to add the column to df_signals; filter on it.
+                fc_df = pl.DataFrame({
+                    "date_epoch": list(flip_count_by_epoch.keys()),
+                    "flip_count_lookback": list(flip_count_by_epoch.values()),
+                })
+                df_signals = df_signals.join(fc_df, on="date_epoch", how="left")
+                entry_filter = entry_filter & (
+                    pl.col("flip_count_lookback").is_not_null()
+                    & (pl.col("flip_count_lookback") < flip_skip_threshold)
                 )
 
             # HOOK 2: per-clause flag emission. Mirrors the entry_filter
@@ -479,6 +541,15 @@ class EodBreakoutSignalGenerator:
             ),
             "exit_regime_sma_period": entry_cfg.get(
                 "exit_regime_sma_period", [0]
+            ),
+            # Quiet-flip filter (NEW 2026-05-03). Sentinel >= 999 disables.
+            # When enabled (e.g. 3): skip entry if flip count in prior
+            # `entry_flip_lookback_days` is >= this threshold.
+            "entry_flip_skip_threshold": entry_cfg.get(
+                "entry_flip_skip_threshold", [999]
+            ),
+            "entry_flip_lookback_days": entry_cfg.get(
+                "entry_flip_lookback_days", [30]
             ),
         }
 

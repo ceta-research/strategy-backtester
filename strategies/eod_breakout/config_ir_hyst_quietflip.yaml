@@ -1,0 +1,61 @@
+# eod_breakout: IR-hyst champion + quiet-flip filter (NEW 2026-05-03).
+#
+# Same as config_ir_hyst_best.yaml but adds:
+#   entry_flip_skip_threshold: 3      # skip entry if 3+ flips in lookback
+#   entry_flip_lookback_days: 30      # 30-day lookback window
+#
+# Hypothesis: When the regime has been flipping rapidly (3+ times in 30
+# days), the next entry is more likely to get whipsawed. Skip those.
+#
+# Post-hoc simulation on existing trade log suggested:
+#   CAGR=22.94% MDD=-13.39% Calmar=1.714 (vs baseline 1.350)
+# Only 2 trades skipped over 16 years — very selective.
+#
+# This config tests the actual engine implementation to confirm.
+
+static:
+  strategy_type: eod_breakout
+  start_margin: 10000000
+  start_epoch: 1262304000
+  end_epoch: 1773878400
+  prefetch_days: 500
+  data_granularity: day
+  data_provider: nse_charting
+
+scanner:
+  instruments:
+    - [{exchange: NSE, symbols: []}]
+  price_threshold: [99]
+  avg_day_transaction_threshold:
+    - {period: 125, threshold: 70000000}
+  n_day_gain_threshold:
+    - {n: 360, threshold: 0}
+
+entry:
+  n_day_high: [3]
+  n_day_ma: [10]
+  direction_score:
+    - {n_day_ma: 5, score: 0.0}
+  regime_instrument: [""]
+  regime_sma_period: [0]
+  force_exit_on_regime_flip: [true]
+  internal_regime_sma_period: [50]
+  internal_regime_threshold: [0.4]
+  internal_regime_exit_threshold: [0.35]
+  # NEW: quiet-flip filter
+  entry_flip_skip_threshold: [3]
+  entry_flip_lookback_days: [30]
+
+exit:
+  min_hold_time_days: [0]
+  trailing_stop_pct: [8]
+
+simulation:
+  default_sorting_type: [top_gainer]
+  order_sorting_type: [top_gainer]
+  order_ranking_window_days: [180]
+  max_positions: [15]
+  max_positions_per_instrument: [1]
+  order_value_multiplier: [1]
+  max_order_value:
+    - {type: percentage_of_instrument_avg_txn, value: 4.5}
