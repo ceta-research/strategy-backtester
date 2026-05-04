@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-05-03
 **Engine baseline:** commit `fbcd36a` (post-audit, all P0/P1 fixes landed)
-**Latest session handover:** [`sessions/2026-04-29_pt11_handover.md`](sessions/2026-04-29_pt11_handover.md) (Phases 4+5 complete: hypothesis testing, per-trade feature analysis, adaptive TSL, repo reorganization)
+**Latest session handover:** [`sessions/2026-05-03_handover.md`](sessions/2026-05-03_handover.md) (DD reduction research + convex ensemble + quiet-flip filter — all 3 DD-reduction attempts negative; IR-hyst champion at 22.26%/-16.49%/1.350 stands)
 **Leaderboard:** [`LEADERBOARD.md`](LEADERBOARD.md) — all 32 strategies ranked (rebuild: `python3 scripts/rebuild_leaderboard.py`)
 **Drill plan:** [`sessions/2026-04-28_pt5_inspection_plan.md`](sessions/2026-04-28_pt5_inspection_plan.md) (revised plan covering eod_b + eod_t at deep-audit depth)
 
