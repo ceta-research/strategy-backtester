@@ -1,0 +1,158 @@
+{
+  "Nifty50_slip0": {
+    "metrics": {
+      "cagr": -7.46,
+      "mdd": -28.32,
+      "sharpe": -1.615,
+      "calmar": -0.263,
+      "trades": 3270,
+      "win_rate": 40.0,
+      "final": 733594.81
+    },
+    "per_year": {
+      "2022": {
+        "trades": 66,
+        "pnl_pct_of_initial": -0.67,
+        "win_rate": 40.9
+      },
+      "2023": {
+        "trades": 1049,
+        "pnl_pct_of_initial": -4.79,
+        "win_rate": 42.5
+      },
+      "2024": {
+        "trades": 1078,
+        "pnl_pct_of_initial": -4.46,
+        "win_rate": 39.4
+      },
+      "2025": {
+        "trades": 1077,
+        "pnl_pct_of_initial": -16.72,
+        "win_rate": 38.2
+      }
+    },
+    "exit_types": {
+      "stop": 1447,
+      "eod_close": 1328,
+      "target": 492,
+      "eod_close_fallback": 3
+    }
+  },
+  "Nifty50_slip3": {
+    "metrics": {
+      "cagr": -17.39,
+      "mdd": -53.88,
+      "sharpe": -4.1,
+      "calmar": -0.323,
+      "trades": 3270,
+      "win_rate": 36.7,
+      "final": 466124.64
+    },
+    "per_year": {
+      "2022": {
+        "trades": 66,
+        "pnl_pct_of_initial": -1.81,
+        "win_rate": 36.4
+      },
+      "2023": {
+        "trades": 1049,
+        "pnl_pct_of_initial": -16.23,
+        "win_rate": 39.3
+      },
+      "2024": {
+        "trades": 1078,
+        "pnl_pct_of_initial": -14.93,
+        "win_rate": 36.5
+      },
+      "2025": {
+        "trades": 1077,
+        "pnl_pct_of_initial": -20.43,
+        "win_rate": 34.4
+      }
+    },
+    "exit_types": {
+      "stop": 1520,
+      "eod_close": 1281,
+      "target": 466,
+      "eod_close_fallback": 3
+    }
+  },
+  "Nifty100_slip0": {
+    "metrics": {
+      "cagr": -9.85,
+      "mdd": -35.22,
+      "sharpe": -1.929,
+      "calmar": -0.28,
+      "trades": 3498,
+      "win_rate": 38.1,
+      "final": 660902.61
+    },
+    "per_year": {
+      "2022": {
+        "trades": 80,
+        "pnl_pct_of_initial": 0.66,
+        "win_rate": 43.8
+      },
+      "2023": {
+        "trades": 1139,
+        "pnl_pct_of_initial": -12.25,
+        "win_rate": 38.3
+      },
+      "2024": {
+        "trades": 1141,
+        "pnl_pct_of_initial": -2.21,
+        "win_rate": 39.1
+      },
+      "2025": {
+        "trades": 1138,
+        "pnl_pct_of_initial": -20.1,
+        "win_rate": 36.6
+      }
+    },
+    "exit_types": {
+      "stop": 1772,
+      "eod_close": 1060,
+      "target": 659,
+      "eod_close_fallback": 7
+    }
+  },
+  "Nifty100_slip3": {
+    "metrics": {
+      "cagr": -19.99,
+      "mdd": -59.48,
+      "sharpe": -4.265,
+      "calmar": -0.336,
+      "trades": 3498,
+      "win_rate": 35.4,
+      "final": 410335.25
+    },
+    "per_year": {
+      "2022": {
+        "trades": 80,
+        "pnl_pct_of_initial": -0.49,
+        "win_rate": 41.2
+      },
+      "2023": {
+        "trades": 1139,
+        "pnl_pct_of_initial": -23.12,
+        "win_rate": 35.8
+      },
+      "2024": {
+        "trades": 1141,
+        "pnl_pct_of_initial": -13.14,
+        "win_rate": 36.8
+      },
+      "2025": {
+        "trades": 1138,
+        "pnl_pct_of_initial": -22.22,
+        "win_rate": 33.2
+      }
+    },
+    "exit_types": {
+      "stop": 1854,
+      "eod_close": 1003,
+      "target": 634,
+      "eod_close_fallback": 7
+    }
+  }
+}

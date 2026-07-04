@@ -1,0 +1,119 @@
+======================================================================
+PHASE B (Nifty 50/100 universe) — survivorship-bias mitigation
+======================================================================
+
+Loading daily and minute data...
+  Daily data: 2,202,827 rows, 2414 instruments (0.4s)
+  Loading minute data: 29 files...
+    Loaded 20/29 files...
+  Minute data: 403,290,612 rows, 2671 symbols (37.4s)
+
+Nifty 50  coverage: daily=49/50, minute=50/50
+Nifty 100 coverage: daily=99/100, minute=102/100
+  Nifty 50 missing from daily: ['TATAMOTORS']
+
+======================================================================
+VARIANT: Nifty50
+======================================================================
+  Computing universes for 208 weekly rebalance dates...
+  1442/1456 day-keys mapped to a universe
+
+--- Running Nifty50 (slip=0bps) ---
+    Day 200/1035 (2022-10-10): margin=1,000,000, trades=0
+    Day 400/1035 (2023-07-18): margin=954,980, trades=625
+    Day 600/1035 (2024-04-25): margin=982,553, trades=1485
+    Day 800/1035 (2025-01-31): margin=864,319, trades=2286
+    Day 1000/1035 (2025-11-10): margin=763,445, trades=3104
+  Universe size after filter — avg: 11.8, min: 1, max: 15
+  Done in 104s
+
+  RESULT [Nifty50, slip=0bps]: CAGR=-7.46% MDD=-28.32% Sharpe=-1.615 Calmar=-0.263 Trades=3270 WR=40.0%
+
+--- Running Nifty50 (slip=3bps) ---
+    Day 200/1035 (2022-10-10): margin=1,000,000, trades=0
+    Day 400/1035 (2023-07-18): margin=878,342, trades=625
+    Day 600/1035 (2024-04-25): margin=809,320, trades=1485
+    Day 800/1035 (2025-01-31): margin=637,459, trades=2286
+    Day 1000/1035 (2025-11-10): margin=496,473, trades=3104
+  Universe size after filter — avg: 11.8, min: 1, max: 15
+  Done in 102s
+
+  RESULT [Nifty50, slip=3bps]: CAGR=-17.39% MDD=-53.88% Sharpe=-4.1 Calmar=-0.323 Trades=3270 WR=36.7%
+
+======================================================================
+VARIANT: Nifty100
+======================================================================
+  Computing universes for 208 weekly rebalance dates...
+  1449/1456 day-keys mapped to a universe
+
+--- Running Nifty100 (slip=0bps) ---
+    Day 200/1035 (2022-10-10): margin=1,000,000, trades=0
+    Day 400/1035 (2023-07-18): margin=915,291, trades=700
+    Day 600/1035 (2024-04-25): margin=929,354, trades=1593
+    Day 800/1035 (2025-01-31): margin=835,205, trades=2460
+    Day 1000/1035 (2025-11-10): margin=688,491, trades=3333
+  Universe size after filter — avg: 13.7, min: 1, max: 15
+  Done in 112s
+
+  RESULT [Nifty100, slip=0bps]: CAGR=-9.85% MDD=-35.22% Sharpe=-1.929 Calmar=-0.28 Trades=3498 WR=38.1%
+
+--- Running Nifty100 (slip=3bps) ---
+    Day 200/1035 (2022-10-10): margin=1,000,000, trades=0
+    Day 400/1035 (2023-07-18): margin=843,083, trades=700
+    Day 600/1035 (2024-04-25): margin=759,159, trades=1593
+    Day 800/1035 (2025-01-31): margin=607,158, trades=2460
+    Day 1000/1035 (2025-11-10): margin=440,844, trades=3333
+  Universe size after filter — avg: 13.7, min: 1, max: 15
+  Done in 112s
+
+  RESULT [Nifty100, slip=3bps]: CAGR=-19.99% MDD=-59.48% Sharpe=-4.265 Calmar=-0.336 Trades=3498 WR=35.4%
+
+======================================================================
+PHASE B (Nifty universes) — SUMMARY
+======================================================================
+
+Variant               Slip     CAGR      MDD   Calmar   Sharpe  Trades     WR
+--------------------------------------------------------------------------------
+Phase B (top 1500+)      0    7.60%  -13.50%    0.564    1.329    3470  37.4%  (reference, biased)
+Phase B (top 1500+)      3   -2.77%  -25.85%   -0.107   -0.465    3470  36.0%  (reference, biased)
+Nifty50                  0   -7.46%  -28.32%   -0.263   -1.615    3270  40.0%
+Nifty50                  3  -17.39%  -53.88%   -0.323   -4.100    3270  36.7%
+Nifty100                 0   -9.85%  -35.22%   -0.280   -1.929    3498  38.1%
+Nifty100                 3  -19.99%  -59.48%   -0.336   -4.265    3498  35.4%
+
+Per-year breakdown:
+
+Nifty50_slip0:
+  2022:   66 trades, PnL= -0.67%, WR=40.9%
+  2023: 1049 trades, PnL= -4.79%, WR=42.5%
+  2024: 1078 trades, PnL= -4.46%, WR=39.4%
+  2025: 1077 trades, PnL=-16.72%, WR=38.2%
+  Exit types: {'stop': 1447, 'eod_close': 1328, 'target': 492, 'eod_close_fallback': 3}
+
+Nifty50_slip3:
+  2022:   66 trades, PnL= -1.81%, WR=36.4%
+  2023: 1049 trades, PnL=-16.23%, WR=39.3%
+  2024: 1078 trades, PnL=-14.93%, WR=36.5%
+  2025: 1077 trades, PnL=-20.43%, WR=34.4%
+  Exit types: {'stop': 1520, 'eod_close': 1281, 'target': 466, 'eod_close_fallback': 3}
+
+Nifty100_slip0:
+  2022:   80 trades, PnL= +0.66%, WR=43.8%
+  2023: 1139 trades, PnL=-12.25%, WR=38.3%
+  2024: 1141 trades, PnL= -2.21%, WR=39.1%
+  2025: 1138 trades, PnL=-20.10%, WR=36.6%
+  Exit types: {'stop': 1772, 'eod_close': 1060, 'target': 659, 'eod_close_fallback': 7}
+
+Nifty100_slip3:
+  2022:   80 trades, PnL= -0.49%, WR=41.2%
+  2023: 1139 trades, PnL=-23.12%, WR=35.8%
+  2024: 1141 trades, PnL=-13.14%, WR=36.8%
+  2025: 1138 trades, PnL=-22.22%, WR=33.2%
+  Exit types: {'stop': 1854, 'eod_close': 1003, 'target': 634, 'eod_close_fallback': 7}
+
+======================================================================
+INTERPRETATION
+======================================================================
+  Nifty 50  (0bps): CAGR=-7.46%   vs biased baseline 7.6%   diff=-15.1pp
+  Nifty 100 (0bps): CAGR=-9.85%  vs biased baseline 7.6%   diff=-17.4pp
+  ✗ Edge collapses in clean universe → biased baseline was mostly survivorship.

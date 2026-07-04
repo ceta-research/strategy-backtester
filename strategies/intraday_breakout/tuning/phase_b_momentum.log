@@ -1,0 +1,96 @@
+======================================================================
+PHASE B — Momentum-filtered intraday breakout
+======================================================================
+{
+  "start_date": "2022-01-01",
+  "end_date": "2025-12-31",
+  "initial_capital": 1000000,
+  "universe_size": 15,
+  "min_avg_turnover": 50000000,
+  "rebalance_weekday": 4,
+  "lookback_20d": 20,
+  "lookback_5d": 5,
+  "sma_short": 10,
+  "sma_long": 50,
+  "opening_range_minutes": 15,
+  "target_pct": 1.5,
+  "stop_pct": 0.7,
+  "max_positions": 5,
+  "eod_exit_minute": 925
+}
+
+--- Loading daily data ---
+  Daily data: 2,202,827 rows, 2414 instruments (0.8s)
+
+--- Loading minute data ---
+  Loading minute data: 29 files...
+    Loaded 20/29 files...
+  Minute data: 403,290,612 rows, 2671 symbols (36.8s)
+
+--- Building weekly universes from daily data ---
+  Computing universes for 208 weekly rebalance dates...
+  1456/1456 day-keys mapped to a universe
+  2022-01-08: ['URJA', 'INVENTURE', 'LLOYDSENGG', 'TTML', 'TRIGYN'] ... (15 total)
+  2023-01-09: ['NAVA', 'ARIES', 'MOLDTECH', 'TVSELECT', 'DONEAR', 'JBMA', 'PNBHOUSING', 'SPECIALITY']
+  2024-01-08: ['VLEGOV', 'RAJMET', 'GALLANTT', 'PCJEWELLER', 'INOXGREEN', 'ESSENTIA', 'SHRIPISTON', 'ALOKINDS']
+  2025-01-06: ['BAJAJHCARE', 'ITI', 'REPL', 'SHAKTIPUMP', 'AXISCADES', 'EPACK', 'VAKRANGEE', 'APOLLO']
+
+--- Running Phase B (slip=0bps) ---
+    Day 100/1035 (2022-05-23): margin=1,000,000, trades=0
+    Day 200/1035 (2022-10-10): margin=1,000,000, trades=0
+    Day 300/1035 (2023-02-27): margin=1,063,527, trades=295
+    Day 400/1035 (2023-07-18): margin=1,138,697, trades=728
+    Day 500/1035 (2023-12-05): margin=1,278,077, trades=1148
+    Day 600/1035 (2024-04-25): margin=1,397,865, trades=1563
+    Day 700/1035 (2024-09-12): margin=1,364,711, trades=1998
+    Day 800/1035 (2025-01-31): margin=1,258,276, trades=2439
+    Day 900/1035 (2025-06-23): margin=1,246,874, trades=2877
+    Day 1000/1035 (2025-11-10): margin=1,333,942, trades=3324
+  Simulation done in 103s, 106s total
+  Universe size avg: 15.0, min: 13, max: 15
+
+  RESULT slip=0bps: CAGR=7.6% MDD=-13.49% Sharpe=1.329 Calmar=0.564 Trades=3470 WR=37.4% Final=Rs 1,340,043
+
+--- Running Phase B (slip=3bps) ---
+    Day 100/1035 (2022-05-23): margin=1,000,000, trades=0
+    Day 200/1035 (2022-10-10): margin=1,000,000, trades=0
+    Day 300/1035 (2023-02-27): margin=1,038,980, trades=295
+    Day 400/1035 (2023-07-18): margin=1,056,225, trades=728
+    Day 500/1035 (2023-12-05): margin=1,127,739, trades=1148
+    Day 600/1035 (2024-04-25): margin=1,173,535, trades=1563
+    Day 700/1035 (2024-09-12): margin=1,102,147, trades=1998
+    Day 800/1035 (2025-01-31): margin=963,308, trades=2439
+    Day 900/1035 (2025-06-23): margin=906,997, trades=2877
+    Day 1000/1035 (2025-11-10): margin=920,618, trades=3324
+  Simulation done in 102s, 105s total
+  Universe size avg: 15.0, min: 13, max: 15
+
+  RESULT slip=3bps: CAGR=-2.77% MDD=-25.85% Sharpe=-0.465 Calmar=-0.107 Trades=3470 WR=36.0% Final=Rs 893,925
+
+======================================================================
+PHASE B — SUMMARY
+======================================================================
+
+Slippage = 0 bps
+  Overall: CAGR=7.6%  MDD=-13.49%  Calmar=0.564  Sharpe=1.329  Trades=3470  WR=37.4%
+  Per-year:
+    2022:  110 trades, PnL= +4.29%, WR=42.7%
+    2023: 1117 trades, PnL=+26.61%, WR=40.5%
+    2024: 1105 trades, PnL= -2.20%, WR=34.8%
+    2025: 1138 trades, PnL= +5.30%, WR=36.4%
+  Exit types: {'target': 1187, 'stop': 2125, 'eod_close': 149, 'eod_close_fallback': 9}
+
+Slippage = 3 bps
+  Overall: CAGR=-2.77%  MDD=-25.85%  Calmar=-0.107  Sharpe=-0.465  Trades=3470  WR=36.0%
+  Per-year:
+    2022:  110 trades, PnL= +3.11%, WR=41.8%
+    2023: 1117 trades, PnL=+10.36%, WR=38.9%
+    2024: 1105 trades, PnL=-13.28%, WR=34.1%
+    2025: 1138 trades, PnL=-10.80%, WR=34.5%
+  Exit types: {'target': 1153, 'stop': 2166, 'eod_close': 142, 'eod_close_fallback': 9}
+
+======================================================================
+DECISION GATE
+======================================================================
+  RESULT: GROSS POSITIVE BUT NET NEGATIVE (7.6% raw, -2.77% at 3bps)
+  ACTION: Real edge but slippage destroys it. Limit orders may save.
