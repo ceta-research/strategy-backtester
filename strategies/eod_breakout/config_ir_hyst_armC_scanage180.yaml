@@ -1,20 +1,8 @@
-# eod_breakout: internal regime with hysteresis (best variant).
-#
-# Internal regime SMA50, enter bull at score > 0.4, exit bull at score < 0.35.
-# Hysteresis eliminates whipsaw in ambiguous years (2025: -7% → +6.5%).
-# No direction_score, no min hold, force-exit on regime flip.
-#
-# Full-period (2010-2026, re-run 2026-07-04): CAGR=22.98%, MDD=-18.42%,
-# Sharpe=1.578, Calmar=1.248, Trades=1877. Best single-strategy result.
-# (results/eod_breakout/ir_hyst_charting_baseline_20260704.json)
-#
-# ⚠️ COMPOSITION (IPO-age experiment 2026-07-05): n_day_gain_threshold below
-# is DEAD CONFIG on the eod_breakout path (base.run_scanner skips it), and
-# unrankable young listings (<181 bars under top_gainer/180) sort FIRST for
-# slots — 47% of P&L is sub-360d listings, and 2024-2026 returns are entirely
-# IPO-driven. De-IPO arms (config_ir_hyst_arm*.yaml) are all WORSE (~17%
-# CAGR, ~2x MDD): this strategy IS an IPO-momentum strategy. See memory
-# project_eod_breakout_survivorship_validated.
+# IPO-age experiment ARM C-180 (2026-07-05): dose variant of armC — scanner-level
+# age gate at 180 calendar days instead of 360. NOTE: 180d (~123 trading bars)
+# is BELOW the ~181 bars top_gainer/180 needs, so a residual sliver of
+# null-rank (queue-jumping) names remains in this arm — it is a dose point,
+# not a clean bug-free arm. See config_ir_hyst_armC_scanage360.yaml.
 
 static:
   strategy_type: eod_breakout
@@ -33,6 +21,7 @@ scanner:
     - {period: 125, threshold: 70000000}
   n_day_gain_threshold:
     - {n: 360, threshold: 0}
+  min_real_history_days: [180]
 
 entry:
   n_day_high: [3]
