@@ -74,6 +74,14 @@ def _build_scanner_config(scanner: dict) -> dict:
         "n_day_gain_threshold": scanner.get("n_day_gain_threshold", [
             {"n": 360, "threshold": 0}
         ]),
+        # IPO-age experiment (2026-07-05): rows are scanner-eligible only once
+        # the instrument has >= this many CALENDAR days of real history in the
+        # loaded frame (first real bar as listing proxy; left-edge exempt).
+        # 0 = disabled (byte-identical to legacy). Applies in base.run_scanner
+        # — the eod_breakout path — NOT in scanner.process (eod_technical).
+        # NOTE: filters the universe itself, so internal-regime breadth changes
+        # too; for an entry-only gate use entry.min_entry_age_days instead.
+        "min_real_history_days": scanner.get("min_real_history_days", [0]),
     }
 
 
@@ -126,6 +134,12 @@ def _build_simulation_config(sim: dict) -> dict:
             {"type": "percentage_of_instrument_avg_txn", "value": 4.5}
         ]),
         "exit_before_entry": sim.get("exit_before_entry", [False]),
+        # IPO-age experiment (2026-07-05): when True, orders whose ranking
+        # score is NULL (instrument has fewer bars than the ranking window,
+        # e.g. young IPOs under top_gainer) sort LAST for position slots
+        # instead of FIRST (the legacy polars nulls-first accident).
+        # False = byte-identical to legacy.
+        "ranking_nulls_last": sim.get("ranking_nulls_last", [False]),
     }
 
 

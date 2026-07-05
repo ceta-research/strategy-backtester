@@ -3,11 +3,14 @@
 Ported from ATO_Simulator/simulator/steps/simulate_step/util.py (lines 232-399)
 and simulate_step_loader.py sort_orders() dispatcher.
 
-All sort functions use ``join(how="inner")``, which silently drops orders
-for instruments missing from the rank data (e.g. mid-simulation IPOs that
-have no prior price history for scoring). This is intentional: unranked
-instruments cannot be meaningfully scored and would receive an arbitrary
-ordering if included.
+NOTE (corrected 2026-07-05): the inner joins do NOT drop unrankable orders.
+The rank frame contains a row for every (instrument, date) in the tick data —
+an instrument with fewer bars than the ranking window simply carries a NULL
+gain and therefore a NULL rank (polars rank propagates nulls). The join key
+matches, the order survives, and the subsequent sort places NULL ranks FIRST
+(polars default nulls_last=False) — so young IPOs historically received top
+priority for position slots. Set simulation.ranking_nulls_last: [true] to
+put unrankable orders last instead (legacy default False is byte-identical).
 """
 
 import polars as pl
@@ -31,7 +34,10 @@ def sort_orders(df_config_orders: pl.DataFrame, sim_config: dict, df_tick_data: 
     if order_sorting_type == "top_average_txn" or default_sorting_type == "top_average_txn":
         df_config_orders = sort_orders_by_highest_avg_txn(df_config_orders, df_tick_data, order_ranking_window_days)
     elif order_sorting_type == "top_gainer" or default_sorting_type == "top_gainer":
-        df_config_orders = sort_orders_by_highest_gainer(df_config_orders, df_tick_data, order_ranking_window_days)
+        df_config_orders = sort_orders_by_highest_gainer(
+            df_config_orders, df_tick_data, order_ranking_window_days,
+            nulls_last=bool(sim_config.get("ranking_nulls_last", False)),
+        )
 
     if order_sorting_type == "top_performer":
         if epoch_wise_instrument_stats is None:
@@ -91,8 +97,13 @@ def sort_orders_by_highest_avg_txn(df_orders: pl.DataFrame, df_tick_data: pl.Dat
     return df_orders
 
 
-def sort_orders_by_highest_gainer(df_orders: pl.DataFrame, df_tick_data: pl.DataFrame, order_ranking_window_days: int) -> pl.DataFrame:
-    """Rank orders by n-day return percentage."""
+def sort_orders_by_highest_gainer(df_orders: pl.DataFrame, df_tick_data: pl.DataFrame, order_ranking_window_days: int, nulls_last: bool = False) -> pl.DataFrame:
+    """Rank orders by n-day return percentage.
+
+    Instruments with fewer bars than the window get NULL gain/rank.
+    nulls_last=False (legacy) sorts them FIRST (top slot priority);
+    nulls_last=True sorts them LAST.
+    """
     df_tick_data = df_tick_data.with_columns(pl.col("instrument").cast(pl.Utf8))
     _df = df_tick_data.select(["date_epoch", "instrument", "close"])
     _df = _df.sort(["instrument", "date_epoch"])
@@ -117,7 +128,7 @@ def sort_orders_by_highest_gainer(df_orders: pl.DataFrame, df_tick_data: pl.Data
     ])
 
     df_orders = df_orders.join(rank_df, on=["instrument", "entry_epoch"], how="inner")
-    df_orders = df_orders.sort(["entry_epoch", "rank"])
+    df_orders = df_orders.sort(["entry_epoch", "rank"], nulls_last=nulls_last)
     return df_orders
 
 

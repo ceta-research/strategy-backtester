@@ -181,6 +181,44 @@ def run_scanner(context: dict, df_tick_data: pl.DataFrame) -> tuple[dict[str, se
     df = df_tick_data.clone()
     start_epoch = context.get("start_epoch", context["static_config"]["start_epoch"])
 
+    # min_real_history_days (IPO-age experiment, 2026-07-05): when > 0, rows
+    # are scanner-eligible only once the instrument has >= that many CALENDAR
+    # days of real history in the loaded frame. first_real_epoch is derived
+    # from the raw provider rows (this path has no calendar grid / backfill,
+    # so the first bar is a faithful listing proxy on nse_charting; on
+    # bhavcopy renames masquerade as young listings — interpret accordingly).
+    # Left-edge exemption: an instrument whose first bar falls within 7 days
+    # of the loaded window's start predates the window (listing date unknown)
+    # and is treated as mature. Sweeping different values in one run is
+    # disallowed: entry/regime state is computed from the UNION-tagged
+    # universe before per-config order intersection, so arms would leak into
+    # each other — run separate configs instead.
+    _age_values = {
+        sc.get("min_real_history_days", 0)
+        for sc in get_scanner_config_iterator(context)
+    }
+    if len(_age_values) > 1:
+        raise ValueError(
+            f"min_real_history_days must not be swept within one run "
+            f"(got {sorted(_age_values)}); use one config file per value."
+        )
+    min_age_days = _age_values.pop() if _age_values else 0
+    age_df = None
+    data_min_epoch = None
+    if min_age_days > 0:
+        prefetch_days = context["static_config"].get("prefetch_days", 400)
+        if min_age_days > prefetch_days - 7:
+            raise ValueError(
+                f"min_real_history_days={min_age_days} must be <= "
+                f"prefetch_days-7={prefetch_days - 7}, else left-edge "
+                f"instruments (unknown listing date) and true young listings "
+                f"are indistinguishable."
+            )
+        data_min_epoch = df["date_epoch"].min()
+        age_df = df.group_by("instrument", maintain_order=True).agg(
+            pl.col("date_epoch").min().alias("first_real_epoch")
+        )
+
     shortlist_tracker = {}
     for scanner_config in get_scanner_config_iterator(context):
         df_scan = df.clone()
@@ -213,6 +251,14 @@ def run_scanner(context: dict, df_tick_data: pl.DataFrame) -> tuple[dict[str, se
         df_scan = df_scan.drop_nulls()
         df_scan = df_scan.filter(pl.col("close") > scanner_config["price_threshold"])
         df_scan = df_scan.filter(pl.col("avg_txn_turnover") > atc["threshold"])
+
+        if min_age_days > 0:
+            df_scan = df_scan.join(age_df, on="instrument", how="left")
+            df_scan = df_scan.filter(
+                (pl.col("first_real_epoch") <= data_min_epoch + 7 * 86400)
+                | ((pl.col("date_epoch") - pl.col("first_real_epoch"))
+                   >= min_age_days * 86400)
+            )
 
         uid_series = df_scan.select(
             (pl.col("instrument").cast(pl.Utf8) + pl.lit(":") + pl.col("date_epoch").cast(pl.Utf8)).alias("uid")

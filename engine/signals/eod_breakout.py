@@ -93,6 +93,11 @@ class EodBreakoutSignalGenerator:
         t1 = time.time()
         all_order_rows = []
 
+        # Entry-age gate cache (IPO-age experiment, 2026-07-05): built lazily
+        # on first entry config that sets min_entry_age_days > 0.
+        entry_age_df = None
+        entry_age_min_epoch = None
+
         for entry_config in get_entry_config_iterator(context):
             n_day_ma_window = entry_config["n_day_ma"]
             n_day_high_window = entry_config["n_day_high"]
@@ -115,6 +120,31 @@ class EodBreakoutSignalGenerator:
                     f"vol_lookback_days must be >= 2 when filter active; "
                     f"got {vol_lookback_days}"
                 )
+
+            # Entry-age gate (IPO-age experiment, 2026-07-05): entries allowed
+            # only once the instrument has >= min_entry_age_days CALENDAR days
+            # of real history at the signal date (first real bar as listing
+            # proxy; left-edge exempt). Scanner tags and internal-regime
+            # breadth are UNTOUCHED — contrast scanner.min_real_history_days,
+            # which filters the universe itself. 0 = disabled (byte-identical).
+            min_entry_age_days = entry_config.get("min_entry_age_days", 0)
+            entry_age_active = min_entry_age_days > 0
+            if entry_age_active:
+                _prefetch = context["static_config"].get("prefetch_days", 400)
+                if min_entry_age_days > _prefetch - 7:
+                    raise ValueError(
+                        f"min_entry_age_days={min_entry_age_days} must be <= "
+                        f"prefetch_days-7={_prefetch - 7}, else left-edge "
+                        f"instruments (unknown listing date) and true young "
+                        f"listings are indistinguishable."
+                    )
+                if entry_age_df is None:
+                    entry_age_min_epoch = df_tick_data["date_epoch"].min()
+                    entry_age_df = df_tick_data.group_by(
+                        "instrument", maintain_order=True
+                    ).agg(
+                        pl.col("date_epoch").min().alias("first_real_epoch")
+                    )
 
             # Internal regime params (scanner-universe breadth)
             ir_sma = entry_config.get("internal_regime_sma_period", 0)
@@ -318,6 +348,16 @@ class EodBreakoutSignalGenerator:
                 entry_filter = entry_filter & (
                     pl.col("flip_count_lookback").is_not_null()
                     & (pl.col("flip_count_lookback") < flip_skip_threshold)
+                )
+            if entry_age_active:
+                df_signals = df_signals.join(
+                    entry_age_df, on="instrument", how="left"
+                )
+                entry_filter = entry_filter & (
+                    (pl.col("first_real_epoch")
+                     <= entry_age_min_epoch + 7 * SECONDS_IN_ONE_DAY)
+                    | ((pl.col("date_epoch") - pl.col("first_real_epoch"))
+                       >= min_entry_age_days * SECONDS_IN_ONE_DAY)
                 )
 
             # HOOK 2: per-clause flag emission. Mirrors the entry_filter
@@ -551,6 +591,10 @@ class EodBreakoutSignalGenerator:
             "entry_flip_lookback_days": entry_cfg.get(
                 "entry_flip_lookback_days", [30]
             ),
+            # Entry-age gate (IPO-age experiment, 2026-07-05). 0 = disabled.
+            # Calendar days of real history required at the signal date;
+            # regime breadth unaffected (contrast scanner.min_real_history_days).
+            "min_entry_age_days": entry_cfg.get("min_entry_age_days", [0]),
         }
 
     @staticmethod

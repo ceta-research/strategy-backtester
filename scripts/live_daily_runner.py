@@ -453,6 +453,11 @@ def compute_entries(
     # the ranking function expects; pass the synthetic-augmented df so the
     # ranking sees signal_epoch and computes the right shift.
     rwin = int(sim_cfg["order_ranking_window_days"])
+    # TODO (IPO-age experiment, 2026-07-05): if a config with
+    # simulation.ranking_nulls_last: [true] is ever promoted to live, pass
+    # nulls_last=bool(sim_cfg.get("ranking_nulls_last", False)) here —
+    # otherwise live keeps legacy nulls-FIRST while the backtest ran
+    # nulls-last, and the two silently diverge on young listings.
     df_ranked = sort_orders_by_highest_gainer(df_today, df_data, rwin)
 
     # Capital sizing per the config's max_order_value
