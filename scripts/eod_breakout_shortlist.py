@@ -13,9 +13,19 @@ measure whether the signal (and our manual vetoes) add or subtract value.
 
 NOTHING here authenticates to a broker or places an order. Pure read.
 
+Screens (added 2026-08-16, see results/eod_breakout/GRADUATION_CRITERIA.md):
+FLAG-ONLY in this observe flow — the book always shows the engine's TRUE state
+(curating the observe output would contaminate the confidence data). The
+automated version must instead EXCLUDE these classes UPSTREAM in the universe
+and re-validate the backtest:
+  - NON-EQUITY: ETF/fund symbols the universe lets through (SBILIQETF class)
+  - RED_FLAG: names whose latest vetting_log.jsonl verdict is RED_FLAG
+    (63MOONS class: live promoter litigation/scandal)
+
 Usage:
     python scripts/eod_breakout_shortlist.py            # run + print + log
     python scripts/eod_breakout_shortlist.py --no-run   # reuse last result JSON
+    python scripts/eod_breakout_shortlist.py --no-log   # don't append observe_log (testing)
 """
 import argparse
 import datetime as dt
@@ -28,7 +38,41 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_CFG = "strategies/eod_breakout/config_ir_hyst_live.yaml"
 RESULT_JSON = "results/eod_breakout/live_shortlist.json"
 OBSERVE_LOG = "results/eod_breakout/observe_log.jsonl"
+VETTING_LOG = "results/eod_breakout/vetting_log.jsonl"
 FRESH_WINDOW_DAYS = 7  # entry within this many days of last close = "fresh buy"
+
+# Non-equity heuristic. Sensitivity-biased on purpose: a false positive costs one
+# glance at a flag; a false negative is a 72-day ETF squatting a strategy slot.
+NON_EQUITY_EXPLICIT = {"LIQUIDBEES", "GOLDBEES", "NIFTYBEES", "JUNIORBEES",
+                       "SILVERBEES", "BANKBEES", "LIQUIDCASE"}
+
+
+def is_non_equity(sym):
+    s = sym.upper()
+    return "ETF" in s or s.endswith("BEES") or s in NON_EQUITY_EXPLICIT
+
+
+def load_vet_cache():
+    """{symbol: (run_date, verdict)} from each symbol's LATEST vetting-ledger
+    verdict. Skips run-summary rows (symbol/verdict null). Fail-open: a missing
+    or corrupt ledger returns an empty cache — flags simply won't show."""
+    cache = {}
+    try:
+        with open(os.path.join(REPO, VETTING_LOG)) as f:
+            for line in f:
+                try:
+                    r = json.loads(line)
+                except ValueError:
+                    continue
+                sym, verdict = r.get("symbol"), r.get("verdict")
+                if not sym or not verdict:
+                    continue
+                rd = r.get("run_date", "")
+                if sym not in cache or rd > cache[sym][0]:
+                    cache[sym] = (rd, verdict)
+    except OSError:
+        pass
+    return cache
 
 
 def india_today():
@@ -62,6 +106,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", default=DEFAULT_CFG)
     ap.add_argument("--no-run", action="store_true", help="reuse last result JSON instead of re-running")
+    ap.add_argument("--no-log", action="store_true", help="don't append observe_log (testing)")
     args = ap.parse_args()
 
     out = os.path.join(REPO, RESULT_JSON)
@@ -99,6 +144,52 @@ def main():
     # entries only fire in a bull internal-regime; recent entry => bull
     regime = "BULL" if fresh_rows else ("BEAR? (no entries within %dd)" % FRESH_WINDOW_DAYS)
 
+    # ---- data-integrity guard (added 2026-08-16 after the duplicate-bar incident) ----
+    # The sim can NEVER legitimately hold more than 15 open positions. If it does, the
+    # input frame had duplicate (symbol,date) bars, which garbles the whole sim path
+    # (2026-08-16: 24/15 "open" positions, 12 phantom same-day entries, rewritten
+    # entry history). ROOT CAUSE: the NSE ingest cycle APPENDS a re-fetch of the last
+    # stored bar (intentionally — the next cycle's final bar corrects a provisional
+    # post-close bar) and the CHAINED repack task dedups afterwards. Between fetch
+    # start and repack completion (daily ~00:00-03:30+ UTC = 05:30-09:00+ IST) the
+    # warehouse TRANSIENTLY holds the last day twice. Runs in that window see a
+    # corrupt frame. Diagnose: rows vs count(DISTINCT symbol) per date_epoch;
+    # confirm repack_nse_charting_day completed in ts_task_queue after the fetch.
+    corrupt = len(rows) > 15
+    in_ingest_window = 0 <= dt.datetime.now(dt.timezone.utc).hour < 4
+    if corrupt:
+        print("\n" + "!" * 78)
+        print("  !! DATA CORRUPTION SUSPECTED: %d open positions > 15-slot cap." % len(rows))
+        print("  !! The book below is NOT TRUSTWORTHY — do NOT vet or act on it.")
+        if in_ingest_window:
+            print("  !! It is currently the daily NSE ingest window (~00:00-03:30+ UTC): the last")
+            print("  !! day's bars are transiently DUPLICATED until repack_nse_charting_day runs.")
+            print("  !! RE-RUN after the repack completes (check ts_task_queue).")
+        else:
+            print("  !! Outside the ingest window — check nse_charting_day for duplicate bars:")
+            print("  !!   SELECT date_epoch, count(*), count(DISTINCT symbol) FROM nse.nse_charting_day")
+            print("  !!   GROUP BY 1 HAVING count(*) > count(DISTINCT symbol) ORDER BY 1 DESC;")
+        print("!" * 78)
+    elif in_ingest_window:
+        print("\n  NOTE: run started inside the daily NSE ingest window (~00:00-03:30+ UTC);")
+        print("        if results look odd, re-run after repack_nse_charting_day completes.")
+
+    # ---- screens (flag-only; see module docstring) ----
+    vet_cache = load_vet_cache()
+    for r in rows:
+        flags = []
+        if is_non_equity(r["symbol"]):
+            flags.append("NON-EQUITY")
+        vd = vet_cache.get(r["symbol"])
+        if vd and vd[1] == "RED_FLAG":
+            flags.append("RED_FLAG(%s)" % vd[0][5:])
+        r["flags"] = flags
+        r["vet"] = {"date": vd[0], "verdict": vd[1]} if vd else None
+    screen_hits = {
+        "non_equity": [r["symbol"] for r in rows if "NON-EQUITY" in r["flags"]],
+        "red_flag": [r["symbol"] for r in rows if any(f.startswith("RED_FLAG") for f in r["flags"])],
+    }
+
     # ---- print ----
     print()
     print("=" * 78)
@@ -109,10 +200,21 @@ def main():
     print(f"  {'SYMBOL':<13}{'ENTRY':>11}{'ENTRY_PX':>10}{'LAST_PX':>10}{'UNREAL%':>9}{'HELD_d':>7}  TAG")
     print("  " + "-" * 74)
     for r in rows:
-        tag = "<< FRESH — VET" if r["fresh"] else ""
+        parts = []
+        if r["fresh"]:
+            parts.append("<< FRESH — VET")
+        parts += ["!! " + f for f in r["flags"]]
+        if not parts:
+            v = r.get("vet")
+            parts.append("vet:%s(%s)" % (v["verdict"], v["date"][5:]) if v else "vet:PENDING")
         print(f"  {r['symbol']:<13}{r['entry_date']:>11}{r['entry_px']:>10}{r['last_px']:>10}"
-              f"{r['unreal_pct']:>9}{r['hold_days']:>7}  {tag}")
+              f"{r['unreal_pct']:>9}{r['hold_days']:>7}  {'  '.join(parts)}")
     print("  " + "-" * 74)
+    if screen_hits["non_equity"] or screen_hits["red_flag"]:
+        print(f"  !! SCREEN HITS — non-equity: {', '.join(screen_hits['non_equity']) or '-'}"
+              f" | red-flag ledger: {', '.join(screen_hits['red_flag']) or '-'}")
+        print(f"     Flag-only in OBSERVE mode. Automation spec: exclude these classes UPSTREAM")
+        print(f"     in the universe + re-validate the backtest (GRADUATION_CRITERIA.md).")
     print(f"  VET the FRESH names (governance/ASM-GSM/halt hard-disqualifiers only). OBSERVE the rest.")
     print(f"  CAVEAT: this is the current BOOK ({len(rows)}/15 slots), NOT a complete 'buy-today' list.")
     print(f"          Breakouts on the LATEST bar (they fill next open) and any beyond the 15 slots")
@@ -126,14 +228,19 @@ def main():
         "regime": regime,
         "n_open": len(rows),
         "book_full": len(rows) >= 15,
+        "suspect_corrupt": corrupt,
         "fresh": [r["symbol"] for r in fresh_rows],
+        "screen_hits": screen_hits,
         "book": rows,
     }
     with open(os.path.join(REPO, "results/eod_breakout/shortlist_latest.json"), "w") as f:
         json.dump(payload, f, indent=2)
-    with open(os.path.join(REPO, OBSERVE_LOG), "a") as f:
-        f.write(json.dumps(payload) + "\n")
-    print(f"  saved shortlist_latest.json + appended {OBSERVE_LOG}")
+    if args.no_log:
+        print(f"  saved shortlist_latest.json (--no-log: observe_log NOT appended)")
+    else:
+        with open(os.path.join(REPO, OBSERVE_LOG), "a") as f:
+            f.write(json.dumps(payload) + "\n")
+        print(f"  saved shortlist_latest.json + appended {OBSERVE_LOG}")
 
 
 if __name__ == "__main__":
