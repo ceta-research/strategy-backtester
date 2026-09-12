@@ -39,6 +39,8 @@ DEFAULT_POLL_INTERVAL = 5.0  # seconds
 DEFAULT_TIMEOUT = 300  # seconds
 TERMINAL_STATUSES = ("completed", "failed", "execution_timed_out", "wait_timed_out", "cancelled")
 
+_UNSET = object()  # tier-limits cache sentinel; None means "fetch failed"
+
 
 def _read_dotenv_key(key):
     """Read a key from .env file (simple KEY=VALUE format). Used in cloud containers."""
@@ -104,10 +106,55 @@ class CetaResearch:
             "X-API-Key": self.api_key,
             "Content-Type": "application/json",
         })
+        self._limits_cache = _UNSET
 
     # ------------------------------------------------------------------ #
     # SQL / Data Explorer API
     # ------------------------------------------------------------------ #
+
+    def _tier_limits(self):
+        """Resource limits for this key's tier, fetched once per process.
+
+        Returns a dict (maxMemory, maxThreads, maxDisk, maxExecutionTimeout,
+        ...) or None if the limits could not be determined -- in that case
+        _submit omits the resources object and the server applies tier
+        defaults.
+        """
+        if self._limits_cache is _UNSET:
+            self._limits_cache = self._fetch_tier_limits()
+        return self._limits_cache
+
+    def _fetch_tier_limits(self):
+        for attempt in range(2):
+            try:
+                resp = self.session.get(f"{self.base_url}/resource-limits", timeout=10)
+            except Exception:
+                break
+            if resp.status_code == 429 or 500 <= resp.status_code < 600:
+                if attempt == 0:
+                    time.sleep(2)
+                    continue
+                break
+            if resp.status_code != 200:
+                break
+            try:
+                body = resp.json()
+                tier = body.get("userTier")
+                # The endpoint also answers unauthenticated calls with
+                # userTier "anonymous", whose caps (15s execution) would
+                # silently cripple every query. This client always holds an
+                # API key, so "anonymous" means the auth didn't take.
+                if not tier or tier == "anonymous":
+                    break
+                limits = body.get("allTierLimits", {}).get(tier)
+            except Exception:
+                break
+            required = ("maxMemory", "maxThreads", "maxDisk", "maxExecutionTimeout")
+            if isinstance(limits, dict) and all(k in limits for k in required):
+                return limits
+            break
+        print("  Warning: resource-limits fetch failed; deferring to server tier defaults")
+        return None
 
     def query(self, sql, timeout=DEFAULT_TIMEOUT, limit=100000, format="json",
               verbose=False, memory_mb=None, threads=None, disk_mb=None):
@@ -157,14 +204,33 @@ class CetaResearch:
                 "format": format,
             },
         }
-        if memory_mb is not None or threads is not None or disk_mb is not None:
-            resources = {}
+        # Resource values are requests, not demands: the server validates
+        # them against the key's tier limits and rejects anything above, so
+        # clamp to the tier caps here. If the caps are unknown, omit the
+        # resources object entirely and let the server apply tier defaults.
+        limits = self._tier_limits()
+        if limits is not None:
+            resources = {
+                "executionTimeoutSeconds": min(timeout, limits["maxExecutionTimeout"]),
+            }
             if memory_mb is not None:
-                resources["memoryMb"] = memory_mb
+                resources["memoryMb"] = min(memory_mb, limits["maxMemory"])
             if threads is not None:
-                resources["threads"] = threads
+                resources["threads"] = min(threads, limits["maxThreads"])
             if disk_mb is not None:
-                resources["diskMb"] = disk_mb
+                resources["diskMb"] = min(disk_mb, limits["maxDisk"])
+            clamped = [
+                f"{knob} {requested}->{resources[knob]}"
+                for knob, requested in (
+                    ("memoryMb", memory_mb),
+                    ("threads", threads),
+                    ("diskMb", disk_mb),
+                    ("executionTimeoutSeconds", timeout),
+                )
+                if requested is not None and resources[knob] < requested
+            ]
+            if clamped:
+                print(f"  Clamped query resources to tier caps: {', '.join(clamped)}")
             body["resources"] = resources
 
         for attempt in range(5):
