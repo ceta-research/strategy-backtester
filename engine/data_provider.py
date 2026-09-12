@@ -288,9 +288,12 @@ class CRDataProvider:
                     "parquet" (much faster for bulk data: no JSON conversion,
                     smaller transfer, faster parsing).
             timeout: CR API query timeout in seconds.
-            memory_mb: CR API memory allocation in MB. Default 16_384 (16 GiB)
-                is the maximum memory tier. Lowering below 8 GiB can cause
-                OOM on full NSE-universe queries spanning 10+ years.
+            memory_mb: CR API memory request in MB. The client clamps all
+                resource requests to the caller's tier limits before
+                submission, so values above the tier cap degrade to the cap
+                instead of failing validation. Full NSE-universe daily
+                queries spanning 10+ years measure well under 1 GiB peak,
+                so every tier's cap is sufficient.
             threads: CR API parallel threads.
             disk_mb: CR API disk allocation in MB.
             spike_threshold: Price oscillation tier 1 threshold (x multiplier).
