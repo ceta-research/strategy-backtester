@@ -9,7 +9,15 @@ static:
   strategy_type: eod_breakout
   start_margin: 10000000
   start_epoch: 1262304000
-  end_epoch: 1790000000          # ~2026-09 — beyond latest data; sim uses through last close
+  # ⚠️ MUST stay far in the future. This is a sentinel meaning "run to the last
+  # available close", NOT a real date — the sim clamps to whatever data exists.
+  # 2026-09-30: the previous value 1790000000 was 2026-09-21 14:13 UTC, written
+  # when that WAS beyond the data. The calendar caught up on 21-Sep and every
+  # shortlist run after that was silently clamped to a frozen window: the 09-23
+  # and 09-30 runs both reported "data through 2026-09-16" and an identical
+  # empty book, which reads as "the strategy is in cash" rather than "the tool
+  # stopped moving". Do not set this to a near-term date again.
+  end_epoch: 2000000000          # 2033-05-18 — sentinel, comfortably beyond any real data
   prefetch_days: 500
   data_granularity: day
   data_provider: nse_charting
