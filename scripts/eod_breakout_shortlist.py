@@ -121,8 +121,14 @@ def main():
     if not trades:
         raise SystemExit("no trades in result")
 
-    last_date = max(parse_date(t["exit_date"]) for t in trades if t.get("exit_date"))
+    # Last PROCESSED day comes from the equity curve. max(exit_date) is only the last
+    # trade exit, which stays frozen while the book is empty (read as "stale data" for
+    # three runs in Sep/Oct 2026 when the sim was in fact current).
+    last_date = parse_date(det["equity_curve"][-1]["date"])
+    last_exit = max((parse_date(t["exit_date"]) for t in trades if t.get("exit_date")), default=None)
     opens = [t for t in trades if t.get("exit_reason") == "end_of_data"]
+    recent_exits = [t for t in trades if t.get("exit_date") and t.get("exit_reason") != "end_of_data"
+                    and (last_date - parse_date(t["exit_date"])).days <= FRESH_WINDOW_DAYS]
 
     # build shortlist rows
     rows = []
@@ -195,7 +201,11 @@ def main():
     print("=" * 78)
     print(f"  eod_breakout LIVE SHORTLIST  |  OBSERVE ONLY — NO ORDERS PLACED")
     print(f"  run {india_today()} IST  |  data through {last_date}  |  internal-regime: {regime}")
-    print(f"  current book: {len(rows)} open positions  |  fresh (<= {FRESH_WINDOW_DAYS}d): {len(fresh_rows)}  |  last entry: {last_entry}")
+    print(f"  current book: {len(rows)} open positions  |  fresh (<= {FRESH_WINDOW_DAYS}d): {len(fresh_rows)}  |  last entry: {last_entry}  |  last exit: {last_exit}")
+    if recent_exits:
+        from collections import Counter
+        by = Counter((t["exit_date"], t.get("exit_reason")) for t in recent_exits)
+        print(f"  exits in last {FRESH_WINDOW_DAYS}d: " + "; ".join(f"{d_} {n}x {r}" for (d_, r), n in sorted(by.items())))
     print("=" * 78)
     print(f"  {'SYMBOL':<13}{'ENTRY':>11}{'ENTRY_PX':>10}{'LAST_PX':>10}{'UNREAL%':>9}{'HELD_d':>7}  TAG")
     print("  " + "-" * 74)
