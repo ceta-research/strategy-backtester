@@ -134,12 +134,28 @@ def _build_simulation_config(sim: dict) -> dict:
             {"type": "percentage_of_instrument_avg_txn", "value": 4.5}
         ]),
         "exit_before_entry": sim.get("exit_before_entry", [False]),
-        # IPO-age experiment (2026-07-05): when True, orders whose ranking
-        # score is NULL (instrument has fewer bars than the ranking window,
-        # e.g. young IPOs under top_gainer) sort LAST for position slots
-        # instead of FIRST (the legacy polars nulls-first accident).
-        # False = byte-identical to legacy.
-        "ranking_nulls_last": sim.get("ranking_nulls_last", [False]),
+        # When True, orders whose ranking score is NULL (instrument has fewer
+        # bars than the ranking window, e.g. young IPOs under top_gainer) sort
+        # LAST for position slots instead of FIRST.
+        # 🚨 2026-10-09: True is the CORRECT behaviour, not an experiment. The
+        # pandas engine this was ported from sorts NaN ranks LAST (sort_values
+        # defaults to na_position="last"); polars .sort() puts nulls FIRST, so
+        # e1abb9a (2026-03-18, "Migrate EOD pipeline from pandas to Polars")
+        # silently inverted it. The previous wording here — "the legacy polars
+        # nulls-first accident", kept for byte-identity — was wrong on both
+        # counts: it is not legacy, and byte-identity was preserving a defect.
+        # 🚨 DEFAULT FLIPPED False -> True on 2026-10-09. 487 of 490 configs in
+        # strategies/ route through top_gainer, so EVERY result in this repo
+        # produced before this date gave instruments with fewer bars than the
+        # ranking window top slot priority every day. LEADERBOARD.md rankings and
+        # champion selections predate the fix and must be re-run before being
+        # cited. To reproduce a pre-10-09 number, set ranking_nulls_last: [false]
+        # explicitly in the config and say so next to the number.
+        # Measured on eod_breakout IR-hyst (same window, same data, 2026-10-09):
+        #   false (buggy) CAGR 21.59% / MDD -16.59% / Calmar 1.301
+        #   true  (fixed) CAGR 17.37% / MDD -27.70% / Calmar 0.627
+        # Full analysis: engine/ranking.py docstring, DECISIONS #031.
+        "ranking_nulls_last": sim.get("ranking_nulls_last", [True]),
     }
 
 
