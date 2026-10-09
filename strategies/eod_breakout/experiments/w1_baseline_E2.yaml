@@ -1,0 +1,61 @@
+# eod_breakout: internal regime with hysteresis (best variant).
+#
+# Internal regime SMA50, enter bull at score > 0.4, exit bull at score < 0.35.
+# Hysteresis eliminates whipsaw in ambiguous years (2025: -7% → +6.5%).
+# No direction_score, no min hold, force-exit on regime flip.
+#
+# Full-period (2010-2026, re-run 2026-07-04): CAGR=22.98%, MDD=-18.42%,
+# Sharpe=1.578, Calmar=1.248, Trades=1877. Best single-strategy result.
+# (results/eod_breakout/ir_hyst_charting_baseline_20260704.json)
+#
+# ⚠️ COMPOSITION (IPO-age experiment 2026-07-05): n_day_gain_threshold below
+# is DEAD CONFIG on the eod_breakout path (base.run_scanner skips it), and
+# unrankable young listings (<181 bars under top_gainer/180) sort FIRST for
+# slots — 47% of P&L is sub-360d listings, and 2024-2026 returns are entirely
+# IPO-driven. De-IPO arms (config_ir_hyst_arm*.yaml) are all WORSE (~17%
+# CAGR, ~2x MDD): this strategy IS an IPO-momentum strategy. See memory
+# project_eod_breakout_survivorship_validated.
+
+static:
+  strategy_type: eod_breakout
+  start_margin: 10000000
+  start_epoch: 1262304000
+  end_epoch: 1774310400
+  prefetch_days: 500
+  data_granularity: day
+  data_provider: nse_charting
+
+scanner:
+  instruments:
+    - [{exchange: NSE, symbols: []}]
+  price_threshold: [99]
+  avg_day_transaction_threshold:
+    - {period: 125, threshold: 70000000}
+  n_day_gain_threshold:
+    - {n: 360, threshold: 0}
+
+entry:
+  n_day_high: [3]
+  n_day_ma: [10]
+  direction_score:
+    - {n_day_ma: 5, score: 0.0}
+  regime_instrument: [""]
+  regime_sma_period: [0]
+  force_exit_on_regime_flip: [true]
+  internal_regime_sma_period: [50]
+  internal_regime_threshold: [0.4]
+  internal_regime_exit_threshold: [0.35]
+
+exit:
+  min_hold_time_days: [0]
+  trailing_stop_pct: [8]
+
+simulation:
+  default_sorting_type: [top_gainer]
+  order_sorting_type: [top_gainer]
+  order_ranking_window_days: [180]
+  max_positions: [15]
+  max_positions_per_instrument: [1]
+  order_value_multiplier: [1]
+  max_order_value:
+    - {type: percentage_of_instrument_avg_txn, value: 4.5}

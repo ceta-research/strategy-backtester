@@ -11,6 +11,45 @@ matches, the order survives, and the subsequent sort places NULL ranks FIRST
 (polars default nulls_last=False) — so young IPOs historically received top
 priority for position slots. Set simulation.ranking_nulls_last: [true] to
 put unrankable orders last instead (legacy default False is byte-identical).
+
+🚨 CORRECTION (2026-10-09) — nulls-first is a PORT REGRESSION, not a property
+of the strategy. The 07-05 note above is mechanically right and its conclusion
+is wrong: it treated nulls-first as the ported behaviour and the config comment
+called it a "legacy accident" to be preserved for byte-identity. It is neither
+legacy nor intended. The pandas original this file was ported from does the
+OPPOSITE:
+
+    ATO/ATO_Simulator/src/ATO_Simulator/simulator/steps/simulate_step/util.py
+    sort_orders_by_highest_gainer(), final line:
+        df_orders.sort_values(["entry_epoch", "rank"], ascending=[True, True])
+    pandas sort_values defaults to na_position="last"  ->  NaN ranks sort LAST.
+
+polars .sort() defaults to nulls_last=False -> null ranks sort FIRST. Verified
+empirically on pandas 3.0.5 / polars 1.37.1 with an identical frame: pandas
+returns [M3, M2, M1, IPO_A, IPO_B]; polars returns [IPO_A, IPO_B, M3, M2, M1].
+(Careful when reproducing: a float NaN is NOT a polars null and sorts LAST, so
+the frame must be built with None, which is what the arithmetic produces here.)
+
+Introduced by e1abb9a "Migrate EOD pipeline from pandas to Polars" (2026-03-18).
+
+Consequence: `ranking_nulls_last: true` is NOT an experimental arm that removes
+an edge — it is the ONLY setting faithful to the extensively-tested pre-polars
+engine. Every result produced with the default False gave instruments with
+fewer bars than the ranking window top slot priority every single day, which
+is why eod_breakout's book became ~100% recent listings. See DECISIONS #031.
+
+Exposure differs per function, so do not generalise this to all four:
+  * top_gainer      — SYSTEMATIC. ref_close = prev_close.shift(window) with no
+                      min_samples fallback, so every instrument carries a null
+                      gain for its first ~181 bars. This is the one that bites.
+  * top_average_txn — effectively clean. rolling_mean(min_samples=1) mirrors
+                      the pandas min_periods=1, so avg_txn is null only on an
+                      instrument's very first bar.
+  * top_dipper      — secondary. dip_pct is null only on bar 1, BUT the rank
+                      join is how="left", so any unmatched order gets a null
+                      rank and sorts first.
+  * top_performer   — sorts on score_priority/rank/previous_rank; not analysed
+                      against the original yet.
 """
 
 import polars as pl

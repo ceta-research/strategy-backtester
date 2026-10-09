@@ -40,6 +40,12 @@ RESULT_JSON = "results/eod_breakout/live_shortlist.json"
 OBSERVE_LOG = "results/eod_breakout/observe_log.jsonl"
 VETTING_LOG = "results/eod_breakout/vetting_log.jsonl"
 FRESH_WINDOW_DAYS = 7  # entry within this many days of last close = "fresh buy"
+# Blocker #7 guard: hard ceiling on how far behind India-today the sim's last
+# processed bar may be before the run FAILS. 5 covers a long weekend plus the
+# engine's own max-1 bar lag (add_next_day_values drops each instrument's last
+# bar) and an exchange holiday; anything beyond that is a freeze, not a lag.
+MAX_DATA_LAG_DAYS = 5
+REALIZED_EXITS = "results/eod_breakout/realized_exits.jsonl"
 
 # Non-equity heuristic. Sensitivity-biased on purpose: a false positive costs one
 # glance at a flag; a false negative is a 72-day ETF squatting a strategy slot.
@@ -126,6 +132,22 @@ def main():
     # three runs in Sep/Oct 2026 when the sim was in fact current).
     last_date = parse_date(det["equity_curve"][-1]["date"])
     last_exit = max((parse_date(t["exit_date"]) for t in trades if t.get("exit_date")), default=None)
+
+    # GRADUATION_CRITERIA blocker #7: the sim once ran for 9 days clamped to a
+    # hardcoded end_epoch sentinel the calendar had passed, and reported a
+    # plausible frozen result ("0 open, regime BEAR" reads as "in cash", not as
+    # "the tool stopped moving"). A single run looked healthy; only comparing two
+    # runs exposed it. So assert freshness instead of eyeballing it, and FAIL
+    # rather than print -- a monitoring tool that lies is worse than one that stops.
+    stale_days = (india_today() - last_date).days
+    if stale_days > MAX_DATA_LAG_DAYS:
+        raise SystemExit(
+            f"!! STALE SIM: data through {last_date} is {stale_days} days behind "
+            f"India today ({india_today()}), limit {MAX_DATA_LAG_DAYS}.\n"
+            f"!! Check static.end_epoch in the config is still far-future (sentinel, "
+            f"not a real date) and that nse_charting_day is ingesting.\n"
+            f"!! Refusing to report a book off data this old."
+        )
     opens = [t for t in trades if t.get("exit_reason") == "end_of_data"]
     recent_exits = [t for t in trades if t.get("exit_date") and t.get("exit_reason") != "end_of_data"
                     and (last_date - parse_date(t["exit_date"])).days <= FRESH_WINDOW_DAYS]
@@ -251,6 +273,47 @@ def main():
         with open(os.path.join(REPO, OBSERVE_LOG), "a") as f:
             f.write(json.dumps(payload) + "\n")
         print(f"  saved shortlist_latest.json + appended {OBSERVE_LOG}")
+
+    # ---- GRADUATION_CRITERIA criterion 3: realized-exit ledger ----
+    # observe_log only ever snapshotted UNREALIZED P&L on the open book, so exits
+    # vanished silently and live expectancy could never be compared to the
+    # backtest. The 15->0 drain over the 22-day Sep observation gap -- the single
+    # most informative transition of the whole observe period -- was lost this way.
+    # These trade dicts come from the engine's own _walk_forward_tsl, which is the
+    # ONLY correct exit source, so copy them; never re-walk exits here.
+    # APPEND-ONLY and frozen once written: the sim re-derives history on every run
+    # (warehouse backfill moved 220/2113 armD trades between two data vintages), so
+    # re-walking a booked exit could silently re-date it.
+    exits_path = os.path.join(REPO, REALIZED_EXITS)
+    seen = set()
+    if os.path.isfile(exits_path):
+        with open(exits_path) as f:
+            for ln in f:
+                try:
+                    r = json.loads(ln)
+                    seen.add((r["symbol"], r["entry_epoch"], r["exit_epoch"]))
+                except (ValueError, KeyError):
+                    continue  # a half-written line must not block new appends
+    closed = [t for t in trades
+              if t.get("exit_reason") and t["exit_reason"] != "end_of_data" and t.get("exit_epoch")]
+    new = [t for t in closed if (t["symbol"], t["entry_epoch"], t["exit_epoch"]) not in seen]
+    if new and not args.no_log:
+        with open(exits_path, "a") as f:
+            for t in sorted(new, key=lambda x: x["exit_epoch"]):
+                f.write(json.dumps({
+                    "first_seen_run": str(india_today()),
+                    "data_last": str(last_date),
+                    "symbol": t["symbol"],
+                    "entry_epoch": t["entry_epoch"], "entry_date": t.get("entry_date"),
+                    "exit_epoch": t["exit_epoch"], "exit_date": t.get("exit_date"),
+                    "entry_price": t.get("entry_price"), "exit_price": t.get("exit_price"),
+                    "quantity": t.get("quantity"), "net_pnl": t.get("net_pnl"),
+                    "pnl_pct": t.get("pnl_pct"), "hold_days": t.get("hold_days"),
+                    "exit_reason": t["exit_reason"],
+                }) + "\n")
+    tot = len(seen) + len(new)
+    print(f"  realized exits: {len(new)} new, {tot} total in {REALIZED_EXITS}"
+          + (" (--no-log: NOT appended)" if args.no_log and new else ""))
 
 
 if __name__ == "__main__":
