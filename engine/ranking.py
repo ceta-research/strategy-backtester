@@ -48,8 +48,26 @@ Exposure differs per function, so do not generalise this to all four:
   * top_dipper      — secondary. dip_pct is null only on bar 1, BUT the rank
                       join is how="left", so any unmatched order gets a null
                       rank and sorts first.
-  * top_performer   — sorts on score_priority/rank/previous_rank; not analysed
-                      against the original yet.
+  * top_performer   — SYSTEMATIC, and it was the WORST-hidden case. Structurally
+                      it is a faithful port (same calculate_daywise_instrument_score,
+                      same rank->previous_rank rename, same left join, same
+                      score_priority 0/1/2, same four sort keys). But it sorts on
+                      ["entry_epoch","score_priority","rank","previous_rank"] and
+                      BOTH `rank` (left-joined score rank: null for any instrument
+                      with no score row, i.e. no prior trades in the window) and
+                      `previous_rank` (the carried-over gainer rank) are nullable.
+                      pandas put those NaNs last on every key; polars put them
+                      first. It had no nulls_last parameter at all until
+                      2026-10-09, so the 07-05 knob never covered it -- and the
+                      original ~27% champion run used order_sorting_type:
+                      top_performer, so the knob never touched the very config the
+                      strategy was selected on.
+
+Fixed 2026-10-09: `nulls_last` is now plumbed into ALL FOUR functions from a
+single sim_config setting and defaults to True (pandas-faithful) everywhere.
+The intermediate sort inside calculate_daywise_instrument_score is left as-is
+deliberately: its output is only ever consumed by a key-join, so its row order
+cannot affect results.
 """
 
 import polars as pl
@@ -70,29 +88,43 @@ def sort_orders(df_config_orders: pl.DataFrame, sim_config: dict, df_tick_data: 
     order_sorting_type = sim_config["order_sorting_type"]
     default_sorting_type = sim_config.get("default_sorting_type")
 
+    # One setting drives ALL FOUR ranking functions. It was wired only into
+    # top_gainer when it was added (2026-07-05), which hid the same regression in
+    # the other three -- top_performer in particular, because the original
+    # champion run used order_sorting_type: top_performer and so was never
+    # covered by the knob at all.
+    nulls_last = bool(sim_config.get("ranking_nulls_last", True))
+
     if order_sorting_type == "top_average_txn" or default_sorting_type == "top_average_txn":
-        df_config_orders = sort_orders_by_highest_avg_txn(df_config_orders, df_tick_data, order_ranking_window_days)
+        df_config_orders = sort_orders_by_highest_avg_txn(
+            df_config_orders, df_tick_data, order_ranking_window_days, nulls_last=nulls_last
+        )
     elif order_sorting_type == "top_gainer" or default_sorting_type == "top_gainer":
         df_config_orders = sort_orders_by_highest_gainer(
-            df_config_orders, df_tick_data, order_ranking_window_days,
-            nulls_last=bool(sim_config.get("ranking_nulls_last", False)),
+            df_config_orders, df_tick_data, order_ranking_window_days, nulls_last=nulls_last
         )
 
+    # NOTE: this mirrors the original dispatcher exactly (simulate_step_loader.py
+    # 167-186) -- these are `if`, not `elif` against the block above, so with
+    # default_sorting_type: top_gainer and order_sorting_type: top_performer BOTH
+    # run and top_performer's sort wins. The gainer `rank` column survives as
+    # `previous_rank` and is still a live tie-breaker inside top_performer.
     if order_sorting_type == "top_performer":
         if epoch_wise_instrument_stats is None:
             epoch_wise_instrument_stats = create_epoch_wise_instrument_stats(df_tick_data)
         df_config_orders = sort_orders_by_top_performer(
-            df_config_orders, epoch_wise_instrument_stats, order_ranking_window_days
+            df_config_orders, epoch_wise_instrument_stats, order_ranking_window_days,
+            nulls_last=nulls_last,
         )
     elif order_sorting_type == "top_dipper":
         df_config_orders = sort_orders_by_deepest_dip(
-            df_config_orders, df_tick_data, order_ranking_window_days
+            df_config_orders, df_tick_data, order_ranking_window_days, nulls_last=nulls_last
         )
 
     return df_config_orders
 
 
-def sort_orders_by_highest_avg_txn(df_orders: pl.DataFrame, df_tick_data: pl.DataFrame, order_ranking_window_days: int) -> pl.DataFrame:
+def sort_orders_by_highest_avg_txn(df_orders: pl.DataFrame, df_tick_data: pl.DataFrame, order_ranking_window_days: int, nulls_last: bool = True) -> pl.DataFrame:
     """Rank orders by rolling average transaction volume.
 
     Uses PREV-DAY (shifted by 1) volume and average_price, matching ATO's
@@ -132,16 +164,17 @@ def sort_orders_by_highest_avg_txn(df_orders: pl.DataFrame, df_tick_data: pl.Dat
     ])
 
     df_orders = df_orders.join(rank_df, on=["instrument", "entry_epoch"], how="inner")
-    df_orders = df_orders.sort(["entry_epoch", "rank"])
+    df_orders = df_orders.sort(["entry_epoch", "rank"], nulls_last=nulls_last)
     return df_orders
 
 
-def sort_orders_by_highest_gainer(df_orders: pl.DataFrame, df_tick_data: pl.DataFrame, order_ranking_window_days: int, nulls_last: bool = False) -> pl.DataFrame:
+def sort_orders_by_highest_gainer(df_orders: pl.DataFrame, df_tick_data: pl.DataFrame, order_ranking_window_days: int, nulls_last: bool = True) -> pl.DataFrame:
     """Rank orders by n-day return percentage.
 
     Instruments with fewer bars than the window get NULL gain/rank.
-    nulls_last=False (legacy) sorts them FIRST (top slot priority);
-    nulls_last=True sorts them LAST.
+    nulls_last=True (default, pandas-faithful) sorts them LAST;
+    nulls_last=False reproduces the pre-2026-10-09 regression, which sorted
+    them FIRST and handed every young listing top slot priority.
     """
     df_tick_data = df_tick_data.with_columns(pl.col("instrument").cast(pl.Utf8))
     _df = df_tick_data.select(["date_epoch", "instrument", "close"])
@@ -259,7 +292,7 @@ def calculate_daywise_instrument_score(df_orders: pl.DataFrame, instrument_day_w
     return df_score
 
 
-def sort_orders_by_deepest_dip(df_orders: pl.DataFrame, df_tick_data: pl.DataFrame, order_ranking_window_days: int) -> pl.DataFrame:
+def sort_orders_by_deepest_dip(df_orders: pl.DataFrame, df_tick_data: pl.DataFrame, order_ranking_window_days: int, nulls_last: bool = True) -> pl.DataFrame:
     """Rank orders by dip depth from rolling peak (deepest first).
 
     For dip-buy strategies, deepest dips = most mispriced = best entries.
@@ -276,7 +309,7 @@ def sort_orders_by_deepest_dip(df_orders: pl.DataFrame, df_tick_data: pl.DataFra
         df_orders = df_orders.with_columns(
             pl.col("dip_pct").rank(descending=True).over("entry_epoch").alias("rank")
         )
-        df_orders = df_orders.sort(["entry_epoch", "rank"])
+        df_orders = df_orders.sort(["entry_epoch", "rank"], nulls_last=nulls_last)
         return df_orders
 
     # Fallback: compute dip from tick data
@@ -306,11 +339,11 @@ def sort_orders_by_deepest_dip(df_orders: pl.DataFrame, df_tick_data: pl.DataFra
     ])
 
     df_orders = df_orders.join(rank_df, on=["instrument", "entry_epoch"], how="left")
-    df_orders = df_orders.sort(["entry_epoch", "rank"])
+    df_orders = df_orders.sort(["entry_epoch", "rank"], nulls_last=nulls_last)
     return df_orders
 
 
-def sort_orders_by_top_performer(df_orders: pl.DataFrame, instrument_day_wise_close: dict, order_ranking_window_days: int) -> pl.DataFrame:
+def sort_orders_by_top_performer(df_orders: pl.DataFrame, instrument_day_wise_close: dict, order_ranking_window_days: int, nulls_last: bool = True) -> pl.DataFrame:
     """Walk-forward adaptive ranking using realized + unrealized P&L."""
     df_rank = calculate_daywise_instrument_score(
         df_orders, instrument_day_wise_close, order_ranking_window_days * SECONDS_IN_ONE_DAY
@@ -329,6 +362,6 @@ def sort_orders_by_top_performer(df_orders: pl.DataFrame, instrument_day_wise_cl
         .otherwise(2)
         .alias("score_priority")
     )
-    df_orders = df_orders.sort(["entry_epoch", "score_priority", "rank", "previous_rank"])
+    df_orders = df_orders.sort(["entry_epoch", "score_priority", "rank", "previous_rank"], nulls_last=nulls_last)
     df_orders = df_orders.drop("score_priority")
     return df_orders

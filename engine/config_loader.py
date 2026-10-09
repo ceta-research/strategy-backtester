@@ -82,6 +82,10 @@ def _build_scanner_config(scanner: dict) -> dict:
         # NOTE: filters the universe itself, so internal-regime breadth changes
         # too; for an entry-only gate use entry.min_entry_age_days instead.
         "min_real_history_days": scanner.get("min_real_history_days", [0]),
+        # 2026-10-09: apply the n_day_gain filter inside run_scanner, which the
+        # pandas original did unconditionally. Default False because run_scanner
+        # is shared by every breakout/momentum/dip generator. See base.py.
+        "apply_n_day_gain": scanner.get("apply_n_day_gain", [False]),
     }
 
 

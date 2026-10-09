@@ -252,6 +252,32 @@ def run_scanner(context: dict, df_tick_data: pl.DataFrame) -> tuple[dict[str, se
         df_scan = df_scan.filter(pl.col("close") > scanner_config["price_threshold"])
         df_scan = df_scan.filter(pl.col("avg_txn_turnover") > atc["threshold"])
 
+        # scanner.apply_n_day_gain (2026-10-09, default OFF): run_scanner has always
+        # skipped the n_day_gain filter that the pandas original applied
+        # unconditionally in scanner_step/process_step.py:100. That omission has two
+        # effects, not one: it drops the momentum requirement (gain > threshold), AND
+        # it removes an implicit AGE FLOOR, because `shifted_close` is null for an
+        # instrument's first n-1 bars and the original dropped those rows -- so a name
+        # with fewer than `n` bars could never be scanned at all. Combined with the
+        # nulls-first ranking regression, that is why the port's book filled with
+        # recent listings the original could not have bought.
+        # Default OFF because run_scanner is shared by every dip-buy / momentum /
+        # breakout generator and turning it on changes all of them; opt in per config.
+        if scanner_config.get("apply_n_day_gain"):
+            ngc = scanner_config["n_day_gain_threshold"]
+            df_scan = df_scan.with_columns(
+                pl.col("close").shift(ngc["n"] - 1).over("instrument").alias("_shifted_close")
+            )
+            df_scan = df_scan.with_columns(
+                ((pl.col("close") - pl.col("_shifted_close")) * 100.0
+                 / pl.col("_shifted_close")).alias("_gain")
+            )
+            # drop_nulls BEFORE the comparison, matching the original: this is the
+            # step that enforces the age floor.
+            df_scan = df_scan.drop_nulls(subset=["_gain"])
+            df_scan = df_scan.filter(pl.col("_gain") > ngc["threshold"])
+            df_scan = df_scan.drop(["_shifted_close", "_gain"])
+
         if min_age_days > 0:
             df_scan = df_scan.join(age_df, on="instrument", how="left")
             df_scan = df_scan.filter(
