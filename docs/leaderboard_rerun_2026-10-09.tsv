@@ -1,0 +1,17 @@
+1	eod_breakout IR-hyst	22.26	-16.49	17.37	-27.70
+2	eod_breakout IR-nomh	20.21	-18.91	12.81	-39.62
+3	low_pe	12.26	-12.08	12.65	-12.08
+4	eod_breakout IR-SMA50	20.55	-22.91	11.58	-32.04
+5	eod_technical adaptiveTSL	20.98	-24.68	18.47	-28.57
+6	eod_technical	19.63	-25.95	14.77	-37.24
+7	eod_breakout noDS-regime	19.73	-27.52	11.86	-34.73
+8	eod_breakout champion	17.68	-26.75	17.37	-27.70
+10	enhanced_breakout	11.85	-23.77	15.87	-24.92
+11	trending_value	16.89	-35.14	14.07	-52.59
+12	quality_dip_tiered	17.73	-39.30	17.17	-39.30
+13	forced_selling_dip	13.26	-30.79	8.44	-39.74
+14	ml_supertrend	13.20	-31.80	13.27	-31.80
+15	momentum_top_gainers	10.72	-28.78	10.75	-30.85
+16	factor_composite	14.78	-46.28	12.95	-44.88
+17	quality_dip_buy	11.63	-37.87	12.01	-38.00
+18	momentum_cascade	8.28	-27.66	17.87	-23.31
