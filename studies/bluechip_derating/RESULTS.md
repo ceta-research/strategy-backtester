@@ -9,6 +9,10 @@ re-rating multiple ≤35×; **hold until it regains that 2-year high**. Equal we
 > **Read this first.** This document was rewritten three times. Two earlier conclusions were
 > artefacts of my own defects — a window bug and a corrupt vendor field — and are retracted
 > in full at the bottom. The numbers below are the post-fix ones. The verdict never changed.
+>
+> The defects were found by an adversarial five-lens audit over this code (29 agents, five
+> lenses plus refute-checks). Three lenses independently identified the dividend corruption.
+> Audit output: `backtest/audit_2026-10-10.json`.
 
 ---
 
@@ -24,10 +28,14 @@ re-rating multiple ≤35×; **hold until it regains that 2-year high**. Equal we
 | + 36-month time stop | 20 | 9.82% | −51.60% | 0.19 | −0.45pp |
 | **deep entries only (≤−35%)** | 20 | **6.75%** | −39.16% | 0.17 | **−3.52pp** |
 
-Price-only stock leg (see the dividend defect below), so these **understate** the rule by
-roughly the dividend yield, ~1.5%/yr. Sanitising rather than dropping dividends gives
-12.80% / −32.30% at 10 slots (+2.53pp) and **9.46% / −34.55% at 20 slots (−0.81pp)** —
-same picture.
+Price-only on **both** legs, which is the only internally consistent comparison available:
+`fmp.dividend_calendar` holds **zero rows for NIFTYBEES** in any ticker form, so the
+benchmark could never be credited a yield either. ⚠️ I earlier justified crediting the stock
+leg alone by asserting "NIFTYBEES reinvests, so the benchmark was favoured by the yield" —
+that had no evidential basis and is withdrawn. NIFTYBEES has in fact paid occasional
+distributions, so crediting both legs properly would raise the **index** and make the rule
+look slightly worse. Sanitising rather than dropping the stock dividends gives 12.80% /
+−32.30% at 10 slots (+2.53pp) and **9.46% / −34.55% at 20 slots (−0.81pp)** — same picture.
 
 1. **Diversified, the rule does not beat the index.** At 20 slots it trails by 0.8–2.1pp.
    The 10-slot figure (+1.0 to +2.5pp) rests on **26 closed trades in 15.7 years** and is
@@ -38,8 +46,13 @@ same picture.
    the 26-trade arm.
 3. **Buying deeper is worse, not better.** Deep-only is the single worst arm, −3.52pp.
 4. Only ~70% of equity is ever invested (slots cap names, not capital), so part of the
-   shortfall is cash drag — which also means this is not a clean like-for-like against a
-   fully-invested index.
+   shortfall is cash drag and this is not a clean like-for-like against a fully-invested
+   index. ⚠️ It cuts the other way on risk: **the drawdowns above are cash-damped.** Measured
+   on invested capital they are materially worse (the audit puts it at roughly 19pp on the
+   hold-to-recovery books), so the risk comparison in this table *flatters* the rule.
+5. ⚠️ **The sign of every portfolio headline is sensitive to the start month** and to
+   fill-queue path dependence — with 26–45 closed trades, which name happens to take a slot
+   first changes the result. Treat the CAGR gaps as ±2pp at best.
 
 **For a ₹42L basket: no. This does not clear the bar, and it is not close.** Per
 episode the signal does carry information — median annualised excess ~+9.5%/yr, beats the
@@ -164,6 +177,8 @@ to it.**
 - 53 symbols / 907 universe slots clear the price trigger and are dropped for having no FY rows in `fmp.income_statement`.
 - Right-censored: the 2024–26 cohorts have not had time to resolve.
 - Not audited: entry at the close rather than a realistic fill, and no impact cost.
+- **EPS and the adjusted price sit on inconsistent bases in places**, so the `pe_now ≤ 60` / `pe_needed ≤ 35` gates are contaminated for names whose price era and share-count era disagree. The gates still earn their keep directionally but their exact thresholds are not meaningful.
+- The audit found the deepest-first fill does **not** in fact explain the 10-slot vs 20-slot gap, so an earlier claim of mine that the concentrated and deep-bucket results were "the same effect seen twice" is withdrawn — the gap is concentration and path dependence, not entry depth.
 
 ## Correction to the 2026-10-09 screen
 **ITC's screened upside is overstated by 15.6pp.** Its 2-year high of 512.55 (2024-10-08)
