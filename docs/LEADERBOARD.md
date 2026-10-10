@@ -40,10 +40,16 @@
 > `eod_breakout IR-hyst` 0.63 (was 1st at 1.35). **`low_pe` is the only strategy whose
 > drawdown did not move at all**, and it is now the best risk-adjusted entry in the suite.
 >
-> ⚠️ **Open oddity:** `eod_breakout IR-hyst` and `eod_breakout champion` now return
-> byte-identical metrics (17.37 / −27.70) from different configs. Separate output files,
-> so not a collision — either genuine convergence or a parameter that is now inert.
-> Unresolved; check before citing either.
+> ✅ **Oddity RESOLVED 2026-10-10 — it was a bookkeeping error, not a code problem.**
+> `config_champion.yaml` and `config_ir_hyst_best.yaml` are the **same configuration**: a
+> comment-stripped diff differs only in two trailing comments on the epoch lines. IR
+> hysteresis was promoted to champion on 2026-04-30 (`7ac5675`), and the previous champion
+> was preserved as `config_champion_pre_ir_hyst.yaml`. So rows 1 and 8 are **one strategy
+> listed twice**, and 17.37 / −27.70 for both is correct and expected.
+> ⚠️ The stale part is **row 8's label and its old-CAGR figure**: "DS=0.40, NIFTYBEES
+> regime+force-exit" with 17.68 / −26.75 describes `config_champion_pre_ir_hyst.yaml`, not
+> the path the row names. Row 8's pre-fix number is attributed to the wrong config — do not
+> cite it as a champion result. Count the suite as **16 distinct ranked configs, not 17.**
 >
 > ⚠️ This table is NOT regenerated — `rebuild_leaderboard.py` reads stored result JSONs
 > and would re-emit the old numbers. Re-run it only after the stored results are refreshed.
