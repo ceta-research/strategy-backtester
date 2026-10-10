@@ -1,0 +1,33 @@
+panel 1,215,233 bars | universe rows 27,900 | fund 7,374 | divs 6,418
+CA level-shift candidates: 2722 across 319 symbols
+decision dates 186  2011-01-31 -> 2026-06-30
+candidates 1146
+
+======================================================================================================================
+EVENT STUDY under capped holds (distinct episodes)
+======================================================================================================================
+  variant                                   eps   medNet  meanNet   medExc  meanExc   beat  medDays    worst
+  hold until recovery (base)                253   +45.0%   +58.9%   +14.0%    -2.0%    65%      617   -85.3%
+  + 12-month time stop                      253    +6.4%   +17.2%    -1.8%    +8.0%    48%      365   -71.6%
+  + 18-month time stop                      253   +20.9%   +23.8%    +4.4%    +9.4%    55%      548   -70.7%
+  + 24-month time stop                      253   +33.9%   +30.1%    +8.2%   +12.0%    58%      617   -77.0%
+  + 36-month time stop                      253   +39.0%   +41.4%   +11.8%   +14.9%    64%      617   -79.9%
+  + 25% stop-loss                           253    -5.4%   +14.8%    -3.2%    +5.7%    47%      260   -42.7%
+  + 24m stop AND 25% stop-loss              253    -2.4%   +13.7%    -3.2%    +5.6%    46%      260   -42.7%
+  + 36m stop AND 30% stop-loss              253   +23.1%   +16.8%    +0.7%    +5.8%    51%      312   -42.7%
+
+======================================================================================================================
+PORTFOLIO under capped holds
+======================================================================================================================
+  hold until recovery (base)         slots 10  CAGR  11.48%  MDD  -31.30%  Calmar 0.37  vs idx  +1.21pp  closed   21  open 10 ( 71% eq)  exits: {'target': 21}
+  + 24-month time stop               slots 10  CAGR  20.37%  MDD  -37.98%  Calmar 0.54  vs idx +10.10pp  closed   77  open 10 ( 90% eq)  exits: {'target': 34, 'time': 43}
+  + 36-month time stop               slots 10  CAGR  22.31%  MDD  -27.66%  Calmar 0.81  vs idx +12.04pp  closed   60  open  9 ( 84% eq)  exits: {'target': 36, 'time': 24}
+  + 25% stop-loss                    slots 10  CAGR  16.59%  MDD  -40.87%  Calmar 0.41  vs idx  +6.32pp  closed   93  open 10 ( 98% eq)  exits: {'stop': 48, 'target': 45}
+  + 24m stop AND 25% stop-loss       slots 10  CAGR  17.53%  MDD  -39.67%  Calmar 0.44  vs idx  +7.27pp  closed  108  open 10 ( 98% eq)  exits: {'stop': 52, 'target': 38, 'time': 18}
+
+  hold until recovery (base)         slots 20  CAGR   9.16%  MDD  -29.75%  Calmar 0.31  vs idx  -1.10pp  closed   46  open 20 ( 67% eq)  exits: {'target': 46}
+  + 24-month time stop               slots 20  CAGR  14.23%  MDD  -36.63%  Calmar 0.39  vs idx  +3.96pp  closed  130  open 17 ( 75% eq)  exits: {'target': 59, 'time': 71}
+  + 36-month time stop               slots 20  CAGR  14.64%  MDD  -35.09%  Calmar 0.42  vs idx  +4.37pp  closed  107  open 17 ( 76% eq)  exits: {'target': 62, 'time': 45}
+  + 25% stop-loss                    slots 20  CAGR  11.77%  MDD  -37.79%  Calmar 0.31  vs idx  +1.50pp  closed  162  open 18 ( 86% eq)  exits: {'stop': 86, 'target': 76}
+  + 24m stop AND 25% stop-loss       slots 20  CAGR  10.84%  MDD  -37.21%  Calmar 0.29  vs idx  +0.57pp  closed  176  open 17 ( 79% eq)  exits: {'stop': 85, 'target': 62, 'time': 29}
+

@@ -1,0 +1,95 @@
+panel 1,215,233 bars | universe rows 27,900 | fund 7,374 | divs 6,418
+CA level-shift candidates: 2722 across 319 symbols
+decision dates 186  2011-01-31 -> 2026-06-30
+====================================================================================================
+BLUE-CHIP DE-RATING RULE — BACKTEST
+====================================================================================================
+
+qualifying (symbol, month) signals: 1,146
+tradeable (have a next bar): 1,146
+DISTINCT drawdown episodes (first entry only): 253   symbols: 98
+
+--- ALL monthly signals (overlapping): n=1146 ---
+  recovered ever (within data): 904/1146 = 79%   | still open at last bar: 242
+  horizon         6m     12m     18m     24m     36m     60m
+  hit rate        5%     17%     29%     39%     56%     68%
+  time-to-recovery (days): median 784  p25 413  p75 1766  p90 3726  max 5543
+  time-to-recovery (months): median 25.8  p75 58.1  p90 122.6
+  drawdown BEFORE the exit: median -26.0%  p25 -50.4%  p10 -82.4%  worst -98.2%   | >=-20% further: 59%  >=-40%: 35%
+  net return  mean +82.5%  median +54.0%  worst -85.3%  best +2330.1%
+  EXCESS over NIFTYBEES (same dates)  mean -9.1%  median +14.5%   beat the index 723/1146 = 63%
+  per-trade annualised: median +18.8%  mean +561836.6%
+
+--- DISTINCT EPISODES  <-- the honest sample size: n=253 ---
+  recovered ever (within data): 209/253 = 83%   | still open at last bar: 44
+  horizon         6m     12m     18m     24m     36m     60m
+  hit rate        8%     26%     40%     51%     69%     79%
+  time-to-recovery (days): median 612  p25 315  p75 1071  p90 2285  max 5543
+  time-to-recovery (months): median 20.1  p75 35.2  p90 75.2
+  drawdown BEFORE the exit: median -22.5%  p25 -43.4%  p10 -67.4%  worst -98.2%   | >=-20% further: 53%  >=-40%: 28%
+  net return  mean +58.9%  median +45.0%  worst -85.3%  best +1956.3%
+  EXCESS over NIFTYBEES (same dates)  mean -2.0%  median +14.0%   beat the index 165/253 = 65%
+  per-trade annualised: median +21.0%  mean +128.6%
+
+--- EPISODES: regime split (was NIFTY itself >=15% off its own 2y high at entry?) ---
+  BROAD market drawdown                      n=  81  recovered  86%  net med +46.0%  excess med +15.1%  excess mean -6.1%  beat idx 69%
+  IDIOSYNCRATIC fall (index near its high)   n= 172  recovered  81%  net med +44.7%  excess med +12.9%  excess mean +0.0%  beat idx 63%
+
+--- EPISODES: by entry year ---
+  yr       n  recov%  medDays   medNet   medExc   medMAE
+  2011    45     89%     1289   +48.2%   -10.4%   -38.8%
+  2012    18    100%      660   +48.8%   +13.0%   -11.9%
+  2013    33     91%      316   +46.1%   +20.0%   -17.8%
+  2014     4    100%      156   +44.2%   +16.2%    -1.9%
+  2015    19     89%      567   +39.7%   +29.6%   -22.0%
+  2016    10    100%      240   +45.2%   +28.5%    -6.4%
+  2017     6    100%     1680   +50.5%    -9.3%   -48.9%
+  2018    17     88%     1132   +49.5%   +11.8%   -51.8%
+  2019    17     82%      771   +50.4%    -4.2%   -51.9%
+  2020    16    100%      331   +60.9%   +14.8%   -18.9%
+  2021    13    100%      837   +45.0%   +19.7%   -31.3%
+  2022    18     83%      551   +40.1%   +16.9%   -13.4%
+  2023     3     67%      119   +37.1%   +19.0%    +0.0%
+  2024     3      0%      nan    -5.4%    +0.1%   -21.7%
+  2025    20     40%      302   +10.8%   +14.6%    -7.7%
+  2026    11      9%       96    -3.3%    -1.6%    -7.4%
+
+====================================================================================================
+SENSITIVITY
+====================================================================================================
+  off-high threshold -20%            eps= 335  recov  83%  medNet  +33.2%  medExcess  +14.0%  medMAE  -17.1%  medDays   455
+  off-high threshold -25%            eps= 253  recov  83%  medNet  +45.0%  medExcess  +14.0%  medMAE  -22.5%  medDays   612
+  off-high threshold -30%            eps= 208  recov  82%  medNet  +57.9%  medExcess  +18.5%  medMAE  -23.9%  medDays   706
+  off-high threshold -35%            eps= 148  recov  82%  medNet  +67.4%  medExcess  +24.0%  medMAE  -26.4%  medDays   709
+  off-high threshold -40%            eps=  94  recov  77%  medNet  +81.5%  medExcess  +21.6%  medMAE  -36.2%  medDays   895
+  no EPS/multiple legs at all        eps= 681  recov  76%  medNet  +41.6%  medExcess  +10.2%  medMAE  -22.0%  medDays   550
+  EPS leg, no multiple cap           eps= 450  recov  75%  medNet  +40.2%  medExcess   +9.3%  medMAE  -21.4%  medDays   559
+  required multiple <= 25x           eps= 189  recov  84%  medNet  +46.4%  medExcess  +14.1%  medMAE  -21.7%  medDays   620
+  CA mode: exclude shifted names     eps= 233  recov  84%  medNet  +45.4%  medExcess  +15.4%  medMAE  -22.3%  medDays   584
+  CA mode: OFF (no CA handling)      eps= 459  recov  84%  medNet  +46.4%  medExcess  +19.0%  medMAE  -22.8%  medDays   630
+  universe top 50 by turnover        eps= 106  recov  83%  medNet  +45.8%  medExcess  +14.0%  medMAE  -21.0%  medDays   638
+  universe top 100 by turnover       eps= 182  recov  81%  medNet  +45.7%  medExcess  +10.6%  medMAE  -23.1%  medDays   632
+
+====================================================================================================
+PORTFOLIO
+====================================================================================================
+
+--- PORTFOLIO rule, -25% off high, EPS intact (slots=5, 2011-01-31 -> 2026-10-09, 15.7y) ---
+  RULE       CAGR  18.33%   MDD  -37.13%   Calmar  0.49   final 14.05x   closed 15
+  NIFTYBEES  CAGR  10.27%   MDD  -36.34%   Calmar  0.28   final 4.64x   (buy & hold, same window)
+  edge       +8.06pp CAGR   |  still open at the end: 5 = 99% of final equity
+             open: WIPRO(-16%), TECHM(+24%), OIL(-6%), IOC(-13%), TCS(-11%)
+
+--- PORTFOLIO rule, -25% off high, EPS intact (slots=10, 2011-01-31 -> 2026-10-09, 15.7y) ---
+  RULE       CAGR  11.48%   MDD  -31.30%   Calmar  0.37   final 5.51x   closed 21
+  NIFTYBEES  CAGR  10.27%   MDD  -36.34%   Calmar  0.28   final 4.64x   (buy & hold, same window)
+  edge       +1.21pp CAGR   |  still open at the end: 10 = 71% of final equity
+             open: UCOBANK(-78%), IDBI(-24%), IDEA(-82%), WIPRO(-17%), TECHM(+32%), UPL(-16%), OIL(-6%), IOC(-13%), ONGC(-14%), TCS(-11%)
+
+--- PORTFOLIO rule, -25% off high, EPS intact (slots=20, 2011-01-31 -> 2026-10-09, 15.7y) ---
+  RULE       CAGR   9.16%   MDD  -29.75%   Calmar  0.31   final 3.96x   closed 46
+  NIFTYBEES  CAGR  10.27%   MDD  -36.34%   Calmar  0.28   final 4.64x   (buy & hold, same window)
+  edge       -1.10pp CAGR   |  still open at the end: 20 = 67% of final equity
+             open: UCOBANK(-78%), UNIONBANK(-47%), IDBI(-38%), PNB(-37%), RPOWER(-66%), IDEA(-82%), RAIN(-30%), WIPRO(-17%), TECHM(+32%), UPL(-19%), OIL(-6%), IOC(-13%), ONGC(-14%), COALINDIA(+7%), NTPC(-6%), TCS(-29%), GAIL(-5%), RECLTD(-17%), PFC(-14%), HDFCBANK(-5%)
+
+wrote results.json
