@@ -10,27 +10,25 @@ re-rating multiple ≤35×; **hold until it regains that 2-year high**. Equal we
 
 ## The answer in three lines
 
-1. **The threshold is the lever, not the exit.** Survivorship-corrected, the rule's edge
-   lives **entirely in the deep bucket**: entries ≤−35% off the 2-year high give mean
-   excess over NIFTYBEES of **+41.4%** (median +26.3%, beat the index 69%). Entries in the
-   −25% to −35% band give **−23.5%** — they destroy value. "25% off the high" is the wrong
-   threshold; the screen that produced the current basket used it.
-2. **As Swas described it — hold until it recovers — the whole-rule version does not beat
-   the index.** All-entry mean excess **−10.3%**, and a properly diversified 20-slot
-   portfolio returns **9.16% CAGR vs NIFTYBEES 10.27%**. Capital gets trapped: that book
-   ends holding UCOBANK −78%, IDEA −82%, RPOWER −66%.
-3. **A 2–3 year time stop fixes the whole-rule version** (mean excess −10.3% → +9.3%/+11.4%)
-   but adds almost nothing to the deep bucket, and it **worsens the bad case** there
-   (p10 net −14.5% → −36.9%) because deep entries take a median **27.7 months** to recover —
-   longer than a 24-month stop. If you cap, cap at 36 months, not 24.
+1. **Held to recovery as Swas described it, a properly diversified implementation does not
+   beat the index.** 20 equal-weight slots return **9.16% CAGR against NIFTYBEES's 10.27%**
+   over the same 15.7 years, and the book ends with capital trapped in UCOBANK −78%,
+   IDEA −82%, RPOWER −66%. This is the one headline number that is capital-weighted rather
+   than an average of ratios, so it is the one to trust.
+2. **A 2–3 year time stop is what makes it work at all**, because the defect is the exit,
+   not the entry: 20 slots go to **14.64% CAGR (+4.37pp over the index)** and 10 slots to
+   22.31% (+12.04pp). But the 10-slot figure rests on 60 closed trades and is the same
+   effect as "concentrate on the deepest names", not a second confirmation.
+3. **Drawdown never improves on the index** (−27.7% to −38.0% vs NIFTYBEES's −36.34%).
+   There is no risk-reduction story here, only a return story.
 
-**For a ₹42L basket: this does not clear the bar.** The favourable slice is real but it
-is **54 episodes in 15.7 years** — thinner than the leaderboard entries I just told you not
-to trust, with drawdown no better than the index's. It belongs in the background-research
-track, not the main cash. Nothing was placed.
+**For a ₹42L basket: this does not clear the bar.** The version Swas described trails
+the index; the version that works needs a time stop he did not specify, delivers ~+4pp when
+diversified, and rests on fewer trades than the leaderboard entries I just told him not to
+trust. It belongs in the background-research track, not the main cash. **Nothing was placed.**
 
-⚠️ Today's basket sits in the favourable slice — 8 of its 10 names are ≤−35% off their high
-(mean −42.7%) — which is the strongest thing that can be said for it.
+⚠️ **Per-trade "excess" figures in this document are metric-fragile — read the warning
+below before quoting any of them.**
 
 ---
 
@@ -105,7 +103,41 @@ after 3.5 years, having been down 39% on the way, and **did worse than holding t
 
 ---
 
-## 🔑 Survivorship-corrected results — the decisive table
+## ⚠️ Why per-trade excess is the wrong metric here (a correction to my own first pass)
+
+My first write-up led with **arithmetic** per-trade excess (`net − bench`) and concluded the
+edge lived entirely in deep entries: mean excess **+41.4%** for ≤−35% vs **−23.5%** for the
+−25..−35% band. **Both numbers are artifacts and that conclusion does not stand.**
+
+- Arithmetic excess is **unbounded over long holds**. RELINFRA, held 14.3 years, scores
+  −433% excess simply because the index compounded 4.6× meanwhile. That one mechanism is
+  what made the shallow bucket look value-destroying: it is full of long-held laggards.
+- On the other side, **161% of the deep bucket's total excess came from three episodes of a
+  single stock, HINDPETRO** (+1852.9%, +1174.9%, +564.4%). Trim 10% off each tail and the
+  deep bucket's mean excess falls from +41.4% to **+2.1%**; drop the best three and it is
+  **−26.6%**.
+- Annualising (trade CAGR − index CAGR) fixes the long-hold blow-up but breaks the short
+  end: CHOLAFIN returns +215%/yr on a 0.6-year hold. The *mean* annualised excess
+  (+106.8%) is equally meaningless.
+
+What survives, on **median annualised excess** — robust to both tails:
+
+| bucket | n | median ann. excess | beat index | p10 |
+|---|---:|---:|---:|---:|
+| all ≥−25% off high | 261 | **+7.4%/yr** | 65% | −9.2% |
+| shallow −25% to −35% | 208 | **+6.7%/yr** | 63% | −9.2% |
+| DEEP ≤−35% | 53 | **+10.6%/yr** | 70% | −9.0% |
+| DEEP, excluding HINDPETRO | 50 | **+7.9%/yr** | 68% | — |
+
+So deep entries are modestly better, not categorically different, and **the shallow band is
+not value-destroying.** The honest statement is that the entry signal carries a few points a
+year of information across the board, and that **the portfolio simulation — which compounds
+real capital through real holding periods — is the only aggregation worth quoting.**
+
+
+---
+
+## Survivorship-corrected results — the decisive table
 
 The universe is survivorship-free but `nse_charting_day` is not: **112 of 450 universe
 symbols are absent, 17.1% of all universe slots.** Each was classified (rename / share-swap
@@ -131,6 +163,10 @@ Before correction the all-entry mean excess read −2.0%; the real failures take
 **−10.3%**. A bound treating every unverified ticker as a total loss gives −10.5% and leaves
 the deep bucket at +43.0%, so the split is not an artefact of the classification.
 
+⚠️ The mean-excess column in the table above is the metric criticised in the warning
+section; the bucket *split* it implies is not reliable. The recovery rates, median net
+returns and p10 columns are unaffected by that problem.
+
 **Two readings of one effect, not two findings.** The 10-slot/36-month portfolio result
 (+12.04pp over the index) and the deep-bucket excess are the same thing: the sim fills slots
 deepest-first, so 10 slots ≈ the deep bucket each month, while 20 slots dilutes into the
@@ -139,7 +175,8 @@ shallow band and the edge falls to +4.37pp. Do not count them as independent con
 **What the rule actually is.** A deep entry with `pe_needed ≤ 35×` implies `pe_now ≲ 17×` on
 a name 50% off its high. This is a **value screen on large caps with a drawdown trigger** —
 the outperformance, to the extent it survives, is more plausibly the value premium than a
-"recovery" effect. Note `low_pe` is independently the best Calmar on our own leaderboard (1.05).
+"recovery" effect. Note `low_pe` is independently the best Calmar on our own leaderboard
+(1.05) and is the cheaper way to own the same exposure.
 
 
 ---
