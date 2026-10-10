@@ -1,0 +1,70 @@
+panel 1,215,233 bars | universe rows 27,900 | fund 7,374 | divs 6,418
+CA level-shift candidates: 2722 across 319 symbols
+decision dates 186  2011-01-31 -> 2026-06-30
+CA events used: 661 across 482 symbols  (vs the old detector: 2,722 across 319)
+==========================================================================================================================
+CORRECTED EVENT STUDY  (MIN_BARS bug fixed · real CA dates · survivorship leg uncensored)
+==========================================================================================================================
+  exit rule             bucket                  n  recov   medNet  medAnnEx  meanAnnEx  beat   p10Net  medMo
+  hold until recovery   all   >= -25%         511    80%   +45.4%     +9.5%    +393.2%   67%   -24.8%   23.0
+  hold until recovery   shallow -25..-35%     380    83%   +42.8%     +9.0%    +507.7%   67%   -10.3%   20.3
+  hold until recovery   DEEP      <= -35%     131    71%   +75.6%    +12.8%     +42.0%   68%   -88.8%   35.2
+      [survivorship leg: 49 episodes, 21 symbols: ABAN, ARSSINFRA, BGRENERGY, DHFL, EDUCOMP, EQUITAS, HDIL, HEXAWARE, IBREALEST, IBULHSGFIN, JPASSOCIAT, JUBILANT, NIITTECH, OPTOCIRCUI]
+      [charting leg: 462 episodes]
+
+  + 24-month stop       all   >= -25%         511    92%   +32.5%     +4.5%    +372.3%   56%   -40.6%   23.0
+  + 24-month stop       shallow -25..-35%     380    91%   +32.0%     +4.8%    +489.6%   57%   -32.5%   20.3
+  + 24-month stop       DEEP      <= -35%     131    93%   +39.8%     +3.9%     +29.4%   54%   -60.0%   24.0
+
+  + 36-month stop       all   >= -25%         511    91%   +39.3%     +8.3%    +374.9%   63%   -33.0%   23.0
+  + 36-month stop       shallow -25..-35%     380    91%   +38.3%     +8.3%    +492.2%   64%   -27.5%   20.3
+  + 36-month stop       DEEP      <= -35%     131    92%   +57.8%     +8.2%     +32.2%   59%   -66.6%   35.2
+
+combined candidate signals: 2854  (158 symbols)
+
+  NIFTYBEES buy & hold, same window: CAGR 10.27%  MDD -36.34%
+
+============================================================================================================================================
+CORRECTED PORTFOLIO — combined panel, delisted names buyable and marked to ZERO when the equity was extinguished
+============================================================================================================================================
+  hold until recovery            slots 10  CAGR  16.45%  MDD  -30.99%  Calmar  0.53  vs idx  +6.18pp  closed   26  open  9  exits {'target': 26}
+  + 36-month time stop           slots 10  CAGR  16.52%  MDD  -56.18%  Calmar  0.29  vs idx  +6.25pp  closed   59  open  9  exits {'target': 26, 'time': 33}
+  + 24-month time stop           slots 10  CAGR  13.51%  MDD  -52.22%  Calmar  0.26  vs idx  +3.24pp  closed   76  open  9  exits {'target': 21, 'time': 55}
+
+  hold until recovery            slots 20  CAGR  11.62%  MDD  -32.56%  Calmar  0.36  vs idx  +1.36pp  closed   45  open 19  exits {'target': 45}
+  + 36-month time stop           slots 20  CAGR  14.07%  MDD  -47.94%  Calmar  0.29  vs idx  +3.80pp  closed  116  open 19  exits {'target': 62, 'time': 54}
+  + 24-month time stop           slots 20  CAGR  16.06%  MDD  -35.48%  Calmar  0.45  vs idx  +5.79pp  closed  154  open 19  exits {'target': 59, 'time': 95}
+
+  deep-only variants (>= -35% off the high):
+  DEEP, hold until recovery      slots 10  CAGR  14.57%  MDD  -34.11%  Calmar  0.43  vs idx  +4.30pp  closed   19  open  9  exits {'target': 19}
+  DEEP, + 36-month stop          slots 10  CAGR  14.29%  MDD  -54.48%  Calmar  0.26  vs idx  +4.02pp  closed   48  open  9  exits {'target': 15, 'time': 33}
+  DEEP, hold until recovery      slots 20  CAGR  10.29%  MDD  -33.14%  Calmar  0.31  vs idx  +0.02pp  closed   32  open 19  exits {'target': 32}
+  DEEP, + 36-month stop          slots 20  CAGR  17.18%  MDD  -36.44%  Calmar  0.47  vs idx  +6.91pp  closed   98  open 19  exits {'target': 41, 'time': 57}
+
+========================================================================================================
+BUY-ONCE 10-NAME BASKET, hold until each regains its high — 113 real start months (2011-2026)
+========================================================================================================
+                       p10       p25    MEDIAN       p75       p90      mean
+  basket return      14.7%     43.9%     63.7%     87.2%    121.1%     68.4%
+  vs NIFTYBEES     -303.4%   -256.1%    -63.0%     -1.5%     16.2%   -122.4%
+
+  beats NIFTYBEES       23.9% of start months
+  loses money            4.4% of start months
+  months until the LAST name resolves: median 98  p90 176
+  worst single name in the basket: median -44.6%  baskets containing a wipeout: 0%
+
+  on Rs 4,200,000:  median Rs +2,677,334   p10 Rs +617,608   p90 Rs +5,085,769
+
+========================================================================================================
+BUY-ONCE 10-NAME BASKET, with a 36-month time stop — 113 real start months (2011-2026)
+========================================================================================================
+                       p10       p25    MEDIAN       p75       p90      mean
+  basket return      -6.1%     13.1%     33.8%     61.6%    100.5%     41.0%
+  vs NIFTYBEES      -41.0%    -26.5%     -8.4%     12.7%     30.0%     -4.8%
+
+  beats NIFTYBEES       41.6% of start months
+  loses money           15.0% of start months
+  months until the LAST name resolves: median 36  p90 36
+  worst single name in the basket: median -39.2%  baskets containing a wipeout: 0%
+
+  on Rs 4,200,000:  median Rs +1,420,010   p10 Rs -255,820   p90 Rs +4,222,605

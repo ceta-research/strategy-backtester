@@ -16,7 +16,40 @@ re-rating multiple ≤35×; **hold until it regains that 2-year high**. Equal we
 
 ---
 
-## The answer
+## The question you asked: buy these 10 equally — what happens?
+
+The 2026-10-09 screen said ₹42L across the 10 names → **+₹33L (+78.8%)** when they regain
+their 2-year highs. **The destination was roughly right. The screen just never said how long.**
+
+Buy-once test: on each of 113 month-ends since 2011, buy the 10 deepest qualifying names in
+equal amounts and hold each until it regains its own 2-year high. Real contemporaneous
+baskets, so the names fall and recover together the way yours will.
+
+| | p10 | median | p90 |
+|---|---:|---:|---:|
+| basket total return | +14.7% | **+63.7%** | +121.1% |
+| ₹42L becomes | ₹48.2L | **₹68.8L (+₹26.8L)** | ₹92.9L |
+| **years until all 10 resolve** | — | **8.2 years** | 14.7 |
+| **annualised** | +2.6%/yr | **+5.3%/yr** | +14.0%/yr |
+| NIFTYBEES, identical windows | — | **+11.3%/yr** | — |
+
+**+63.7% over 8.2 years is 6.2%/yr.** The index did **11.3%/yr** across the same windows.
+The basket beat it in **24% of start months**. The typical *name* recovers in 32 months —
+but a 10-name basket only finishes when its slowest member does, and that is where the
+years go.
+
+Add a 36-month stop and you get +33.8% median ≈ 10.2%/yr, beating the index in 42% of
+months: roughly index-matching, with single-stock risk on top.
+
+**So on ₹42L: the honest expectation is about +₹26.8L, but over eight years, not two.**
+NIFTYBEES at 10%/yr over those same 8.2 years returns **+₹49.8L**. The screen's +₹33L was
+not a lie about the destination; it was silent about the clock, and the clock is the whole
+argument. Only 4.4% of start months lost money, so this is not a *risky* basket — it is a
+**slow** one, and slow is what loses to a compounding index.
+
+---
+
+## The general rule, for completeness
 
 **NIFTYBEES buy-and-hold, same 15.7 years: 10.27% CAGR, MDD −36.34%, Calmar 0.28.**
 
