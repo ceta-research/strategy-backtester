@@ -90,6 +90,10 @@ VARIANTS = {
                                sim={"exit_before_entry": [True]}),
     "L9b_live_ebe": v(log=True, sim={"exit_before_entry": [True]}, **LIVE),
     "L9b_live_ebe_20y": v(window=NOW20, log=True, sim={"exit_before_entry": [True]}, **LIVE),
+    # L1c: simulator's exit_before_entry branch recomputes order_value WITHOUT order_value_multiplier
+    # (simulator.py:393), so every *_ebe run sizes at 1/15 instead of 0.95/15. Baseline at 1.0 isolates it.
+    "L1c_mult1": v(sim={"order_value_multiplier": [1.0]}),
+    "L1c_mult1_20y": v(window=NOW20, sim={"order_value_multiplier": [1.0]}),
     # L10 path dependence: same window, start shifted 0..27 days. Signals are identical; only
     # which trades win the 15 slots changes (exits-first alone moved CAGR 18.3 -> 15.2).
     **{f"L10_base_d{d:02d}": v(window=(Y[2010] + d * 86400, LATEST)) for d in range(0, 30, 3)},

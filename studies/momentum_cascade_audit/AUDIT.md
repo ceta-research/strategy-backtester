@@ -47,9 +47,15 @@ sell at the next open.
 | next-open fill, entries before exits | 13.61% | −36.2% |
 | **next-open fill, exits before entries** | **18.05%** | −31.3% |
 | close fill, exits before entries | 15.17% | −33.0% |
+| close fill, entries first, sizing multiplier 1.0 (see below) | 17.90% (20y 18.02%) | −29.0% |
 
-The fill itself costs nothing: on shared trades, next open vs trigger close is **−0.08% mean, +0.05%
-median** (p05 −3.7%, p95 +2.3%). The 13.6% row is an ordering artifact. The engine processes entries
+⚠️ The simulator's exits-first branch (`simulator.py:393`) recomputes position size **without**
+`order_value_multiplier`, so every exits-first run sizes at 1/15 instead of momentum_cascade's
+0.95/15. At matched sizing (1.0), close-fill/entries-first gives 17.90% and next-open/exits-first
+18.05% (20y: 18.02 vs 17.91). The larger sizing doesn't inflate the exits-first numbers.
+
+The fill itself costs essentially nothing (within ±0.4pp across both sizings): on shared trades, next
+open vs trigger close is **−0.08% mean, +0.05% median** (p05 −3.7%, p95 +2.3%). The 13.6% row is an ordering artifact. The engine processes entries
 before exits each day, so a next-open exit frees its slot a day late and reroutes ~250 trades. Live,
 you sell and buy at the same open, which is the 18.05% row. **Holds (−0.2pp).** ⚠️ Slot-recycling
 rules alone move CAGR ±3pp (18.3 / 15.2 / 18.1), so they're worth fixing in the engine (follow-ups).
@@ -108,7 +114,12 @@ ex-2021 CAGR 12.55%. Fully invested: ≥1 position on 99.9% of days, 11.8 of 15 
 Today's rates (STCG 20%, LTCG 12.5% over ₹1.25L, FY set-off, paid from the account each FY):
 baseline 18.28 → **15.32%**; live-realistic 17.71 → **14.82%** (20y 17.14 → 14.30%). 90% of trades
 are short-term. NIFTYBEES bought once and sold at the end: 9.96 → 9.28% (20y 11.12 → 10.49%).
-Estimate only: no surcharge or cess, no year-by-year historical rates.
+Estimate only: no surcharge or cess, no year-by-year historical rates. Conservative on carry-forward:
+a residual short-term loss only offsets later long-term gains here, while real STCL also offsets later
+STCG, so after-tax CAGR is understated by roughly 0.2pp.
+
+**The one bias in the strategy's favour:** its legs are price-only (no dividends), while NIFTYBEES ≈
+total return. Momentum names yield little, but that's roughly +0.5–1pp not counted in any figure above.
 
 ### L9 Live-realistic combined run (the planning number)
 Next-open exits with exits processed first, liquidity cap from the prior bar, ₹50L, 15 bps:
@@ -143,6 +154,8 @@ are in `../long_window/RESULTS.md`.
 1. **Simulator ordering.** Entries-before-exits plus same-close exit fills is a combination you can't
    trade, and slot recycling alone moves CAGR ±3pp. Make next-open exits + exits-first the daily
    default. That's a deliberate re-baseline of every strategy.
+   1b. Same code path: the exits-first branch drops `order_value_multiplier` and any `order_value`
+   override when it recomputes sizing (`simulator.py:393`). Fix together.
 2. **Data repairs into the engine provider** (`NseChartingDataProvider`): split adjust, double-adjust
    undo, stub drop, ticker split, interleave quarantine. Also a re-baseline.
 3. **Stop from entry** for momentum_cascade (the 23 unarmed trades).
