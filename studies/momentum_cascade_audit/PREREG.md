@@ -46,3 +46,35 @@ Runs: S0X0, S1X0, S2X0, S0X1, S1X1 on both windows (10 runs). No other widths or
 Entry mechanics (AMO limit at the open vs GTT-buy): measured from the paper ledger instead, which
 records prior close and actual open per entry. Universe changes (e.g. excluding the five silver ETFs
 the scanner lets through): a follow-up re-baseline, flag-only in the observe runner meanwhile.
+
+---
+
+## Verdict (runs completed 2026-10-11, `prereg_decide.py`, raw table in `out/prereg_verdict.md`)
+
+| arm | window | CAGR | max DD | Calmar | trades | worst trade |
+|---|---|---|---|---|---|---|
+| **S0X0** (reference) | 2010→ | **18.58%** | −32.2% | 0.58 | 565 | −67.8% |
+| S0X0 | 20y | 18.10% | −32.2% | 0.56 | 684 | −67.8% |
+| S1X0 trail from entry | 2010→ | 16.45% | −30.8% | 0.53 | 656 | −66.7% |
+| S1X0 | 20y | 16.26% | −29.6% | 0.55 | 773 | −66.7% |
+| S2X0 fixed −15% floor | 2010→ | 16.40% | −30.8% | 0.53 | 652 | −66.7% |
+| S2X0 | 20y | 16.22% | −29.6% | 0.55 | 763 | −66.7% |
+| S0X1 intraday GTT | 2010→ | **10.15%** | −42.6% | 0.24 | 663 | −91.6% |
+| S0X1 | 20y | 10.25% | −42.6% | 0.24 | 824 | −91.6% |
+| S1X1 (= `_gtt_trail.py` as-is) | 2010→ | **7.89%** | −48.2% | 0.16 | 846 | −58.2% |
+| S1X1 | 20y | 8.79% | −51.2% | 0.17 | 1032 | −66.5% |
+
+**Rule 1 → S0.** Both stop-from-entry arms fail the CAGR test: −2.1pp (S1) and −2.2pp (S2) on 2010→,
+−1.8pp / −1.9pp over 20y, against the ≤ 1.0pp allowance. They do improve max DD (−32.2 → −30.8 /
+−29.6) and the worst trade barely (−67.8 → −66.7). So the no-stop-until-armed design stays. The 23
+unarmed trades are a known cost of the strategy, not a defect to patch.
+
+**Rule 2 → X0.** The intraday GTT arm costs **8.4pp** (2010→) and **7.9pp** (20y): the stop fires
+on intraday lows that the close recovers, roughly doubling exits (565 → 663 trades) and the worst
+trade goes to −91.6% (a gap fill). With a trail from entry (S1X1, which is what the existing ratchet
+would do) it is 7.9%. **The `_gtt_trail.py` ratchet must not be used for this sleeve.** Live exits
+are next-open sells after a close-based trigger.
+
+**Reference on the fixed simulator** (the audit's L9b figure of 17.71% was computed before the
+`simulator.py:393` sizing fix): 18.58% / −32.2% 2010→, 18.10% / −32.2% over 20y. After tax at
+today's rates: see AUDIT.md addendum. `config_live.yaml` = S0X0.

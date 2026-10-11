@@ -27,6 +27,22 @@ from engine.charges import calculate_charges
 from engine.order_key import OrderKey
 
 
+def _base_order_value(sim_config, current_account_value, margin_available, max_positions):
+    """Per-order notional before the max_order_value cap: account/max_positions, or the
+    sim_config order_value override, then order_value_multiplier."""
+    order_value = current_account_value / max_positions
+    if "order_value" in sim_config:
+        if sim_config["order_value"]["type"] == "fixed":
+            order_value = sim_config["order_value"]["value"]
+        elif sim_config["order_value"]["type"] == "percentage_of_account_value":
+            order_value = current_account_value * sim_config["order_value"]["value"] / 100
+        elif sim_config["order_value"]["type"] == "percentage_of_available_margin":
+            order_value = margin_available * sim_config["order_value"]["value"] / 100
+    if "order_value_multiplier" in sim_config:
+        order_value *= sim_config["order_value_multiplier"]
+    return order_value
+
+
 def _process_exits(orders, current_positions, current_positions_count, margin_available, trade_log,
                     slippage_rate=0.0005):
     """Process all exit orders for a given epoch. Returns updated state."""
@@ -346,17 +362,7 @@ def process(context, df_orders, epoch_wise_instrument_stats, current_snapshot, s
             current_snapshot["next_payout_epoch"] += payout_interval
 
         # Compute order value
-        order_value = current_account_value / max_positions
-        if "order_value" in sim_config:
-            if sim_config["order_value"]["type"] == "fixed":
-                order_value = sim_config["order_value"]["value"]
-            elif sim_config["order_value"]["type"] == "percentage_of_account_value":
-                order_value = current_account_value * sim_config["order_value"]["value"] / 100
-            elif sim_config["order_value"]["type"] == "percentage_of_available_margin":
-                order_value = margin_available * sim_config["order_value"]["value"] / 100
-
-        if "order_value_multiplier" in sim_config:
-            order_value *= sim_config["order_value_multiplier"]
+        order_value = _base_order_value(sim_config, current_account_value, margin_available, max_positions)
 
         if orders := date_orders.get(simulation_date_epoch):
             # Phase 2.5 — ordering semantics (matches ATO_Simulator):
@@ -390,7 +396,10 @@ def process(context, df_orders, epoch_wise_instrument_stats, current_snapshot, s
                     for pos in positions_dict.values()
                 )
                 current_account_value = margin_available + current_position_value
-                order_value = current_account_value / max_positions
+                # Same sizing rule as the default path. This branch used to take the bare
+                # account/max_positions and drop order_value_multiplier and any order_value
+                # override (found 2026-10-11: exits-first runs sized at 1/15, not 0.95/15).
+                order_value = _base_order_value(sim_config, current_account_value, margin_available, max_positions)
 
                 current_positions_count, margin_available = _process_entries(
                     orders, current_positions, current_positions_count, margin_available,

@@ -1097,3 +1097,51 @@ class NseChartingDataProvider:
 
         print(f"  Fetched {df.height} rows, {df['instrument'].n_unique()} instruments (nse_charting_day)")
         return df
+
+
+class NseChartingRepairedProvider(NseChartingDataProvider):
+    """nse_charting_day with the engine.charting_repairs applied (B045/B046/B047).
+
+    Fetches the FULL table plus fmp.splits_calendar on every call: a split just outside the
+    window still shifts the bars inside it, and a recycled-ticker gap before the window still
+    splits the instrument. Opt in with `data_provider: nse_charting_repaired`; the default
+    `nse_charting` is untouched, so no stored result moves. `self.info` holds the detected
+    events, dropped bars and stitch splits for the caller to report.
+    """
+
+    def __init__(self, api_key=None):
+        super().__init__(api_key=api_key)
+        self.info = None
+
+    def fetch_ohlcv(self, exchanges, symbols=None, start_epoch=None, end_epoch=None, prefetch_days=400):
+        from engine import charting_repairs as R
+
+        fetch_start = start_epoch - (prefetch_days * SECONDS_IN_ONE_DAY)
+        print("  Fetching nse_charting_day (full table) + fmp.splits_calendar for repair")
+        raw = self.client.query(
+            """SELECT symbol, date_epoch, open, high, low, close,
+                      (high + low + close) / 3.0 AS average_price, volume
+               FROM nse.nse_charting_day ORDER BY symbol, date_epoch""",
+            timeout=600, limit=20000000, verbose=True, memory_mb=16384, threads=6, format="parquet")
+        if not raw:
+            return pl.DataFrame()
+        df = pl.read_parquet(io.BytesIO(raw))
+        splits = pl.read_parquet(io.BytesIO(self.client.query(
+            R.SPLITS_SQL, timeout=600, limit=200000, verbose=False, format="parquet")))
+        df, self.info = R.repair(df, splits)
+        print(f"  REPAIR: {self.info['events'].height} split events adjusted, "
+              f"{self.info['dropped'].height} stray bars dropped, "
+              f"{self.info['stitches']['symbol'].n_unique()} symbols split at >1y gaps")
+
+        df = df.filter((pl.col("date_epoch") >= fetch_start) & (pl.col("date_epoch") <= end_epoch))
+        if symbols:
+            df = df.filter(pl.col("symbol").is_in(list(symbols)))
+        df = cast_ohlcv_dtypes(df)
+        df = df.with_columns([
+            pl.lit("NSE").alias("exchange"),
+            (pl.lit("NSE:") + pl.col("symbol")).alias("instrument"),
+        ])
+        df = remove_price_oscillations(df)
+        df = df.sort(["instrument", "date_epoch"])
+        print(f"  Fetched {df.height} rows, {df['instrument'].n_unique()} instruments (nse_charting_day, repaired)")
+        return df

@@ -9,6 +9,20 @@ Signal: Buy stocks with ACCELERATING momentum + breakout confirmation.
 Exit: TSL after reaching peak_price (signal-day close), or max_hold_days.
 
 MOC execution: signal at close[i], enter at open[i+1].
+
+The entry condition (`entry_signal`) and the exit walk (`walk_exit`) are module-level
+functions so the live runner (scripts/momentum_cascade_daily.py) evaluates the LATEST bar
+with the same code the backtest uses; the generator itself never sees that bar because
+add_next_day_values drops it.
+
+Exit knobs (2026-10-11, all default-off, byte-identical at defaults; see
+studies/momentum_cascade_audit/PREREG.md):
+  exit_fill         close | next_open   fill a close-triggered exit at the next bar's open
+  stop_mode         close | gtt         gtt: level = high-water x (1-tsl) ratcheted after each
+                                        close, fires if the next session's low <= level, fills
+                                        at min(open, level)
+  trail_from_entry  bool                the TSL is live from the entry bar (arm S1)
+  initial_stop_pct  float               fixed floor below entry until the TSL arms (arm S2)
 """
 
 import time
@@ -20,6 +34,117 @@ from engine.config_loader import (
     get_exit_config_iterator,
 )
 from engine.signals.base import register_strategy, run_scanner, add_next_day_values, build_regime_filter
+
+
+def build_inst_data(df_ind: pl.DataFrame) -> dict:
+    """Per-instrument bar lists. df_ind must carry next_epoch/next_open/next_volume
+    (add_next_day_values); a live caller that keeps the last bar passes nulls there."""
+    inst_data = {}
+    for inst_tuple, group in df_ind.group_by("instrument", maintain_order=True):
+        g = group.sort("date_epoch")
+        inst_data[inst_tuple[0]] = {
+            "epochs": g["date_epoch"].to_list(),
+            "closes": g["close"].to_list(),
+            "opens": g["open"].to_list() if "open" in g.columns else None,
+            "lows": g["low"].to_list() if "low" in g.columns else None,
+            "next_epochs": g["next_epoch"].to_list(),
+            "next_opens": g["next_open"].to_list(),
+            "next_volumes": g["next_volume"].to_list(),
+        }
+    return inst_data
+
+
+def entry_signal(closes, i, slow_lb, fast_lb, accel_thresh, min_mom, breakout_window):
+    """Acceleration if bar i is an entry signal, else None. Reads closes[:i+1] only."""
+    c = closes[i]
+    if c is None or c <= 0:
+        return None
+    past_slow = closes[i - slow_lb]
+    if past_slow is None or past_slow <= 0:
+        return None
+    if (c - past_slow) / past_slow < min_mom:
+        return None
+    past_fast = closes[i - fast_lb]
+    if past_fast is None or past_fast <= 0:
+        return None
+    fast_mom_now = (c - past_fast) / past_fast
+    if i - fast_lb < fast_lb:
+        return None
+    past_fast_ago = closes[i - 2 * fast_lb]
+    if past_fast_ago is None or past_fast_ago <= 0:
+        return None
+    fast_mom_ago = (closes[i - fast_lb] - past_fast_ago) / past_fast_ago
+    acceleration = fast_mom_now - fast_mom_ago
+    if acceleration < accel_thresh:
+        return None
+    window_high = max(x for x in closes[max(0, i - breakout_window):i] if x is not None)
+    if c <= window_high:
+        return None
+    return acceleration
+
+
+def walk_exit(d, start_idx, entry_price, peak_price, trailing_stop_pct, max_hold_days,
+              exit_fill="close", stop_mode="close", trail_from_entry=False, initial_stop_pct=0.0):
+    """Walk bars from start_idx (the entry bar) and find the exit.
+
+    Returns {"exit_epoch", "exit_price", "reason", "trail_high", "armed", "level"}.
+    reason is "tsl" | "floor" | "max_hold" | None. If a close-triggered exit wants the next
+    open and there is no next bar (live caller on the latest close), exit_epoch is None and
+    reason is set: the sell is pending for tomorrow's open. `level` is the GTT level that
+    would apply to the next session under stop_mode="gtt".
+    """
+    epochs, closes = d["epochs"], d["closes"]
+    opens, lows = d.get("opens"), d.get("lows")
+    entry_epoch = epochs[start_idx]
+    trail_high = entry_price
+    armed = bool(trail_from_entry)
+    level = None
+    res = {"exit_epoch": None, "exit_price": None, "reason": None}
+    for j in range(start_idx, len(epochs)):
+        c = closes[j]
+        if c is None:
+            continue
+        if stop_mode == "gtt" and level is not None and j > start_idx and lows is not None:
+            lo = lows[j]
+            if lo is not None and lo <= level:
+                op = opens[j] if opens is not None else None
+                px = min(op, level) if op is not None and op > 0 else level
+                res.update(exit_epoch=epochs[j], exit_price=px, reason="tsl")
+                break
+        if c > trail_high:
+            trail_high = c
+        hold_days = (epochs[j] - entry_epoch) / 86400
+        hit = None
+        if max_hold_days > 0 and hold_days >= max_hold_days:
+            hit = "max_hold"
+        else:
+            if c >= peak_price:
+                armed = True
+            if stop_mode == "close":
+                if armed and trailing_stop_pct > 0 and c <= trail_high * (1 - trailing_stop_pct):
+                    hit = "tsl"
+                elif not armed and initial_stop_pct > 0 and c <= entry_price * (1 - initial_stop_pct):
+                    hit = "floor"
+        if hit:
+            if exit_fill == "next_open":
+                nep, nop = d["next_epochs"][j], d["next_opens"][j]
+                res["reason"] = hit
+                if nep is not None and nop is not None and nop > 0:
+                    res.update(exit_epoch=nep, exit_price=nop)
+            else:
+                res.update(exit_epoch=epochs[j], exit_price=c, reason=hit)
+            break
+        if stop_mode == "gtt":
+            if armed and trailing_stop_pct > 0:
+                lvl = trail_high * (1 - trailing_stop_pct)
+            elif initial_stop_pct > 0:
+                lvl = entry_price * (1 - initial_stop_pct)
+            else:
+                lvl = None
+            if lvl is not None:
+                level = lvl if level is None else max(level, lvl)   # ratchet: never lowers
+    res.update(trail_high=trail_high, armed=armed, level=level)
+    return res
 
 
 class MomentumCascadeSignalGenerator:
@@ -39,19 +164,7 @@ class MomentumCascadeSignalGenerator:
         df_ind = df_tick_data.clone()
         df_ind = add_next_day_values(df_ind)
         df_ind = df_ind.sort(["instrument", "date_epoch"])
-
-        # Build per-instrument data for signal computation + exit walk
-        inst_data = {}
-        for inst_tuple, group in df_ind.group_by("instrument", maintain_order=True):
-            inst_name = inst_tuple[0]
-            g = group.sort("date_epoch")
-            inst_data[inst_name] = {
-                "epochs": g["date_epoch"].to_list(),
-                "closes": g["close"].to_list(),
-                "next_epochs": g["next_epoch"].to_list(),
-                "next_opens": g["next_open"].to_list(),
-                "next_volumes": g["next_volume"].to_list(),
-            }
+        inst_data = build_inst_data(df_ind)
 
         # Pre-build regime filters
         regime_cache = {}
@@ -89,9 +202,6 @@ class MomentumCascadeSignalGenerator:
             for inst_name, d in inst_data.items():
                 closes = d["closes"]
                 epochs = d["epochs"]
-                next_epochs = d["next_epochs"]
-                next_opens = d["next_opens"]
-                next_volumes = d["next_volumes"]
                 n = len(closes)
 
                 if n < lookback_needed + 2:
@@ -111,49 +221,14 @@ class MomentumCascadeSignalGenerator:
                     if use_regime and ep not in bull_epochs:
                         continue
 
-                    c = closes[i]
-                    if c is None or c <= 0:
-                        continue
-
-                    # Slow momentum
-                    past_slow = closes[i - slow_lb]
-                    if past_slow is None or past_slow <= 0:
-                        continue
-                    slow_mom = (c - past_slow) / past_slow
-                    if slow_mom < min_mom:
-                        continue
-
-                    # Fast momentum now
-                    past_fast = closes[i - fast_lb]
-                    if past_fast is None or past_fast <= 0:
-                        continue
-                    fast_mom_now = (c - past_fast) / past_fast
-
-                    # Fast momentum lagged
-                    if i - fast_lb < fast_lb:
-                        continue
-                    past_fast_ago = closes[i - 2 * fast_lb]
-                    if past_fast_ago is None or past_fast_ago <= 0:
-                        continue
-                    fast_mom_ago = (closes[i - fast_lb] - past_fast_ago) / past_fast_ago
-
-                    # Acceleration
-                    acceleration = fast_mom_now - fast_mom_ago
-                    if acceleration < accel_thresh:
-                        continue
-
-                    # Breakout: new N-day high
-                    window_start = max(0, i - breakout_window)
-                    window_high = max(
-                        x for x in closes[window_start:i] if x is not None
-                    )
-                    if c <= window_high:
+                    acceleration = entry_signal(closes, i, slow_lb, fast_lb, accel_thresh, min_mom, breakout_window)
+                    if acceleration is None:
                         continue
 
                     # MOC: enter at next day's open
-                    next_ep = next_epochs[i]
-                    next_op = next_opens[i]
-                    next_vol = next_volumes[i]
+                    next_ep = d["next_epochs"][i]
+                    next_op = d["next_opens"][i]
+                    next_vol = d["next_volumes"][i]
                     if next_ep is None or next_op is None or next_op <= 0:
                         continue
 
@@ -165,7 +240,7 @@ class MomentumCascadeSignalGenerator:
                         "entry_epoch": next_ep,
                         "entry_price": next_op,
                         "entry_volume": next_vol or 0,
-                        "peak_price": c,
+                        "peak_price": closes[i],
                         "acceleration": acceleration,
                         "scanner_config_ids": scanner_ids,
                     })
@@ -177,6 +252,12 @@ class MomentumCascadeSignalGenerator:
             for exit_config in get_exit_config_iterator(context):
                 trailing_stop_pct = exit_config["trailing_stop_pct"] / 100.0
                 max_hold_days = exit_config["max_hold_days"]
+                knobs = dict(
+                    exit_fill=exit_config.get("exit_fill", "close"),
+                    stop_mode=exit_config.get("stop_mode", "close"),
+                    trail_from_entry=bool(exit_config.get("trail_from_entry", False)),
+                    initial_stop_pct=float(exit_config.get("initial_stop_pct", 0) or 0) / 100.0,
+                )
 
                 for entry in entry_signals:
                     inst = entry["instrument"]
@@ -193,29 +274,9 @@ class MomentumCascadeSignalGenerator:
                     except ValueError:
                         continue
 
-                    # Walk forward to find TSL exit
-                    exit_epoch = None
-                    exit_price = None
-                    trail_high = entry_price
-                    reached_peak = False
-
-                    for j in range(start_idx, len(d["epochs"])):
-                        c = d["closes"][j]
-                        if c is None:
-                            continue
-                        if c > trail_high:
-                            trail_high = c
-                        hold_days = (d["epochs"][j] - entry_epoch) / 86400
-                        if max_hold_days > 0 and hold_days >= max_hold_days:
-                            exit_epoch = d["epochs"][j]
-                            exit_price = c
-                            break
-                        if c >= peak_price:
-                            reached_peak = True
-                        if reached_peak and trailing_stop_pct > 0 and c <= trail_high * (1 - trailing_stop_pct):
-                            exit_epoch = d["epochs"][j]
-                            exit_price = c
-                            break
+                    w = walk_exit(d, start_idx, entry_price, peak_price, trailing_stop_pct,
+                                  max_hold_days, **knobs)
+                    exit_epoch, exit_price = w["exit_epoch"], w["exit_price"]
 
                     if exit_epoch is None and len(d["epochs"]) > start_idx:
                         last_idx = len(d["epochs"]) - 1
@@ -236,6 +297,9 @@ class MomentumCascadeSignalGenerator:
                         "scanner_config_ids": entry["scanner_config_ids"],
                         "entry_config_ids": str(entry_config["id"]),
                         "exit_config_ids": str(exit_config["id"]),
+                        # Propagated by the simulator into the trade log; "end_of_data" marks
+                        # a position still open at the last bar (the live runner's book).
+                        "exit_reason": w["reason"] or "end_of_data",
                     })
 
         entry_elapsed = round(time.time() - t1, 2)
@@ -245,11 +309,11 @@ class MomentumCascadeSignalGenerator:
             column_order = [
                 "instrument", "entry_epoch", "exit_epoch",
                 "entry_price", "exit_price", "entry_volume", "exit_volume",
-                "scanner_config_ids", "entry_config_ids", "exit_config_ids",
+                "scanner_config_ids", "entry_config_ids", "exit_config_ids", "exit_reason",
             ]
             return pl.DataFrame(schema={
                 c: pl.Utf8 if c in ("instrument", "scanner_config_ids",
-                                     "entry_config_ids", "exit_config_ids")
+                                     "entry_config_ids", "exit_config_ids", "exit_reason")
                 else pl.Float64 for c in column_order
             })
 
@@ -257,7 +321,7 @@ class MomentumCascadeSignalGenerator:
         df_orders = df_orders.select([
             "instrument", "entry_epoch", "exit_epoch",
             "entry_price", "exit_price", "entry_volume", "exit_volume",
-            "scanner_config_ids", "entry_config_ids", "exit_config_ids",
+            "scanner_config_ids", "entry_config_ids", "exit_config_ids", "exit_reason",
         ]).sort(["instrument", "entry_epoch", "exit_epoch"])
 
         print(f"  Signal gen: {entry_elapsed}s, {df_orders.height} orders")
@@ -280,6 +344,10 @@ class MomentumCascadeSignalGenerator:
         return {
             "trailing_stop_pct": exit_cfg.get("trailing_stop_pct", [12]),
             "max_hold_days": exit_cfg.get("max_hold_days", [504]),
+            "exit_fill": exit_cfg.get("exit_fill", ["close"]),
+            "stop_mode": exit_cfg.get("stop_mode", ["close"]),
+            "trail_from_entry": exit_cfg.get("trail_from_entry", [False]),
+            "initial_stop_pct": exit_cfg.get("initial_stop_pct", [0]),
         }
 
 register_strategy("momentum_cascade", MomentumCascadeSignalGenerator)

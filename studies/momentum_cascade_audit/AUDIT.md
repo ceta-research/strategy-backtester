@@ -150,6 +150,29 @@ Raw charting fabricates moves a momentum strategy buys into:
 On the final data: momentum_cascade 19.01 → 18.28% (2010→), eod_breakout 14.69 → 12.12%. Updated tables
 are in `../long_window/RESULTS.md`.
 
+## Addendum (later on 2026-10-11): pre-registered test, engine fixes, paper phase
+
+`PREREG.md` (committed before the runs) tested a stop from entry and intraday-GTT exits on the
+live-realistic base after the `simulator.py:393` sizing fix. **Verdict S0 × X0: strategy unchanged,
+exits are next-open sells.** A trail-from-entry or a −15% floor cost ~2pp CAGR for ~1.5pp less
+drawdown (rule allowed 1pp). **An intraday GTT stop halves CAGR, 18.6 → 10.2%** (fires on intraday
+lows the close recovers; with trail-from-entry, which is what `_gtt_trail.py` does, 7.9%). Table and
+rules in `PREREG.md`.
+
+Reference on the fixed simulator (replaces the L9b line above): **18.58% / −32.2%** 2010→,
+**18.10% / −32.2%** over 20y; after tax **15.56% / 15.14%**. With the ~1.5pp parameter-selection
+discount the planning number is unchanged: **~16% pre-tax, ~13% after tax.**
+
+Engine changes shipped (all gated on trade-list equality; the raw-charting board run still gives
+17.87% / 548 and the repaired snapshot 18.28% / 581): default-off exit knobs and the factored
+`entry_signal` / `walk_exit` in `engine/signals/momentum_cascade.py`; orders tagged with
+`exit_reason`; the exits-first sizing fix (follow-ups 1b); `engine/charting_repairs.py` with the
+opt-in `NseChartingRepairedProvider` (follow-up 2, opt-in only). Follow-up 1 (make next-open exits +
+exits-first the default for every daily strategy) is still open: it re-baselines the board.
+
+Paper phase started: `/momentum-cascade` → `scripts/momentum_cascade_daily.py`,
+`strategies/momentum_cascade/PAPER_PHASE.md`.
+
 ## Follow-ups (measured here, not changed in the engine)
 1. **Simulator ordering.** Entries-before-exits plus same-close exit fills is a combination you can't
    trade, and slot recycling alone moves CAGR ±3pp. Make next-open exits + exits-first the daily

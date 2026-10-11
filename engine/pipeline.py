@@ -103,6 +103,9 @@ def run_pipeline(config_path, data_provider=None):
             data_provider = BhavcopyDataProvider()
         elif provider_type == "nse_charting":
             data_provider = NseChartingDataProvider()
+        elif provider_type == "nse_charting_repaired":
+            from engine.data_provider import NseChartingRepairedProvider
+            data_provider = NseChartingRepairedProvider()
         else:
             data_provider = CRDataProvider(
                 format="parquet",
