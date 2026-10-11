@@ -48,4 +48,4 @@ an upstream exclusion + re-baseline is a follow-up.
 ## Log
 | date | data through | regime | book | sells | buys | health | notes |
 |---|---|---|---|---|---|---|---|
-| 2026-10-12 (IST) | 2026-10-09 | BEAR | 13/15 | 1 (UJJIVANSFB tsl) | 0 (3 signals, regime off) | clean; 2 recent splits (BLSE, PGIL raw) | seed run; ledger seeded with 13 open entries. GMBREW −29% and CARTRADE −10% are unarmed (no stop) by design. |
+| 2026-10-12 (IST) | 2026-10-09 | BEAR | 13/15 | 1 (UJJIVANSFB tsl) | 0 (3 signals, regime off) | clean; 2 recent splits (BLSE, PGIL raw) | seed run; ledger seeded with 13 open entries. 11 of them were signalled on 2026-08-06, the one day NIFTYBEES closed above its SMA200. GMBREW −29% and CARTRADE −10% are unarmed (no stop) by design. |

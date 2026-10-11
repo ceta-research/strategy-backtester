@@ -70,9 +70,12 @@ the scanner lets through): a follow-up re-baseline, flag-only in the observe run
 unarmed trades are a known cost of the strategy, not a defect to patch.
 
 **Rule 2 → X0.** The intraday GTT arm costs **8.4pp** (2010→) and **7.9pp** (20y): the stop fires
-on intraday lows that the close recovers, roughly doubling exits (565 → 663 trades) and the worst
-trade goes to −91.6% (a gap fill). With a trail from entry (S1X1, which is what the existing ratchet
-would do) it is 7.9%. **The `_gtt_trail.py` ratchet must not be used for this sleeve.** Live exits
+on intraday lows that the close recovers: 17% more exits (565 → 663 trades; 50% more with a trail
+from entry, 846), and the typical trade is what pays for it: median +0.1% → −2.1%, mean +10.7% →
++5.8%. The −91.6% worst trade (INDOTHAI) is an unarmed position that collapsed to end-of-data
+with no one-day move over 30%, i.e. a real collapse, not a GTT fill or a corrupt bar. With a
+trail from entry (S1X1, what the existing ratchet does) it is 7.9%, and the real ratchet trails
+at 8–12%, tighter than the 15% tested, so the as-is ratchet would do worse still. **The `_gtt_trail.py` ratchet must not be used for this sleeve.** Live exits
 are next-open sells after a close-based trigger.
 
 **Reference on the fixed simulator** (the audit's L9b figure of 17.71% was computed before the
