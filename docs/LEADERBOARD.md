@@ -51,6 +51,19 @@
 > the path the row names. Row 8's pre-fix number is attributed to the wrong config — do not
 > cite it as a champion result. Count the suite as **16 distinct ranked configs, not 17.**
 >
+> 🚨 **2026-10-11 — the top four re-run on repaired data and over 10/15/20 years**
+> (`studies/long_window/RESULTS.md`). Same configs and dates, data repaired only:
+> `momentum_cascade` 17.87 → **19.13**, `eod_technical adaptive-TSL` 18.47 → **16.18**,
+> `eod_breakout IR-hyst` 17.37 → **13.82**, `enhanced_breakout` 15.87 → 16.36.
+> Two charting defects: 520 split/bonus events left unadjusted (30 of them in 2026), and
+> TATASTEEL 2018-20 / BFUTILITIE 2012-15 interleaving a second price series. eod_technical's
+> 18.47% included a fabricated **+557.9% TATASTEEL trade (₹82L)**, bought on the stray ₹7 series
+> and sold on the real ₹47 one. Over 20 years only `momentum_cascade` holds (18.1% / −26%);
+> eod_technical loses 71% in 2008, enhanced_breakout falls to 3.5%.
+> ⚠️ Row 18's old **8.28%** was a **2005-start** run (`rebuild_leaderboard.py:115` maps the 2010
+> config to `champion_2005_2026.json`). The fixed engine gives 15.01% on that 2005 window, so the
+> +9.59pp splits as **~6.7pp ranking fix + ~2.9pp window change**.
+>
 > ⚠️ This table is NOT regenerated — `rebuild_leaderboard.py` reads stored result JSONs
 > and would re-emit the old numbers. Re-run it only after the stored results are refreshed.
 
