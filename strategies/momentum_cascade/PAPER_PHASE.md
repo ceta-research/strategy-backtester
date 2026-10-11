@@ -20,7 +20,8 @@ TSL arms, close-based trigger, sell at the next open. The intraday GTT variant h
 `_gtt_trail.py` ratchet is not used for this sleeve.)
 
 ## Graduation gates (all must hold)
-1. **≥ 40 trading days** of runs with no gap longer than 3 trading days.
+1. **6 months of daily runs (Swas, 2026-10-12: ~125 trading days, to about mid-April 2027)** with no gap
+   longer than 3 trading days. The earlier 40-day floor is the minimum for an interim read, not the end.
 2. **Zero history rewrites** flagged (`history_rewritten: false` on every run). A rewrite means
    charting backfill changed booked trades; the ledger then can't be compared with the backtest.
 3. **Data health clean** on every counted run: lag ≤ 5 days, 0 duplicate bars, every
@@ -41,7 +42,8 @@ PREREG verdict (next-open sells, or the ratchet if X1 was accepted). Entry mecha
 chosen from the ledger's prior-close / open data, not guessed.
 
 ## What this phase does NOT settle
-Survivorship (measured small before on NSE breakouts; out of scope by Swas's call), and the
+Survivorship is now measured for this strategy (`studies/momentum_cascade_audit/SURVIVORSHIP.md`:
+−0.2pp from 2010, −1.5pp over 20y). Still open: the
 universe's non-equity names (five silver ETFs traded in 2025–26, 1.9% of P&L): flag-only here,
 an upstream exclusion + re-baseline is a follow-up.
 

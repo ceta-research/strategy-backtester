@@ -26,13 +26,15 @@ BASE = os.path.join(ROOT, "strategies/momentum_cascade/config_champion.yaml")
 Y = {y: int(__import__("datetime").datetime(y, 1, 1, tzinfo=__import__("datetime").timezone.utc).timestamp())
      for y in range(2005, 2020)}
 LATEST = 1791504000  # 2026-10-09
+BHAV_END = 1774396800  # 2026-03-25, bhavcopy's last trading day (charting epoch convention)
 NOW10 = (Y[2010], LATEST)
 NOW20 = (Y[2006], LATEST)
 
 
-def v(window=NOW10, engine=False, knobs=None, static=None, entry=None, exit=None, sim=None, log=False):
+def v(window=NOW10, engine=False, knobs=None, static=None, entry=None, exit=None, sim=None, log=False,
+      provider="snapshot"):
     return dict(window=window, engine=engine, knobs=knobs or {}, static=static or {}, entry=entry or {},
-                exit=exit or {}, sim=sim or {}, log=log)
+                exit=exit or {}, sim=sim or {}, log=log, provider=provider)
 
 
 LIVE = dict(knobs={"exit_fill": "next_open", "lag_liquidity": True},
@@ -106,6 +108,21 @@ VARIANTS = {
        for x, xx in (("X0", {}), ("X1", {"stop_mode": ["gtt"]}))
        for w, win in (("", NOW10), ("_20y", NOW20))
        if not (s == "S2" and x == "X1")},
+    # Live config (S0X0) from a 2016 start: the "last 10 years" number.
+    "PR_S0X0_10y": v(window=(Y[2016], LATEST), engine=True, knobs={"lag_liquidity": True},
+                     static={"start_margin": 5000000, "slippage_rate": 0.0015},
+                     sim={"exit_before_entry": [True]}, exit={"exit_fill": ["next_open"]}),
+    # Survivorship: the live config on bhavcopy (delisted names included, calendar split repair)
+    # vs repaired charting on the SAME windows, both ending at bhavcopy's last day (2026-03-25).
+    **{f"{src}_S0X0{w}": v(window=win, engine=True, knobs={"lag_liquidity": True},
+                           static={"start_margin": 5000000, "slippage_rate": 0.0015},
+                           sim={"exit_before_entry": [True]}, exit={"exit_fill": ["next_open"]},
+                           provider=("bhav" if src == "BH" else "snapshot"))
+       for src in ("BH", "CH") for w, win in (("_mar26", (Y[2010], BHAV_END)), ("_20y_mar26", (Y[2006], BHAV_END)))},
+    **{f"BHS_S0X0{w}": v(window=win, engine=True, knobs={"lag_liquidity": True},
+                         static={"start_margin": 5000000, "slippage_rate": 0.0015},
+                         sim={"exit_before_entry": [True]}, exit={"exit_fill": ["next_open"]}, provider="bhav_surv")
+       for w, win in (("_mar26", (Y[2010], BHAV_END)), ("_20y_mar26", (Y[2006], BHAV_END)))},
     # L10 path dependence: same window, start shifted 0..27 days. Signals are identical; only
     # which trades win the 15 slots changes (exits-first alone moved CAGR 18.3 -> 15.2).
     **{f"L10_base_d{d:02d}": v(window=(Y[2010] + d * 86400, LATEST)) for d in range(0, 30, 3)},
@@ -135,7 +152,12 @@ def run(name):
         mc_variant.KNOBS["order_log"] = os.path.join(OUT, f"{name}.orders.json")
 
     t0 = time.time()
-    sweep = run_pipeline(cfg_path, data_provider=SnapshotChartingProvider(ca=True, clean=True))
+    if spec.get("provider") in ("bhav", "bhav_surv"):
+        from bhav_provider import BhavRepairedProvider
+        provider = BhavRepairedProvider(restrict_to_charting=(spec["provider"] == "bhav_surv"))
+    else:
+        provider = SnapshotChartingProvider(ca=True, clean=True)
+    sweep = run_pipeline(cfg_path, data_provider=provider)
     res = os.path.join(OUT, f"{name}.json")
     sweep.save(res)
     det = json.load(open(res))["detailed"][0]

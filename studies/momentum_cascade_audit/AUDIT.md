@@ -171,7 +171,12 @@ opt-in `NseChartingRepairedProvider` (follow-up 2, opt-in only). Follow-up 1 (ma
 exits-first the default for every daily strategy) is still open: it re-baselines the board.
 
 Paper phase started: `/momentum-cascade` → `scripts/momentum_cascade_daily.py`,
-`strategies/momentum_cascade/PAPER_PHASE.md`.
+`strategies/momentum_cascade/PAPER_PHASE.md` (6 months, Swas 2026-10-12).
+
+**Survivorship measured (2026-10-12, `SURVIVORSHIP.md`):** bhavcopy full universe vs bhavcopy
+restricted to charting's symbols = **−0.2pp (2010→), −1.5pp (20y)**. bhavcopy's own data (renames
+restart history; 7–11 trades on splits the calendar lacks) costs another ~2pp and 7pp of drawdown,
+which is why charting stays the backtest and live feed. Budget 12–13% after tax.
 
 ## Follow-ups (measured here, not changed in the engine)
 1. **Simulator ordering.** Entries-before-exits plus same-close exit fills is a combination you can't
