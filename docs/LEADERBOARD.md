@@ -53,13 +53,15 @@
 >
 > 🚨 **2026-10-11 — the top four re-run on repaired data and over 10/15/20 years**
 > (`studies/long_window/RESULTS.md`). Same configs and dates, data repaired only:
-> `momentum_cascade` 17.87 → **19.13**, `eod_technical adaptive-TSL` 18.47 → **16.18**,
-> `eod_breakout IR-hyst` 17.37 → **13.82**, `enhanced_breakout` 15.87 → 16.36.
-> Two charting defects: 520 split/bonus events left unadjusted (30 of them in 2026), and
-> TATASTEEL 2018-20 / BFUTILITIE 2012-15 interleaving a second price series. eod_technical's
-> 18.47% included a fabricated **+557.9% TATASTEEL trade (₹82L)**, bought on the stray ₹7 series
-> and sold on the real ₹47 one. Over 20 years only `momentum_cascade` holds (18.1% / −26%);
-> eod_technical loses 71% in 2008, enhanced_breakout falls to 3.5%.
+> `momentum_cascade` 17.87 → **18.08**, `eod_technical adaptive-TSL` 18.47 → **16.26**,
+> `eod_breakout IR-hyst` 17.37 → **11.67**, `enhanced_breakout` 15.87 → 16.84.
+> Charting defects repaired: 520 unadjusted split/bonus events (30 in 2026), 12 double-adjusted
+> ones (fake +100% to +945% days), listing stubs, recycled tickers, and TATASTEEL / BFUTILITIE /
+> WEWIN interleaving a second price series. eod_technical's 18.47% included a fabricated
+> **+557.9% TATASTEEL trade (₹82L)**, bought on the stray ₹7 series and sold on the real ₹47 one.
+> Over 20 years only `momentum_cascade` holds (17.9% / −29%); eod_technical loses 71% in 2008,
+> enhanced_breakout falls to 6.2%. momentum_cascade audit: `studies/momentum_cascade_audit/AUDIT.md`
+> (live-realistic 17.7%, ~13% after tax; 2021 carries ~a quarter of the compounding).
 > ⚠️ Row 18's old **8.28%** was a **2005-start** run (`rebuild_leaderboard.py:115` maps the 2010
 > config to `champion_2005_2026.json`). The fixed engine gives 15.01% on that 2005 window, so the
 > +9.59pp splits as **~6.7pp ranking fix + ~2.9pp window change**.

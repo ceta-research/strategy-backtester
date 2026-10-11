@@ -29,6 +29,7 @@ PRICE_COLS = ["open", "high", "low", "close", "average_price"]
 MATCH_TOL = 0.10      # |ln(bar ratio / raw ratio)| must be under this
 WINDOW_DAYS = 5       # search +-5 calendar days around the FMP ex-date
 MIN_EFFECT = 0.05     # ignore events whose |ln ratio| is below this
+DOUBLE_MIN_EFFECT = 0.2  # double-adjusted (inverse) jumps are only repaired at >=22%
 
 
 def snapshot():
@@ -61,9 +62,15 @@ def detect_raw_events(df: pl.DataFrame) -> pl.DataFrame:
     """
     # Skip sub-5% factors (FMP files rights issues as 1017:1000-style splits): too small to
     # move a stop, and an ordinary down day near the ex-date matches them by chance.
-    ev = (pl.read_parquet(SPLITS)
-            .with_columns((pl.col("den") / pl.col("num")).alias("raw_ratio"))
-            .filter(pl.col("raw_ratio").log().abs() >= MIN_EFFECT))
+    cal = pl.read_parquet(SPLITS)
+    raw = (cal.with_columns((pl.col("den") / pl.col("num")).alias("raw_ratio"), pl.lit("raw").alias("kind"))
+              .filter(pl.col("raw_ratio").log().abs() >= MIN_EFFECT))
+    # Double-adjusted: history before the ex-date divided by the ratio twice, so the ex-date bar
+    # jumps UP by num/den (BALKRISIND 2017 and PERSISTENT 2024, both 2:1, +100% fake days).
+    # Only >=22% factors: small rights factors can't be told apart from an ordinary up day.
+    dbl = (cal.with_columns((pl.col("num") / pl.col("den")).alias("raw_ratio"), pl.lit("double").alias("kind"))
+              .filter(pl.col("raw_ratio").log().abs() >= DOUBLE_MIN_EFFECT))
+    ev = pl.concat([raw, dbl])
     bars = (df.select(["symbol", "date_epoch", "close"])
               .sort(["symbol", "date_epoch"])
               .with_columns((pl.col("close") / pl.col("close").shift(1).over("symbol"))
@@ -83,7 +90,7 @@ def detect_raw_events(df: pl.DataFrame) -> pl.DataFrame:
     # The calendar has duplicate rows; one jump bar is one event.
     return (hits.sort(["symbol", "date_epoch", "err"])
                 .group_by(["symbol", "date_epoch"], maintain_order=True).first()
-                .select(["symbol", "ex_epoch", "ex_date", "num", "den", "raw_ratio",
+                .select(["symbol", "ex_epoch", "ex_date", "num", "den", "raw_ratio", "kind",
                          pl.col("date_epoch").alias("jump_epoch"), "bar_ratio"]))
 
 
@@ -104,8 +111,12 @@ def back_adjust(df: pl.DataFrame, events: pl.DataFrame) -> pl.DataFrame:
         + [(pl.col("volume") / pl.col("_f")).alias("volume")]).drop("_f")
 
 
-JUMP = 2.5            # a bar >2.5x away from the last kept close is off-level
+JUMP = 2.0            # a bar >2x away from the last kept close is off-level (BFUTILITIE runs ~2.3x)
 PERSIST = 10          # an off-level run this long is a real level change, not a stray series
+QUARANTINE = {        # symbol: (from_epoch, to_epoch) dropped outright
+    "BFUTILITIE": (1325376000, 1451606399),   # 2012-01-01 .. 2015-12-31
+    "WEWIN": (1483228800, 1546300799),        # 2017-01-01 .. 2018-12-31
+}
 
 
 def drop_interleaved(df: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame]:
@@ -119,6 +130,12 @@ def drop_interleaved(df: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame]:
     genuine level change.
     """
     df = df.sort(["symbol", "date_epoch"])
+    # Stretches interleaved at ~1.6-2.5x, too close to 2x to separate by threshold: drop them.
+    q = pl.lit(False)
+    for sym, (a, b) in QUARANTINE.items():
+        q = q | ((pl.col("symbol") == sym) & pl.col("date_epoch").is_between(a, b))
+    quarantined = df.filter(q).select(["symbol", "date_epoch", "close", "volume"])
+    df = df.filter(~q)
     r = pl.col("close") / pl.col("close").shift(1).over("symbol")
     hit = (df.filter((r > JUMP) | (r < 1 / JUMP))["symbol"].unique())
     keep_parts, dropped_parts = [df.filter(~pl.col("symbol").is_in(hit))], []
@@ -126,7 +143,15 @@ def drop_interleaved(df: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame]:
         s = df.filter(pl.col("symbol") == sym)
         c = s["close"].to_numpy()
         keep = [True] * len(c)
-        last, i = c[0], 1
+        # Listing stubs (IDEAFORGE x551, AWL x153, ROSSARI x27): bars before the real listing
+        # on another scale. Drop everything before the last >3x jump in the first 60 bars.
+        start = 0
+        for k in range(1, min(60, len(c))):
+            if not (1 / 3 <= c[k] / c[k - 1] <= 3):
+                start = k
+        for k in range(start):
+            keep[k] = False
+        last, i = c[start], start + 1
         while i < len(c):
             if 1 / JUMP <= c[i] / last <= JUMP:
                 last = c[i]
@@ -146,9 +171,35 @@ def drop_interleaved(df: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame]:
         mask = pl.Series(keep)
         keep_parts.append(s.filter(mask))
         dropped_parts.append(s.filter(~mask).select(["symbol", "date_epoch", "close", "volume"]))
-    dropped = pl.concat(dropped_parts) if dropped_parts else df.clear().select(
-        ["symbol", "date_epoch", "close", "volume"])
+    dropped = pl.concat([quarantined] + dropped_parts)
     return pl.concat(keep_parts).sort(["symbol", "date_epoch"]), dropped
+
+
+STITCH_GAP_DAYS = 365
+
+
+def split_stitches(df: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame]:
+    """Split a symbol at any >1-year data gap into separate instruments.
+
+    Charting keys recycled tickers to one symbol: AWL (Adani Wilmar, listed 2022) carries a
+    different company's 2000-2017 history, and the listing bar jumps x153 against it. Same for
+    INDIGO, RATEGAIN, ROSSARI, RVNL, SUPRIYA. Momentum and ranking read straight through the
+    seam. Older segments become "<SYM>~<k>"; the newest keeps the symbol. A gap can also be a
+    suspension (ROML 2010->2020); then a held position exits at its last pre-gap close, which
+    is optimistic, so the returned frame lists every split for the report.
+    """
+    df = df.sort(["symbol", "date_epoch"]).with_columns(
+        ((pl.col("date_epoch").cast(pl.Int64) - pl.col("date_epoch").shift(1).over("symbol").cast(pl.Int64))
+         > STITCH_GAP_DAYS * SECONDS_IN_ONE_DAY).fill_null(False).cum_sum().over("symbol").alias("_seg"))
+    df = df.with_columns(pl.col("_seg").max().over("symbol").alias("_last"))
+    splits = (df.filter(pl.col("_last") > 0).group_by(["symbol", "_seg"])
+                .agg(pl.col("date_epoch").min().alias("from"), pl.col("date_epoch").max().alias("to"))
+                .sort(["symbol", "_seg"]))
+    df = df.with_columns(
+        pl.when(pl.col("_seg") < pl.col("_last"))
+          .then(pl.col("symbol") + "~" + pl.col("_seg").cast(pl.Utf8))
+          .otherwise(pl.col("symbol")).alias("symbol")).drop(["_seg", "_last"])
+    return df, splits
 
 
 class SnapshotChartingProvider:
@@ -162,6 +213,7 @@ class SnapshotChartingProvider:
         self.clean = clean
         self.events = None
         self.dropped = None
+        self.splits = None
 
     def fetch_ohlcv(self, exchanges, symbols=None, start_epoch=None, end_epoch=None,
                     prefetch_days=400):
@@ -175,7 +227,9 @@ class SnapshotChartingProvider:
             print(f"  CA: back-adjusted {self.events.height} raw split/bonus events")
         if self.clean:
             df, self.dropped = drop_interleaved(df)
-            print(f"  CLEAN: dropped {self.dropped.height} interleaved stray bars")
+            df, self.splits = split_stitches(df)
+            print(f"  CLEAN: dropped {self.dropped.height} interleaved stray bars; split "
+                  f"{self.splits['symbol'].n_unique()} symbols at >1y gaps")
         df = df.filter((pl.col("date_epoch") >= fetch_start) & (pl.col("date_epoch") <= end_epoch))
         if symbols:
             df = df.filter(pl.col("symbol").is_in(list(symbols)))
