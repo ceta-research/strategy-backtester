@@ -66,6 +66,11 @@
 > config to `champion_2005_2026.json`). The fixed engine gives 15.01% on that 2005 window, so the
 > +9.59pp splits as **~6.7pp ranking fix + ~2.9pp window change**.
 >
+> 📋 **All 16 distinct configs on repaired data, same windows, engine defaults:
+> `studies/long_window/BOARD_2026-10-11.md`** (run by `studies/long_window/run_board_clean.py`). On
+> repaired data the whole eod_breakout family lands at 11.7–12.3%; momentum_cascade 18.1%,
+> enhanced_breakout 16.8%, eod_technical 15.5–16.3%, low_pe 12.7% (Calmar 1.05, unchanged).
+>
 > ⚠️ This table is NOT regenerated — `rebuild_leaderboard.py` reads stored result JSONs
 > and would re-emit the old numbers. Re-run it only after the stored results are refreshed.
 
