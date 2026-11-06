@@ -1,16 +1,16 @@
 # scripts/
 
-Research harnesses (walk-forward, R4 validation, sweeps), result analysis, the audit-drill tools and the live observe tools. Setup: see the root CLAUDE.md.
+Research harnesses (walk-forward, R4 validation, sweeps), result analysis, the audit-drill tools and the live observe tools.
 
 ## Conventions
-- Run every script from the repo root as `python scripts/<name>.py`. Some have no `sys.path` insert, several shell out to `python run.py` by relative path, and most use relative `results/` paths.
-- `--help` is safe only on scripts that use argparse. The rest don't parse it and may start work: `python scripts/rebuild_leaderboard.py --help` rewrites `docs/LEADERBOARD.md`.
-- Anything that calls `run.py`, the pipeline or a data provider needs `CR_API_KEY`. The analysis tools (`analyze_*.py`, `decode_config_id.py`, `optimization_status.py`, `recompute_metrics.py`, `run_ensemble.py`, `audit_sanity_checks.py`, `pattern_queries.py`, `spot_check_audits.py`) don't; they read earlier output under `results/`.
+- Run every script from the repo root as `.venv/bin/python scripts/<name>.py`. Several shell out to `run.py` by relative path, `backtest_main.py` and `cloud_main*.py` put the working directory on `sys.path`, and most use relative `results/` paths.
+- `--help` is safe only on scripts that use argparse. The rest don't parse it and may start work: `scripts/rebuild_leaderboard.py --help` rewrites `docs/LEADERBOARD.md`.
+- These analysis tools need no key: `analyze_*.py`, `decode_config_id.py`, `optimization_status.py`, `recompute_metrics.py`, `run_ensemble.py`, `audit_sanity_checks.py`, `pattern_queries.py`, `spot_check_audits.py`. All but `decode_config_id.py` read earlier output under `results/`.
 - `decode_config_id.py <config.yaml> <config_id>` maps an id such as `1_1_1_2` in a sweep result back to its parameter values. Runs offline.
 
 ## Check (from the repo root)
-- `python -m py_compile scripts/*.py`
-- `python scripts/<name>.py --help` for the argparse scripts. It works without a key for all of them except `portfolio_helper.py`.
+- `.venv/bin/python -m py_compile scripts/*.py`
+- `.venv/bin/python scripts/<name>.py --help` for the argparse scripts. It works offline for all of them except `portfolio_helper.py`, which exits at import without `kiteconnect` (see below).
 
 ## Live and cloud scripts
 - `eod_breakout_shortlist.py`: observe only, places no orders. Each run appends to an observation log; pass `--no-log` when testing. Not run here: needs `CR_API_KEY`.

@@ -15,13 +15,13 @@ Hand copies; nothing keeps them in step and no test checks them.
 - A change to engine charges or the regime doesn't reach this folder. Make it in both places.
 
 ## Check (from the repo root)
-- `python -m py_compile prod_runner/*.py`
+- `.venv/bin/python -m py_compile prod_runner/*.py`
 - Charges parity after touching either copy:
-  `python -c "import sys; sys.path.insert(0, 'prod_runner'); import intraday_breakout_prod as p, engine.charges as c; assert all(p.nse_intraday_charges(v) == c.nse_intraday_charges(v) for v in range(0, 5_000_000, 997)); print('charges match')"`
+  `.venv/bin/python -c "import sys; sys.path.insert(0, 'prod_runner'); import intraday_breakout_prod as p, engine.charges as c; assert all(p.nse_intraday_charges(v) == c.nse_intraday_charges(v) for v in range(0, 5_000_000, 997)); print('charges match')"`
 
 ## What depends on it
-- `open_low_meanrev_prod.py`, three scripts in `strategies/pair_trading/` and the scripts in `strategies/intraday_breakout/tuning/` import `intraday_breakout_prod` by module name. Renaming it, or changing `load_daily_data`, `load_minute_data`, `run_pipeline`, `nse_intraday_charges` or `SECONDS_IN_ONE_DAY`, breaks them.
+- `open_low_meanrev_prod.py`, three scripts in `strategies/pair_trading/` and the ten scripts in `strategies/intraday_breakout/tuning/` import `intraday_breakout_prod` by module name, through a fixed absolute `sys.path` entry. Renaming it, or changing any name they import from it, breaks them. Run `grep -rn "from intraday_breakout_prod import" -A4 prod_runner strategies` first: the tuning scripts also import internals such as `select_universe` and `_month_boundaries`.
 
 ## Gotchas
-- The data paths at the top of `intraday_breakout_prod.py` and the absolute paths in `open_low_meanrev_prod.py` are machine-specific: never quote them.
+- The data paths at the top of `intraday_breakout_prod.py` and the input, import and output paths in `open_low_meanrev_prod.py` are absolute paths on the data machine, so neither runner works from a clone.
 - `intraday_breakout_prod.py` loads the whole date range into memory with no chunking. The engine version fetches month by month.
