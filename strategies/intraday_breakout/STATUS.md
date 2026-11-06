@@ -3,7 +3,7 @@
 **Created:** 2026-04-29
 **Status:** ⚠️ AUDIT FAILED 2026-05-01 — STRATEGY DEAD AS BUILT
 **Parent strategy:** eod_breakout (IR hysteresis, Calmar 1.350)
-**Prod workspace:** `~/backtester/` on the data server
+**Prod workspace:** `/home/swas/backtester/` on the data server
 **Prod runner:** `intraday_breakout_prod.py`
 
 ---
