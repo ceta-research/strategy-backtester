@@ -15,8 +15,8 @@ A position-level backtester for trading strategies. A YAML config drives a pipel
 - `prod_runner/`: production runner scripts and configs. See `prod_runner/CLAUDE.md`.
 - `docs/`: guides, status, leaderboard, inspection reports. See `docs/CLAUDE.md`.
 - `templates/`: starter configs (`eod/config.yaml`, `intraday/config.yaml`) and strategy templates.
-- `run.py`: local CLI, `python run.py --list | --strategy <name> | --config <yaml> [--output <json>]`. It sends `static.strategy_type: intraday` to `engine/intraday_pipeline.py` and everything else to `engine/pipeline.py`.
-- `run_global.py`: runs a fixed set of strategies across 15 exchanges.
+- `run.py`: local CLI, `python run.py --list | --strategy <name> | --config <yaml> [--output <json>]` (`--strategy` and `--config` not run here: need `CR_API_KEY`). It sends `static.strategy_type: intraday` to `engine/intraday_pipeline.py` and everything else to `engine/pipeline.py`.
+- `run_global.py`: runs `darvas_box`, `swing_master`, `squeeze` and `holp_lohp`, all four retired, across 15 exchanges.
 - `run_remote.py`: runs a script or pipeline YAML on Ceta Research cloud compute. It writes the gitignored `.remote_project.json` and `.remote_hashes.json`.
 
 ## Setup from a fresh clone
@@ -50,7 +50,7 @@ There is no CI: no `.github/workflows/`, Makefile or pyproject. The gate is the 
 ## How changes ship
 
 - No CI runs on a pull request or a merge. A merge to `main` builds and deploys nothing.
-- `run_remote.py` uploads files from the local working tree to a Ceta Research cloud project when it runs, so a remote run uses your checkout, not `main`.
+- `run_remote.py` uploads files from the local working tree to a Ceta Research cloud project when it runs (unless `--no-sync`), so a remote run uses your checkout, not `main`.
 
 <!-- shared:public-rules v1. Every public repo of ours carries this block word for word. -->
 ## Rules for every change
@@ -66,8 +66,7 @@ There is no CI: no `.github/workflows/`, Makefile or pyproject. The gate is the 
 
 - `README.md` is stale. `scripts/buy_2day_high.py` doesn't exist and `ibs_mean_reversion` moved to `strategies/retired/`, so its quick-start commands fail. The usage examples in `run_remote.py` also point to missing paths.
 - `run.py --strategy <name>` reads only `strategies/<name>/config.yaml`, and five strategies have one (`run.py --list` shows them). For the rest pass `--config strategies/<name>/<file>.yaml`.
-- `simulation.ranking_nulls_last` defaults to `true` since 2026-10-09. Before that, orders with no rank (instruments with fewer bars than the ranking window) took position slots first. Every result and doc figure produced before that date used the old order, including the table in `docs/LEADERBOARD.md`. To reproduce an old figure, set `ranking_nulls_last: [false]` and say so beside it. Background: the `engine/ranking.py` docstring.
+- `simulation.ranking_nulls_last` defaults to `true` since 2026-10-09. Before that, orders with no rank (instruments with fewer bars than the ranking window) took position slots first. Every result and doc figure produced before that date used the old order, including the main table in `docs/LEADERBOARD.md`. Its banner holds the 2026-10-09 re-run. To reproduce an old figure, set `ranking_nulls_last: [false]` and say so beside it. Background: the `engine/ranking.py` docstring.
 - `docs/STATUS.md` was last updated 2026-05-03. It marks `engine/pipeline.py`, `utils.py`, `simulator.py`, `ranking.py`, `charges.py`, `exits.py`, `order_key.py` and `lib/metrics.py`, `backtest_result.py`, `equity_curve.py` as protected: no change without a re-audit. Its `git diff fbcd36a HEAD -- <those files> | wc -l` check no longer prints 0: seven of them have changed since, most recently on 2026-10-09.
 - `static.data_provider: bhavcopy` reads unadjusted NSE bhavcopy prices and applies no corporate actions (see the `engine/data_provider.py` docstring). A signal that compares price levels across time sees a split or bonus day as a crash. `nse_charting` and the default `cr` are split-adjusted, and `cr` is not dividend-adjusted.
 - `lib/cloud_orchestrator.py` hand-lists the engine and lib files that `run_remote.py` uploads (`EOD_ENGINE_FILES`, `INTRADAY_ENGINE_FILES`, `LIB_FILES`). `engine/exits.py`, `engine/order_key.py`, `engine/internal_regime.py` and `lib/equity_curve.py` are imported by the engine but missing from those lists. Add any new engine or lib module there. Signal modules are picked up by glob.
-- `run_global.py` runs `darvas_box`, `swing_master`, `squeeze` and `holp_lohp`, all four retired.
