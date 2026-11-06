@@ -14,10 +14,10 @@ YAML configs for the engine, one folder per active strategy, plus each strategy'
   `.venv/bin/python -c "import sys, yaml; from engine.config_loader import load_config; from engine.signals.base import get_signal_generator; p = sys.argv[1]; load_config(p); get_signal_generator(yaml.safe_load(open(p))['static'].get('strategy_type', 'eod_technical')); print('ok', p)" strategies/eod_breakout/config_champion.yaml`
 
 ## Folders that differ
-- `intraday_breakout/` configs use scalar params and run through `engine/intraday_breakout_pipeline.py`, not `run.py`. Command: `engine/CLAUDE.md`.
+- `intraday_breakout/` configs use scalar params and need their own command: `engine/CLAUDE.md`.
 - `open_low_meanrev/` and `pair_trading/` have no engine configs. Their code is standalone scripts, `prod_runner/open_low_meanrev_prod.py` and `pair_trading/*.py`; `prod_runner/CLAUDE.md` says how they depend on it.
-- `retired/`: 20 strategies moved out on 2026-04-29. Run them with `--config strategies/retired/<name>/<file>.yaml`; `run.py --list` doesn't show them. `orb`, `orb_us` and `vwap_mr` are `strategy_type: intraday`.
-- `ensembles/<name>/config.yaml` (18 of them) combine finished runs through `scripts/run_ensemble.py`. Usage: its docstring (not run here: each leg's `result_path` JSON must exist under `results/`). Schema: `docs/ENSEMBLE_GUIDE.md`. The full list of weighting modes is `WEIGHTING_MODES` in `lib/ensemble_curve.py`.
+- `retired/`: 20 strategies moved out on 2026-04-29. Run them with `--config strategies/retired/<name>/<file>.yaml`. `orb`, `orb_us` and `vwap_mr` are `strategy_type: intraday`.
+- `ensembles/<name>/config.yaml` (18 of them) combine finished runs through `scripts/run_ensemble.py`. Usage: its docstring (not run here: each leg's `result_path` JSON must exist under `results/`). Schema: `docs/ENSEMBLE_GUIDE.md`.
 
 ## What depends on these files
 - `tests/test_audit_noninvasive.py` (slow, gated) runs `eod_breakout/config_champion.yaml` and `eod_technical/config_champion.yaml`.
@@ -26,5 +26,5 @@ YAML configs for the engine, one folder per active strategy, plus each strategy'
 ## Gotchas
 - Outside `experiments/`, every number in config header comments, `OPTIMIZATION.md` files and the queue predates the 2026-10-09 ranking fix. Example: `eod_breakout/config_champion.yaml` says CAGR 22.26%; the re-run in `docs/LEADERBOARD.md` gives 17.37%.
 - `OPTIMIZATION.md` can lag `config_champion.yaml`. `eod_breakout/OPTIMIZATION.md` still describes the 2026-04-27 champion; the config holds the 2026-04-30 internal-regime one. Trust the config.
-- The three `config_phase_8a_local.yaml` files say `data_provider: parquet`, which `run.py` treats as the CR API. They get local data only through `scripts/measure_bias_impact.py`, which passes its own provider.
-- Every config with `bhav` in its file name uses `data_provider: bhavcopy`. That provider also skips the price oscillation filter.
+- The three `config_phase_8a_local.yaml` files say `data_provider: parquet`, which `run.py` runs as `cr` (see `engine/CLAUDE.md`). They get local data only through `scripts/measure_bias_impact.py`, which passes its own provider.
+- Every config with `bhav` in its file name uses `data_provider: bhavcopy`. That provider reads unadjusted prices; see the root CLAUDE.md gotcha.

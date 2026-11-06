@@ -23,5 +23,5 @@ Hand copies; nothing keeps them in step and no test checks them.
 - `open_low_meanrev_prod.py`, three scripts in `strategies/pair_trading/` and the ten scripts in `strategies/intraday_breakout/tuning/` import `intraday_breakout_prod` by module name, through a fixed absolute `sys.path` entry. Renaming it, or changing any name they import from it, breaks them. Run `grep -rn "from intraday_breakout_prod import" -A4 prod_runner strategies` first: the tuning scripts also import internals such as `select_universe` and `_month_boundaries`.
 
 ## Gotchas
-- The data paths at the top of `intraday_breakout_prod.py` and the input, import and output paths in `open_low_meanrev_prod.py` are absolute paths on the data machine, so neither runner works from a clone.
+- The data paths at the top of `intraday_breakout_prod.py` and the import and output paths in `open_low_meanrev_prod.py` are absolute paths on the data machine, so neither runner works from a clone.
 - `intraday_breakout_prod.py` loads the whole date range into memory with no chunking. The engine version fetches month by month.

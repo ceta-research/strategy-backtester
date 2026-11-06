@@ -3,7 +3,7 @@
 Research harnesses (walk-forward, R4 validation, sweeps), result analysis, the audit-drill tools and the live observe tools.
 
 ## Conventions
-- Run every script from the repo root as `.venv/bin/python scripts/<name>.py`. Several shell out to `run.py` by relative path, `backtest_main.py` and `cloud_main*.py` put the working directory on `sys.path`, and most use relative `results/` paths.
+- Run every script from the repo root as `.venv/bin/python scripts/<name>.py`. Several shell out to `run.py` by relative path, `backtest_main.py` and `cloud_main*.py` put the working directory on `sys.path`, and 18 of the 49 use relative `results/` or `strategies/` paths.
 - `--help` is safe only on scripts that use argparse. The rest don't parse it and may start work: `scripts/rebuild_leaderboard.py --help` rewrites `docs/LEADERBOARD.md`.
 - These analysis tools need no key: `analyze_*.py`, `decode_config_id.py`, `optimization_status.py`, `recompute_metrics.py`, `run_ensemble.py`, `audit_sanity_checks.py`, `pattern_queries.py`, `spot_check_audits.py`. All but `decode_config_id.py` read earlier output under `results/`.
 - `decode_config_id.py <config.yaml> <config_id>` maps an id such as `1_1_1_2` in a sweep result back to its parameter values. Runs offline.
