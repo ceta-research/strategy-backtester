@@ -1,7 +1,7 @@
 # Intraday Breakout — Work Tracker
 
 **Started:** 2026-04-29
-**Machine:** swas@80.241.215.48 (prod, 251GB RAM, EPYC)
+**Machine:** the data server (prod, 251GB RAM, EPYC)
 **Workspace:** /home/swas/backtester/
 
 ## Environment Setup

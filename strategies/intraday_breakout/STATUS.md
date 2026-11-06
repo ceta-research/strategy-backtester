@@ -3,7 +3,7 @@
 **Created:** 2026-04-29
 **Status:** ⚠️ AUDIT FAILED 2026-05-01 — STRATEGY DEAD AS BUILT
 **Parent strategy:** eod_breakout (IR hysteresis, Calmar 1.350)
-**Prod workspace:** `swas@80.241.215.48:/home/swas/backtester/`
+**Prod workspace:** `~/backtester/` on the data server
 **Prod runner:** `intraday_breakout_prod.py`
 
 ---
@@ -415,7 +415,7 @@ Adapted from EOD OPTIMIZATION_PROMPT.md. Each round narrows the search space.
 
 ## Execution Environment
 
-**Prod machine:** `swas@80.241.215.48`
+**Prod machine:** the data server
 - CPU: AMD EPYC, RAM: 251GB, Python 3.10, Polars 1.39
 
 **Data paths:**
