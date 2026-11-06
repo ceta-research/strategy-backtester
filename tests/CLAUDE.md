@@ -10,4 +10,4 @@ Unit tests for `engine/` and `lib/`, plus the regression snapshot tool and verif
 ## Writing a test
 
 - Build small polars frames in the test, and never call the API from a new test.
-- `test_signal_audit.py`, `test_determinism.py` and the static half of `test_audit_noninvasive.py` read source text instead of running code. Renaming a function, file or pattern they grep for breaks them, so update the test in the same change.
+- `test_signal_audit.py`, the group_by audit in `test_determinism.py` and the static half of `test_audit_noninvasive.py` read source text instead of running code. Renaming a function, file or pattern they grep for breaks them, so update the test in the same change.

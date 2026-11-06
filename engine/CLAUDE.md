@@ -8,7 +8,7 @@ The backtest pipelines. Strategy logic lives in `signals/` (see `signals/CLAUDE.
 - `config_loader.py`: builds the scanner, entry, exit, simulation and static sections with their defaults. Each scanner, entry, exit and simulation value is a list, and `config_sweep.create_config_iterator` sweeps the Cartesian product. Config ids count from 1, and an empty list raises.
 - `intraday_pipeline.py`: `static.strategy_name` picks the SQL builder (`orb`, `vwap_mr`), and `static.pipeline_version` picks the simulator (default `v2`; `v1` and `intraday_simulator.py` are deprecated).
 - `intraday_breakout_pipeline.py`: `strategy_type: intraday_breakout` configs run only as `.venv/bin/python -m engine.intraday_breakout_pipeline <config.yaml> [--output <json>]` (not run here: needs `CR_API_KEY`). Under `run.py` they fail in `config_loader.validate_config`.
-- `data_provider.py`: YAML selects one of three providers with `static.data_provider`: `cr` (default), `bhavcopy` or `nse_charting`. The parquet and DuckDB providers work only when passed as `run_pipeline(config_path, data_provider=...)`.
+- `data_provider.py`: YAML selects one of three providers with `static.data_provider`: `cr` (default), `bhavcopy` or `nse_charting`. Any other value, `parquet` included, silently runs `cr`. The parquet and DuckDB providers work only when passed as `run_pipeline(config_path, data_provider=...)`.
 
 ## Which code a strategy runs
 
@@ -20,7 +20,7 @@ The backtest pipelines. Strategy logic lives in `signals/` (see `signals/CLAUDE.
 - A new knob defaults to the old behaviour, so existing configs reproduce byte for byte (see the comments in `config_loader.py`). The 2026-10-09 `ranking_nulls_last` flip was a deliberate exception.
 - Pass `maintain_order=True` to every polars `group_by`. `tests/test_determinism.py` scans `engine/*.py` and `engine/signals/*.py` for it.
 - Audit hooks in `scanner.py`, `order_generator.py` and `signals/eod_breakout.py` stay behind an `audit_mode and audit_collector is not None` check (with `self.` inside `OrderGenerationUtil`). `tests/test_audit_noninvasive.py` greps the source for these guards.
-- `tests/test_charges.py` pins every fee constant in `charges.py`. A rate change edits both in the same commit, with a rate-vintage note in the `charges.py` docstring.
+- `tests/test_charges.py` pins every fee constant in `charges.py`. A rate change edits both in the same commit, with a rate-vintage note in the `charges.py` docstring. `prod_runner/` holds hand copies of code from `charges.py`, `internal_regime.py` and `intraday_breakout_pipeline.py` that a change here doesn't reach: see `prod_runner/CLAUDE.md`.
 
 ## Test
 
