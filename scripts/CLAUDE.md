@@ -3,6 +3,7 @@
 Research harnesses (walk-forward, R4 validation, sweeps), result analysis, the audit-drill tools and the live observe tools.
 
 - `portfolio_helper.py` reads holdings from a live Kite brokerage account through `KITE_API_KEY` and `KITE_ACCESS_TOKEN`, and needs `kiteconnect`, which isn't in `requirements.txt`. Never run it from a session.
+- `analyze_feature_pnl.py` puts the absolute path of your clone in the `_Source:` line of `FEATURE_PNL_<strategy>.md`. Make it repo-relative before committing.
 
 ## Conventions
 - Run every script from the repo root as `.venv/bin/python scripts/<name>.py`. Several shell out to `run.py` by relative path, `backtest_main.py` and `cloud_main*.py` put the working directory on `sys.path`, and 18 of the 49 use relative `results/` or `strategies/` paths.
@@ -22,6 +23,5 @@ Research harnesses (walk-forward, R4 validation, sweeps), result analysis, the a
 ## Gotchas
 - `rebuild_leaderboard.py` overwrites all of `docs/LEADERBOARD.md` from result JSONs under `results/`. It drops the hand-written 2026-10-09 re-run banner, and without `results/` every row is `—`. Don't run it to refresh the leaderboard. If you must, restore the banner by hand.
 - `analyze_feature_pnl.py`, `pattern_queries.py`, `audit_sanity_checks.py` and `spot_check_audits.py` write their reports into `docs/inspection/`.
-- `analyze_feature_pnl.py` puts the absolute path of your clone in the `_Source:` line of `FEATURE_PNL_<strategy>.md`. Make it repo-relative before committing.
 - `archive/` is dead code. Several of its scripts import modules that no longer exist, such as `scripts.quality_dip_buy_fundamental`. Don't run them.
 - `quality_dip_buy_lib.py` is a library, not a script; `debug_signal_gen.py` imports it.
