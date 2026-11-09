@@ -1,5 +1,16 @@
 # strategy-backtester
 
+<!-- shared:public-rules v2. Every public repo of ours carries this block word for word; change it in all of them at once, never in one repo alone. -->
+## Rules for every change
+
+- Never commit a secret, an API key, a server address, or anything that isn't meant to be public.
+- Treat the default branch as released code: it can reach users without a further step.
+- No AI attribution anywhere: no Co-Authored-By trailer, no "Generated with Claude Code" line and no session link in commits, PR bodies, issues or comments.
+- One copy of everything. Never copy a block of code: reuse it, or move it into a shared helper. Instructions follow the same rule: each rule lives in one file and other files point to it, so nothing can drift apart. Keep files and functions small.
+- Fix this repo's CLAUDE.md files in passing. When the code contradicts a line, or you had to dig for a fact a session needs, fix the nearest CLAUDE.md, outside this block, in the PR you're on. Write the current fact only, never its history: git keeps that. Add a folder CLAUDE.md only when the folder has facts its parent can't hold in a line or two.
+- Write plainly: short sentences, lead with the point, no em-dash connectors. Code comments are one short line, only where the code needs one.
+<!-- /shared:public-rules -->
+
 ## What this is
 
 A position-level backtester for trading strategies. A YAML config drives a pipeline: fetch data from the Ceta Research API, generate signals, rank orders, simulate the portfolio and write a standard metrics JSON. It runs EOD and intraday strategies. It is for anyone with a Ceta Research API key who wants to run the built-in strategies or add their own signal generators.
@@ -51,16 +62,6 @@ There is no CI: no `.github/workflows/`, Makefile or pyproject. The gate is the 
 
 - No CI runs on a pull request or a merge. A merge to `main` builds and deploys nothing.
 - `run_remote.py` uploads files from the local working tree to a Ceta Research cloud project when it runs (unless `--no-sync`), so a remote run uses your checkout, not `main`.
-
-<!-- shared:public-rules v1. Every public repo of ours carries this block word for word. -->
-## Rules for every change
-
-- No AI attribution: no Co-Authored-By trailer, no "Generated with Claude Code" line and no session link in commits or PR bodies.
-- Never commit a secret, an API key, a server address, or anything that isn't meant to be public.
-- One copy of everything. Never copy a block of code: reuse it, or move it into a shared helper. Instructions follow the same rule: each rule lives in one file and other files point to it. Keep files and functions small.
-- Treat the default branch as released code: it can reach users without a further step.
-- Write plainly: short sentences, lead with the point, no em-dash connectors.
-<!-- /shared:public-rules -->
 
 ## Gotchas
 
