@@ -2,6 +2,8 @@
 
 Research harnesses (walk-forward, R4 validation, sweeps), result analysis, the audit-drill tools and the live observe tools.
 
+- `portfolio_helper.py` reads holdings from a live Kite brokerage account through `KITE_API_KEY` and `KITE_ACCESS_TOKEN`, and needs `kiteconnect`, which isn't in `requirements.txt`. Never run it from a session.
+
 ## Conventions
 - Run every script from the repo root as `.venv/bin/python scripts/<name>.py`. Several shell out to `run.py` by relative path, `backtest_main.py` and `cloud_main*.py` put the working directory on `sys.path`, and 18 of the 49 use relative `results/` or `strategies/` paths.
 - `--help` is safe only on scripts that use argparse. The rest don't parse it and may start work: `scripts/rebuild_leaderboard.py --help` rewrites `docs/LEADERBOARD.md`.
@@ -10,12 +12,11 @@ Research harnesses (walk-forward, R4 validation, sweeps), result analysis, the a
 
 ## Check (from the repo root)
 - `.venv/bin/python -m py_compile scripts/*.py`
-- `.venv/bin/python scripts/<name>.py --help` for the argparse scripts. It works offline for all of them except `portfolio_helper.py`, which exits at import without `kiteconnect` (see below).
+- `.venv/bin/python scripts/<name>.py --help` for the argparse scripts. It works offline for all of them except `portfolio_helper.py`, which exits at import without `kiteconnect` (see above).
 
 ## Live and cloud scripts
 - `eod_breakout_shortlist.py`: observe only, places no orders. Each run appends to an observation log; pass `--no-log` when testing. Not run here: needs `CR_API_KEY`.
 - `live_daily_runner.py`: writes BUY/SELL recommendations from a portfolio JSON; a person places the orders. Not run here: needs `CR_API_KEY`.
-- `portfolio_helper.py` reads holdings from a live Kite brokerage account through `KITE_API_KEY` and `KITE_ACCESS_TOKEN`, and needs `kiteconnect`, which isn't in `requirements.txt`. Never run it from a session.
 - `run_all_cloud.py` and `cloud_sweep.py` upload code to Ceta Research cloud compute and run it there; `cloud_main_eod.py` and `cloud_main.py` are the entry points they upload. Not run here: need `CR_API_KEY` and use that account's cloud compute.
 
 ## Gotchas

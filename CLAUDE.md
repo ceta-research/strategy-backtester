@@ -1,5 +1,9 @@
 # strategy-backtester
 
+## Before you change anything
+
+- Any run that fetches data needs a Ceta Research key: `export CR_API_KEY=...`, or a `CR_API_KEY=...` line in `.env` in the working directory. `.env` holds credentials: never quote it.
+
 <!-- shared:public-rules v2. Every public repo of ours carries this block word for word; change it in all of them at once, never in one repo alone. -->
 ## Rules for every change
 
@@ -42,7 +46,6 @@ python3.12 -m venv .venv
 - `pytest` is not in `requirements.txt`.
 - `.venv/` is not in `.gitignore`. Stage files by name, never with `git add -A` or `git add .`.
 - `polars==1.37.1` in `requirements.txt` must match `DEFAULT_DEPENDENCIES` in `lib/cloud_orchestrator.py`, which sets the packages of the cloud project.
-- Any run that fetches data needs a Ceta Research key: `export CR_API_KEY=...`, or a `CR_API_KEY=...` line in `.env` in the working directory. `.env` holds credentials: never quote it.
 - Without a key you can run the tests, `.venv/bin/python run.py --list` and `.venv/bin/python -m py_compile run.py run_global.py run_remote.py`.
 
 ## Tests and CI gates

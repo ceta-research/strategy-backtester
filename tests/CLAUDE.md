@@ -2,10 +2,11 @@
 
 Unit tests for `engine/` and `lib/`, plus the regression snapshot tool and verification scripts. The suite command, the slow regression and the known failures are in the root CLAUDE.md.
 
+- `verification/` holds cross-checks against other implementations. Neither test runner collects them. Not run here: they need `CR_API_KEY` or code and data outside the repo, and `download_data.py` fetches from the API and writes outside the repo.
+
 ## Layout
 
 - `regression/snapshot.py` pins the summary metrics of a result JSON and diffs a later one. Commands and the re-capture rule: `regression/snapshots/README.md`. The three pins date from 2026-04-22, before the 2026-10-09 ranking default change.
-- `verification/` holds cross-checks against other implementations. Neither test runner collects them. Not run here: they need `CR_API_KEY` or code and data outside the repo, and `download_data.py` fetches from the API and writes outside the repo.
 
 ## Writing a test
 

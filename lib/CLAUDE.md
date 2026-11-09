@@ -2,6 +2,8 @@
 
 Shared modules for `engine/`, `scripts/` and the `run_*.py` entry points.
 
+- `CloudOrchestrator.make_wrapper` writes the API key in plain text into the wrapper script it uploads. Never print, log or save a wrapper.
+
 ## Modules
 
 - `cr_client.py`: the `CetaResearch` client for SQL queries, code execution and cloud projects. It takes the key from the `api_key` argument, then `CR_API_KEY`, then `TS_API_KEY`, then a `CR_API_KEY=` line in `./.env` or `/session/.env`. `CR_BASE_URL` overrides the API host.
@@ -17,5 +19,4 @@ From the repo root: `.venv/bin/python -m pytest tests/test_metrics.py tests/test
 
 ## Gotchas
 
-- `CloudOrchestrator.make_wrapper` writes the API key in plain text into the wrapper script it uploads. Never print, log or save a wrapper.
 - `cr_client` clamps each query's timeout, memory, threads and disk to the key's tier caps, fetched once per client. A larger `cr_api_*` value in a config is cut down with a printed note, and the server rejects values above the caps.
