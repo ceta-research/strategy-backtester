@@ -1,5 +1,17 @@
 # strategy-backtester
 
+## Before you change anything
+
+- Any run that fetches data needs a Ceta Research key: `export CR_API_KEY=...`, or a `CR_API_KEY=...` line in `.env` in the working directory. `.env` holds credentials: never quote it.
+
+<!-- shared:public-rules v3. Every public repo of ours carries this block word for word; change it in all of them at once, never in one repo alone. -->
+## Rules for every change
+
+- Never commit a server address, or anything else that isn't meant to be public.
+- Treat the default branch as released code: it can reach users without a further step.
+- One copy of everything. Never copy a block of code: reuse it, or move it into a shared helper. Instructions follow the same rule: each rule lives in one file and other files point to it, so nothing can drift apart. Keep files and functions small, and write a code comment only where the code needs one.
+<!-- /shared:public-rules -->
+
 ## What this is
 
 A position-level backtester for trading strategies. A YAML config drives a pipeline: fetch data from the Ceta Research API, generate signals, rank orders, simulate the portfolio and write a standard metrics JSON. It runs EOD and intraday strategies. It is for anyone with a Ceta Research API key who wants to run the built-in strategies or add their own signal generators.
@@ -31,7 +43,6 @@ python3.12 -m venv .venv
 - `pytest` is not in `requirements.txt`.
 - `.venv/` is not in `.gitignore`. Stage files by name, never with `git add -A` or `git add .`.
 - `polars==1.37.1` in `requirements.txt` must match `DEFAULT_DEPENDENCIES` in `lib/cloud_orchestrator.py`, which sets the packages of the cloud project.
-- Any run that fetches data needs a Ceta Research key: `export CR_API_KEY=...`, or a `CR_API_KEY=...` line in `.env` in the working directory. `.env` holds credentials: never quote it.
 - Without a key you can run the tests, `.venv/bin/python run.py --list` and `.venv/bin/python -m py_compile run.py run_global.py run_remote.py`.
 
 ## Tests and CI gates
@@ -51,16 +62,6 @@ There is no CI: no `.github/workflows/`, Makefile or pyproject. The gate is the 
 
 - No CI runs on a pull request or a merge. A merge to `main` builds and deploys nothing.
 - `run_remote.py` uploads files from the local working tree to a Ceta Research cloud project when it runs (unless `--no-sync`), so a remote run uses your checkout, not `main`.
-
-<!-- shared:public-rules v1. Every public repo of ours carries this block word for word. -->
-## Rules for every change
-
-- No AI attribution: no Co-Authored-By trailer, no "Generated with Claude Code" line and no session link in commits or PR bodies.
-- Never commit a secret, an API key, a server address, or anything that isn't meant to be public.
-- One copy of everything. Never copy a block of code: reuse it, or move it into a shared helper. Instructions follow the same rule: each rule lives in one file and other files point to it. Keep files and functions small.
-- Treat the default branch as released code: it can reach users without a further step.
-- Write plainly: short sentences, lead with the point, no em-dash connectors.
-<!-- /shared:public-rules -->
 
 ## Gotchas
 
