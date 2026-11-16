@@ -4,13 +4,15 @@
 
 A UI or another tool can build its parameter forms from this instead of keeping
 its own copy. It reads the engine as it is and changes nothing it runs:
-- shared: the static, scanner and simulation sections `load_config` builds for a
-  config that names only a strategy, i.e. every key with its default;
-- strategies: each registered strategy's entry and exit sections, built the same way;
+- shared: the static, scanner and simulation sections `load_config` builds for an
+  empty config, i.e. every key with its default;
+- strategies: each registered strategy's entry and exit sections, built for a
+  config that names only that strategy;
 - champions: each strategies/<name>/config_champion.yaml as `load_config` loads it;
-- options: for each enum param, the values its dispatch code compares it against,
-  plus its default. Keys are `section.param`, or `strategy.section.param` for a
-  param only one strategy reads. A value outside these runs as an unknown value does.
+- options: for each enum param in DISPATCHES, the values its dispatch code compares
+  it against, plus the one its else branch runs; nested like shared and strategies.
+  Any other value runs as that else branch does. String params that aren't options
+  are listed in NOT_OPTIONS.
 """
 
 import ast
@@ -22,7 +24,9 @@ import tempfile
 
 import yaml
 
+import engine.signals  # noqa: F401  (registers every generator)
 from engine.config_loader import load_config
+from engine.signals.base import _STRATEGY_REGISTRY
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SHARED = ("static", "scanner", "simulation")
@@ -31,18 +35,33 @@ OWN = ("entry", "exit")
 
 @dataclasses.dataclass(frozen=True)
 class Dispatch:
-    """Where the engine branches on an enum param: the function and the variable it compares."""
+    """Where the engine branches on an enum param, and what its else branch runs (None: nothing)."""
     path: str
     function: str
     variable: str
+    fallback: str | None = None
 
 
+# (strategy, section, param); strategy None for a shared section.
 DISPATCHES = {
-    "simulation.order_sorting_type": Dispatch("engine/ranking.py", "sort_orders", "order_sorting_type"),
-    "simulation.default_sorting_type": Dispatch("engine/ranking.py", "sort_orders", "default_sorting_type"),
-    "static.data_provider": Dispatch("engine/pipeline.py", "run_pipeline", "provider_type"),
-    "trending_value.entry.rebalance_frequency": Dispatch(
-        "engine/signals/trending_value.py", "compute_rebalance_epochs", "frequency"),
+    (None, "simulation", "order_sorting_type"): Dispatch("engine/ranking.py", "sort_orders", "order_sorting_type"),
+    (None, "simulation", "default_sorting_type"): Dispatch("engine/ranking.py", "sort_orders", "default_sorting_type"),
+    (None, "static", "data_provider"): Dispatch("engine/pipeline.py", "run_pipeline", "provider_type", fallback="cr"),
+    ("trending_value", "entry", "rebalance_frequency"): Dispatch(
+        "engine/signals/trending_value.py", "compute_rebalance_epochs", "frequency", fallback="monthly"),
+}
+
+# String params with no options here, by name, and why.
+NOT_OPTIONS = {
+    "strategy_type": "names the generator; the strategies section lists them",
+    "data_granularity": "stored in the static config; no EOD code branches on it",
+    "regime_instrument": "free text: an instrument such as NSE:NIFTYBEES, or empty",
+    "exit_regime_instrument": "free text: an instrument, or empty",
+    "fundamental_missing_mode": "an enum whose options aren't exported yet",
+    "exit_at": "an enum whose options aren't exported yet",
+    "supertrend_mode": "an enum whose options aren't exported yet",
+    "exit_fill": "an enum whose options aren't exported yet",
+    "stop_mode": "an enum whose options aren't exported yet",
 }
 
 
@@ -65,33 +84,35 @@ def dispatch_options(dispatch):
     fn = next((n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == dispatch.function), None)
     if fn is None:
         raise LookupError(f"{dispatch.path} has no function {dispatch.function}")
-    found = {c.value for n in ast.walk(fn) if isinstance(n, ast.Compare)
-             and isinstance(n.left, ast.Name) and n.left.id == dispatch.variable
-             and all(isinstance(op, ast.Eq) for op in n.ops)
-             for c in n.comparators if isinstance(c, ast.Constant) and isinstance(c.value, str)}
+    found = set()
+    for node in ast.walk(fn):
+        if not (isinstance(node, ast.Compare) and isinstance(node.left, ast.Name)
+                and node.left.id == dispatch.variable and all(isinstance(op, ast.Eq) for op in node.ops)):
+            continue
+        found |= {c.value for c in node.comparators if isinstance(c, ast.Constant) and isinstance(c.value, str)}
     if not found:
         raise LookupError(f"{dispatch.function} in {dispatch.path} compares {dispatch.variable} with no string")
     return found
 
 
-def _default(shared, strategies, key):
-    *owner, section, name = key.split(".")
-    value = (strategies[owner[0]] if owner else shared)[section][name]
-    return value[0] if isinstance(value, list) else value
+def options():
+    out = {"shared": {}, "strategies": {}}
+    for (strategy, section, name), d in DISPATCHES.items():
+        owner = out["shared"] if strategy is None else out["strategies"].setdefault(strategy, {})
+        owner.setdefault(section, {})[name] = sorted(dispatch_options(d) | ({d.fallback} if d.fallback else set()))
+    return out
 
 
 def export():
-    import engine.signals  # noqa: F401  (registers every generator)
-    from engine.signals.base import _STRATEGY_REGISTRY
-
     empty = load_raw({})
-    shared = {s: empty[s] for s in SHARED}
     built = {name: load_raw({"static": {"strategy_type": name}}) for name in sorted(_STRATEGY_REGISTRY)}
-    strategies = {name: {s: cfg[s] for s in OWN} for name, cfg in built.items()}
-    champions = {f.parent.name: sections(load_config(str(f)))
-                 for f in sorted((ROOT / "strategies").glob("*/config_champion.yaml"))}
-    options = {key: sorted(dispatch_options(d) | {_default(shared, strategies, key)}) for key, d in DISPATCHES.items()}
-    return {"shared": shared, "strategies": strategies, "champions": champions, "options": options}
+    return {
+        "shared": {s: empty[s] for s in SHARED},
+        "strategies": {name: {s: cfg[s] for s in OWN} for name, cfg in built.items()},
+        "champions": {f.parent.name: sections(load_config(str(f)))
+                      for f in sorted((ROOT / "strategies").glob("*/config_champion.yaml"))},
+        "options": options(),
+    }
 
 
 def main():
