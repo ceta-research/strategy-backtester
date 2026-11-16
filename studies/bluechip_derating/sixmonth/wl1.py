@@ -1,8 +1,8 @@
 import sys, datetime as dt, statistics as st
 sys.path.insert(0,'lib')
 from cr_client import CetaResearch
-cr=CetaResearch()
 WL=sys.argv[1:] or sys.exit('usage: wl1.py SYMBOL [SYMBOL ...]')
+cr=CetaResearch()
 inl=','.join(f"'{s}'" for s in WL)
 q=f"""
 WITH last AS (SELECT max(date_epoch) t FROM nse.nse_charting_day WHERE symbol='NIFTYBEES'),

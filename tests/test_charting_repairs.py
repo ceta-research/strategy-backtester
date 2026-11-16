@@ -1,7 +1,7 @@
 """Tests for engine/charting_repairs.py on a small synthetic charting frame.
 
-AAA prints a raw 2:1 split, BBB has one stray bar from a second price series, and CCC's
-history has a gap of more than a year (a recycled ticker).
+AAA prints a raw 2:1 split, DDD three stacked splits, BBB and EEE one stray bar each from a
+second price series, and CCC's history has a gap of more than a year (a recycled ticker).
 """
 
 import os
@@ -39,6 +39,7 @@ def _frame():
     rows = _bars("AAA", range(100), [100.0 if d < SPLIT_DAY else 50.0 for d in range(100)])
     rows += _bars("DDD", range(100), _stacked_closes())
     rows += _bars("BBB", range(100), [7.0 if d == STRAY_DAY else 100.0 for d in range(100)])
+    rows += _bars("EEE", range(100), [7.0 if d == STRAY_DAY + 5 else 100.0 for d in range(100)])
     rows += _bars("CCC", list(range(20)) + list(range(420, 440)), [100.0] * 40)
     return pl.DataFrame(rows)
 
@@ -71,7 +72,7 @@ class TestRepair(unittest.TestCase):
         bbb = self.df.filter(pl.col("symbol") == "BBB")
         self.assertEqual(bbb.height, 99)
         self.assertNotIn(7.0, bbb["close"].to_list())
-        self.assertEqual(self.info["dropped"]["symbol"].to_list(), ["BBB"])
+        self.assertEqual(self.info["dropped"]["symbol"].to_list(), ["BBB", "EEE"])
 
     def test_gap_splits_the_symbol(self):
         ccc = self.df.filter(pl.col("symbol").str.starts_with("CCC"))
@@ -88,6 +89,26 @@ class TestRepair(unittest.TestCase):
             shuffled, info = R.repair(df, splits)
             self.assertTrue(shuffled.sort(key).equals(self.df.sort(key)), seed)
             self.assertTrue(info["stitches"].equals(self.info["stitches"]), seed)
+            self.assertTrue(info["dropped"].equals(self.info["dropped"]), seed)
+
+    def test_dropped_rows_come_out_in_symbol_order(self):
+        rows = []
+        for k in range(12):
+            rows += _bars(f"S{k:02d}", range(100), [7.0 if d == 70 + k else 100.0 for d in range(100)])
+        _, dropped = R.drop_interleaved(pl.DataFrame(rows))
+        self.assertEqual(dropped["symbol"].to_list(), [f"S{k:02d}" for k in range(12)])
+
+    def test_back_adjust_ignores_event_order(self):
+        """repair() never shows back_adjust another event order, since detect_raw_events sorts
+        its result, so shuffle the events here. DDD's three ratios multiply to different floats
+        in different orders."""
+        df = _frame()
+        events = R.detect_raw_events(df, _splits())
+        key = ["symbol", "date_epoch"]
+        want = R.back_adjust(df, events).sort(key)
+        for seed in range(20):
+            got = R.back_adjust(df, events.sample(fraction=1.0, shuffle=True, seed=seed)).sort(key)
+            self.assertTrue(got.equals(want), seed)
 
 
 class TestGroupByKeepsOrder(unittest.TestCase):

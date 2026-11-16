@@ -101,7 +101,7 @@ def drop_interleaved(df: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame]:
     quarantined = df.filter(q).select(["symbol", "date_epoch", "close", "volume"])
     df = df.filter(~q)
     r = pl.col("close") / pl.col("close").shift(1).over("symbol")
-    hit = df.filter((r > JUMP) | (r < 1 / JUMP))["symbol"].unique()
+    hit = df.filter((r > JUMP) | (r < 1 / JUMP))["symbol"].unique(maintain_order=True)
     keep_parts, dropped_parts = [df.filter(~pl.col("symbol").is_in(hit))], []
     for sym in hit:
         s = df.filter(pl.col("symbol") == sym)
