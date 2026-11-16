@@ -8,7 +8,8 @@ The backtest pipelines. Strategy logic lives in `signals/` (see `signals/CLAUDE.
 - `config_loader.py`: builds the scanner, entry, exit, simulation and static sections with their defaults. Each scanner, entry, exit and simulation value is a list, and `config_sweep.create_config_iterator` sweeps the Cartesian product. Config ids count from 1, and an empty list raises.
 - `intraday_pipeline.py`: `static.strategy_name` picks the SQL builder (`orb`, `vwap_mr`), and `static.pipeline_version` picks the simulator (default `v2`; `v1` and `intraday_simulator.py` are deprecated).
 - `intraday_breakout_pipeline.py`: `strategy_type: intraday_breakout` configs run only as `.venv/bin/python -m engine.intraday_breakout_pipeline <config.yaml> [--output <json>]` (not run here: needs `CR_API_KEY`). Under `run.py` they fail in `config_loader.validate_config`.
-- `data_provider.py`: YAML selects one of three providers with `static.data_provider`: `cr` (default), `bhavcopy` or `nse_charting`. Any other value, `parquet` included, silently runs `cr`. The parquet and DuckDB providers work only when passed as `run_pipeline(config_path, data_provider=...)`.
+- `data_provider.py`: YAML selects one of four providers with `static.data_provider`: `cr` (default), `bhavcopy`, `nse_charting` or `nse_charting_repaired`. Any other value, `parquet` included, silently runs `cr`. The parquet and DuckDB providers work only when passed as `run_pipeline(config_path, data_provider=...)`.
+- `charting_repairs.py`: the repairs `nse_charting_repaired` applies to `nse_charting_day`: raw and double-adjusted splits, stray second price series, and recycled tickers split at gaps over a year. That provider fetches the whole table and `fmp.splits_calendar` on every call, whatever the config's window.
 
 ## Which code a strategy runs
 

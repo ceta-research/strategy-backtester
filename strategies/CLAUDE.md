@@ -22,6 +22,7 @@ YAML configs for the engine, one folder per active strategy, plus each strategy'
 ## What depends on these files
 - `tests/test_audit_noninvasive.py` (slow, gated) runs `eod_breakout/config_champion.yaml` and `eod_technical/config_champion.yaml`.
 - `eod_breakout/config_champion.yaml` and `config_ir_hyst_best.yaml` hold the same settings; only their comments differ. `config_ir_hyst_live.yaml` differs only in `end_epoch`, a far-future sentinel its header explains. `scripts/eod_breakout_shortlist.py` reads the live file and `scripts/live_daily_runner.py` defaults to the best file. Change all three together.
+- `momentum_cascade/config_live.yaml` is what `scripts/momentum_cascade_daily.py` runs. Its header lists how it differs from `config_champion.yaml`.
 
 ## Gotchas
 - Outside `experiments/`, every number in config header comments, `OPTIMIZATION.md` files and the queue predates the 2026-10-09 ranking fix. Example: `eod_breakout/config_champion.yaml` says CAGR 22.26%; the re-run in `docs/LEADERBOARD.md` gives 17.37%.
