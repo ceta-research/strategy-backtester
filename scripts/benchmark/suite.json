@@ -1,0 +1,34 @@
+{
+ "low_pe": {
+  "10": {"entry.pe_max": [8, 12], "exit.stop_loss_pct": [0.05, 0.08, 0.1, 0.15, 0.2]},
+  "50": {"entry.pe_max": [6, 8, 10, 12, 15], "exit.stop_loss_pct": [0.04, 0.06, 0.08, 0.1, 0.12, 0.14, 0.16, 0.18, 0.2, 0.25]}
+ },
+ "trending_value": {
+  "10": {"entry.top_n_stocks": [50, 75], "exit.trailing_stop_pct": [10, 15, 20, 25, 30]},
+  "50": {"entry.top_n_stocks": [25, 50, 75, 90, 100], "exit.trailing_stop_pct": [5, 10, 15, 20, 25, 30, 35, 40, 45, 50]}
+ },
+ "factor_composite": {
+  "10": {"entry.top_n_stocks": [20, 30], "exit.stop_loss_pct": [0.1, 0.2, 0.3, 0.4, 0.5]},
+  "50": {"entry.top_n_stocks": [10, 20, 30, 40, 50], "exit.stop_loss_pct": [0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5]}
+ },
+ "quality_dip_tiered": {
+  "10": {"entry.base_dip_threshold_pct": [4, 6], "exit.trailing_stop_pct": [6, 8, 10, 12, 15]},
+  "50": {"entry.base_dip_threshold_pct": [3, 4, 6, 8, 10], "exit.trailing_stop_pct": [4, 6, 8, 10, 12, 14, 16, 18, 20, 25]}
+ },
+ "eod_breakout": {
+  "10": {"entry.n_day_high": [3, 5], "exit.trailing_stop_pct": [4, 6, 8, 10, 12]},
+  "50": {"entry.n_day_high": [2, 3, 5, 7, 10], "exit.trailing_stop_pct": [3, 4, 5, 6, 8, 10, 12, 14, 16, 20]}
+ },
+ "eod_technical": {
+  "10": {"entry.n_day_high": [3, 5], "exit.trailing_stop_pct": [6, 8, 10, 12, 15]},
+  "50": {"entry.n_day_high": [3, 5, 7, 10, 15], "exit.trailing_stop_pct": [4, 6, 8, 10, 12, 14, 16, 18, 20, 25]}
+ },
+ "momentum_cascade": {
+  "10": {"entry.accel_threshold_pct": [10, 15], "exit.trailing_stop_pct": [10, 12, 15, 18, 20]},
+  "50": {"entry.accel_threshold_pct": [5, 10, 15, 20, 25], "exit.trailing_stop_pct": [8, 10, 12, 14, 15, 16, 18, 20, 22, 25]}
+ },
+ "enhanced_breakout": {
+  "10": {"entry.breakout_window": [5, 10], "exit.trailing_stop_pct": [10, 14, 18, 22, 26]},
+  "50": {"entry.breakout_window": [3, 5, 10, 20, 40], "exit.trailing_stop_pct": [10, 12, 14, 16, 18, 20, 22, 24, 26, 30]}
+ }
+}
