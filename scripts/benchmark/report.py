@@ -88,9 +88,13 @@ def breaches(records, platform):
         for cap, label in ((box["timeout_s"], "default timeout"), (box["max_timeout_s"], "max timeout")):
             if r["wall_seconds"] > cap:
                 found.append(f"{where}: {r['wall_seconds']} s above the {cap} s {label}")
+        over = {}
         for tier, cap in platform.get("possible_container_timeouts", {}).items():
             if r["wall_seconds"] > cap:
-                found.append(f"{where}: {r['wall_seconds']} s above {cap} s ({tier}, if that cap is live)")
+                over.setdefault(cap, []).append(tier)
+        if over:
+            caps = "; ".join(f"{', '.join(tiers)} {cap} s" for cap, tiers in sorted(over.items()))
+            found.append(f"{where}: {r['wall_seconds']} s above {caps} (if those caps are live)")
         if r.get("result_bytes", 0) > box["disk_gb"] * 1024 ** 3:
             found.append(f"{where}: result.json {r['result_bytes']:,} B above the {box['disk_gb']} GB disk")
         if r.get("empty_configs"):

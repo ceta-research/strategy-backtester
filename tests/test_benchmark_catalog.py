@@ -284,6 +284,12 @@ def test_child_main_runs_the_hosted_steps_end_to_end(tmp_path, monkeypatch):
     assert not hasattr(CetaResearch.query, "__wrapped__")  # the child took its hooks off
 
 
+def test_environment_without_proc(monkeypatch):
+    monkeypatch.setattr(child, "_read", lambda path: "")
+    env = child.environment()
+    assert env["cpu_model"] == "" and env["loadavg"] == [] and env["packages"]["polars"] == env["polars"]
+
+
 # --- run validity --------------------------------------------------------------
 
 def test_problems_mark_a_run_that_cannot_stand_as_a_pass():
@@ -399,7 +405,8 @@ def test_breaches():
     assert "low_pe 1" in text and "above the 4 GiB request" in text
     assert "near 1" in text and "within 0.3 GiB" in text
     assert "eod_breakout 1" in text and "small query caps" in text and "not a pass: query failed" in text
-    assert "slow 1" in text and "above the 500 s default timeout" in text and "above 60 s (big" in text
+    assert "slow 1" in text and "above the 500 s default timeout" in text
+    assert "700 s above small 30 s; big 60 s (if those caps are live)" in text
     assert "3 of 10 configs had no orders" in text
     assert "none: every strategy: refused at submit" in text
 

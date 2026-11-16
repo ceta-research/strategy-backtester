@@ -203,13 +203,22 @@ def resource_limits():
     return body.get("userTier"), body.get("allTierLimits") or {}, urlparse(client.base_url).netloc
 
 
+def _read(path):
+    try:
+        with open(path) as f:
+            return f.read()
+    except OSError:  # no /proc off Linux
+        return ""
+
+
 def environment():
     from importlib.metadata import version
     import polars as pl
     packages = {p: version(p) for p in ("polars", "pandas", "numpy", "pyarrow", "scikit-learn")}
-    cpu = next((line.split(":", 1)[1].strip() for line in open("/proc/cpuinfo") if line.startswith("model name")), "")
+    cpu = next((line.split(":", 1)[1].strip() for line in _read("/proc/cpuinfo").splitlines()
+                if line.startswith("model name")), "")
     return {"python": sys.version.split()[0], "polars": pl.__version__, "packages": packages, "cpu_model": cpu,
-            "polars_threads": pl.thread_pool_size(), "loadavg": open("/proc/loadavg").read().split()[:3],
+            "polars_threads": pl.thread_pool_size(), "loadavg": _read("/proc/loadavg").split()[:3],
             "cpus_seen": len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else os.cpu_count()}
 
 
