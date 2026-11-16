@@ -53,10 +53,10 @@ def sections(cfg):
 
 def load_raw(raw):
     """`load_config` on a config given as a dict."""
-    with tempfile.NamedTemporaryFile("w", suffix=".yaml") as f:
-        yaml.safe_dump(raw, f)
-        f.flush()
-        return sections(load_config(f.name))
+    with tempfile.TemporaryDirectory() as tmp:
+        path = pathlib.Path(tmp) / "config.yaml"
+        path.write_text(yaml.safe_dump(raw))
+        return sections(load_config(str(path)))
 
 
 def dispatch_options(dispatch):
