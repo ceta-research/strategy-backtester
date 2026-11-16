@@ -29,10 +29,10 @@ from tests.test_pipeline import MINIMAL_CONFIG, make_deterministic_data  # noqa:
 
 LINUX = sys.platform.startswith("linux")
 TIERS = {
-    "small": {"maxMemory": 1000, "maxThreads": 2, "maxDisk": 5000, "maxExecutionTimeout": 100,
-              "defaultMemory": 1000, "defaultThreads": 2, "defaultDisk": 2000, "defaultExecutionTimeout": 100},
-    "big": {"maxMemory": 16000, "maxThreads": 6, "maxDisk": 40000, "maxExecutionTimeout": 600,
-            "defaultMemory": 6000, "defaultThreads": 3, "defaultDisk": 8192, "defaultExecutionTimeout": 180},
+    "small": {"maxMemory": 1000, "maxThreads": 5, "maxDisk": 5000, "maxExecutionTimeout": 100,
+              "defaultMemory": 1000, "defaultThreads": 5, "defaultDisk": 2000, "defaultExecutionTimeout": 100},
+    "big": {"maxMemory": 16000, "maxThreads": 8, "maxDisk": 40000, "maxExecutionTimeout": 500,
+            "defaultMemory": 6000, "defaultThreads": 4, "defaultDisk": 8000, "defaultExecutionTimeout": 200},
 }
 TWO_EXITS = MINIMAL_CONFIG.replace("trailing_stop_pct: [10]", "trailing_stop_pct: [5, 10]")
 
@@ -95,7 +95,7 @@ def test_submit_capture_records_sent_resources():
         c._submit("SELECT 1", timeout=600, limit=10, format="parquet", memory_mb=16000, threads=6)
     finally:
         undo()
-    assert rec.last_body["resources"] == {"executionTimeoutSeconds": 600, "memoryMb": 16000, "threads": 6}
+    assert rec.last_body["resources"] == {"executionTimeoutSeconds": 500, "memoryMb": 16000, "threads": 6}
     assert submitted_body(c) is rec.last_body
 
 
@@ -108,7 +108,7 @@ def test_query_tier_clamps_and_fills_omitted_knobs_in_the_body_sent():
     finally:
         undo()
     assert submitted_body(c)["resources"] == {
-        "executionTimeoutSeconds": 100, "memoryMb": 1000, "threads": 2, "diskMb": 2000}
+        "executionTimeoutSeconds": 100, "memoryMb": 1000, "threads": 5, "diskMb": 2000}
     assert "post" not in vars(c.session)  # the capture came off the session
 
 
@@ -252,7 +252,7 @@ def test_hooks_leave_the_result_byte_identical(tmp_path):
     assert (tmp_path / "plain.json").read_bytes() == (tmp_path / "hooked.json").read_bytes()
 
 
-def test_child_main_runs_the_hosted_steps_end_to_end(tmp_path, monkeypatch):
+def _child_main(tmp_path, monkeypatch, *extra):
     """run.main -> NseChartingDataProvider -> CetaResearch.query, with only the HTTP calls stubbed."""
     df = make_deterministic_data().select(["symbol", "date_epoch", "open", "high", "low", "close",
                                            "average_price", "volume"])
@@ -270,18 +270,31 @@ def test_child_main_runs_the_hosted_steps_end_to_end(tmp_path, monkeypatch):
     cfg, limits, out = tmp_path / "config.json", tmp_path / "limits.json", tmp_path / "run"
     cfg.write_text(json.dumps(config))
     limits.write_text(json.dumps({"userTier": "big", "allTierLimits": TIERS}))
-    child.main([str(cfg), str(out), "--limits", str(limits)])
+    child.main([str(cfg), str(out), "--limits", str(limits), *extra])
     got = json.loads((out / "stages.json").read_text())
     assert (out / "result.json").exists() and got["error"] is None
+    assert got["queries"][0]["rows"] == df.height and got["queries"][0]["ok"]
+    assert not hasattr(CetaResearch.query, "__wrapped__")  # the child took its hooks off
+    return got
+
+
+def test_child_main_runs_the_hosted_steps_end_to_end(tmp_path, monkeypatch):
+    got = _child_main(tmp_path, monkeypatch)
     assert got["user_tier"] == "big" and got["query_tier"] == "big" and got["tier_limits"] == TIERS
     q = got["queries"][0]
-    assert q["table"] == "nse.nse_charting_day" and q["rows"] == df.height and q["ok"]
-    assert q["resources"] == {"executionTimeoutSeconds": 600, "memoryMb": 16000, "threads": 6}
+    assert q["table"] == "nse.nse_charting_day"
+    assert q["resources"] == {"executionTimeoutSeconds": 500, "memoryMb": 16000, "threads": 6}
     counts = stages.summarize(got["events"], wall=10)["stage_counts"]
     assert counts == {"query": 1, "fetch_ohlcv": 1, "generate_orders": 1, "stats": 1, "rank": 2, "simulate": 2,
                       "save": 1}
     assert got["empty_orders"] == 0
-    assert not hasattr(CetaResearch.query, "__wrapped__")  # the child took its hooks off
+
+
+def test_child_main_asks_for_the_query_tiers_caps(tmp_path, monkeypatch):
+    got = _child_main(tmp_path, monkeypatch, "--query-tier", "small")
+    assert got["user_tier"] == "big" and got["query_tier"] == "small"
+    assert got["queries"][0]["resources"] == {
+        "executionTimeoutSeconds": 100, "memoryMb": 1000, "threads": 5, "diskMb": 2000}
 
 
 def test_environment_without_proc(monkeypatch):
@@ -293,7 +306,7 @@ def test_environment_without_proc(monkeypatch):
 # --- run validity --------------------------------------------------------------
 
 def _ran(**over):
-    counts = {"simulate": 2, "fetch_ohlcv": 1, "generate_orders": 1, "stats": 1, "save": 1}
+    counts = {"simulate": 2, "query": 1, "fetch_ohlcv": 1, "generate_orders": 1, "stats": 1, "save": 1}
     return {"exit": 0, "timed_out": False, "configs": 2, "stage_counts": counts,
             "queries": [{"table": "t", "ok": True, "error": None}], **over}
 
@@ -305,8 +318,11 @@ def test_problems_mark_a_run_that_cannot_stand_as_a_pass():
     assert cli.problems(_ran(), result_exists=False) == ["no result.json"]
     assert cli.problems(_ran(stage_counts={"simulate": 1}), True) == ["simulated 1 of 2 configs"]
     assert cli.problems(_ran(exit=-9, timed_out=True), True) == ["exit -9, timed out"]
-    unhooked = _ran(stage_counts={"simulate": 2, "generate_orders": 1, "stats": 1, "save": 1})
+    unhooked = _ran(stage_counts={"simulate": 2, "query": 1, "generate_orders": 1, "stats": 1, "save": 1})
     assert cli.problems(unhooked, True) == ["no fetch_ohlcv span: a hook didn't fire"]
+    no_query = _ran(queries=[], stage_counts={"simulate": 2, "fetch_ohlcv": 1, "generate_orders": 1, "stats": 1,
+                                              "save": 1})
+    assert cli.problems(no_query, True) == ["no query span: a hook didn't fire"]
 
 
 def test_hosted_env_is_built_not_inherited(monkeypatch):
@@ -330,6 +346,86 @@ def test_child_cmd_passes_limits_tier_and_row_cap():
         "c.json", "out", "--limits", "l.json"]
     assert cli.child_cmd("c.json", "out", "l.json", Args(query_tier="small", row_cap=100))[2:] == [
         "c.json", "out", "--limits", "l.json", "--query-tier", "small", "--row-cap", "100"]
+
+
+def test_default_tag():
+    assert cli.default_tag(Args(query_tier="small", cpus="0-3")) == "tier"
+    assert cli.default_tag(Args(query_tier=None, cpus="all")) == "unpinned"
+    assert cli.default_tag(Args(query_tier=None, cpus="0-3")) == "main"
+
+
+def _run_args(tmp_path, **over):
+    base = dict(cases="low_pe,trending_value", sizes="1,10", cpus="0-3", query_tier=None, row_cap=None, tag="main",
+                image="plain process", out=str(tmp_path / "runs.jsonl"), hours="4-23", timeout=60,
+                container={"cpu": 2})
+    return Args(**{**base, **over})
+
+
+def _fake_runs(monkeypatch, dirty=False):
+    calls = []
+
+    def run_one(name, case, size, args):
+        calls.append((name, size))
+        return {"case": name, "size": size, "tag": args.tag, "cpus": args.cpus, "query_tier_asked": args.query_tier,
+                "engine_commit": args.engine_commit, "engine_dirty": args.engine_dirty, "image": args.image,
+                "configs": int(size), "start_utc": "2026-11-16T12:00:00Z", "exit": 0, "wall_seconds": 1.0,
+                "peak_pss_gib": 1.0, "fetch_seconds": 0.1, "signal_seconds": 0.1, "simulation_seconds": 0.1,
+                "problems": []}
+    monkeypatch.setattr(cli, "run_one", run_one)
+    monkeypatch.setattr(cli, "engine_commit", lambda: ("abc1234", dirty))
+    monkeypatch.setattr(cli.cases, "in_window", lambda now, hours: True)
+    return calls
+
+
+def test_cmd_run_goes_size_by_size_then_resumes(tmp_path, monkeypatch):
+    calls = _fake_runs(monkeypatch)
+    cli.cmd_run(_run_args(tmp_path))
+    assert calls == [("low_pe", "1"), ("trending_value", "1"), ("low_pe", "10"), ("trending_value", "10")]
+    assert len(cli.recorded(str(tmp_path / "runs.jsonl"))) == 4
+    calls.clear()
+    cli.cmd_run(_run_args(tmp_path))
+    assert calls == []  # every pair already recorded as a pass for this engine
+    cli.cmd_run(_run_args(tmp_path, cpus="all", tag="unpinned"))
+    assert len(calls) == 4  # another CPU shape is another run
+
+
+def test_cmd_run_never_counts_a_dirty_engine_run_as_done(tmp_path, monkeypatch):
+    calls = _fake_runs(monkeypatch, dirty=True)
+    cli.cmd_run(_run_args(tmp_path))
+    cli.cmd_run(_run_args(tmp_path))
+    assert len(calls) == 8
+
+
+def test_cmd_run_stops_outside_the_window_and_under_a_held_lock(tmp_path, monkeypatch):
+    import fcntl
+    calls = _fake_runs(monkeypatch)
+    monkeypatch.setattr(cli.cases, "in_window", lambda now, hours: False)
+    with pytest.raises(SystemExit, match="Outside 4-23 UTC"):
+        cli.cmd_run(_run_args(tmp_path))
+    assert calls == []
+    with open(str(tmp_path / "runs.jsonl") + ".lock", "w") as held:
+        fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with pytest.raises(SystemExit, match="Another run holds"):
+            cli.cmd_run(_run_args(tmp_path))
+
+
+def test_make_record_carries_the_environment_and_validity(tmp_path):
+    (tmp_path / "result.json").write_text("{}")
+    args = _run_args(tmp_path, engine_commit="abc1234", engine_dirty=False, container={"cpu": 2, "ram_gb": 4})
+    m = {"start": 0, "end": 10, "exit": 0, "timed_out": False, "wall_seconds": 10.0, "peak_pss_gib": 1.5,
+         "maxrss_gib": 1.4, "samples": [(5.0, 100)]}
+    ev = lambda stage, t0, t1: {"stage": stage, "t0": t0, "t1": t1, "exclusive": t1 - t0}  # noqa: E731
+    child_out = {"events": [ev("query", 0, 1), ev("fetch_ohlcv", 1, 2), ev("generate_orders", 2, 3), ev("stats", 3, 4),
+                            ev("rank", 4, 5), ev("simulate", 5, 6), ev("save", 6, 7)],
+                 "queries": [{"table": "t", "ok": True, "error": None}], "empty_orders": 0, "python": "3.13",
+                 "packages": {"polars": "1"}, "cpu_model": "x", "loadavg": ["1.0", "1.0", "1.0"], "polars_threads": 2,
+                 "cpus_seen": 2, "user_tier": "big", "query_tier": "big", "tier_limits": TIERS, "error": None}
+    rec = cli.make_record("low_pe", "1", 1, args, m, child_out, str(tmp_path), "api.example")
+    assert rec["problems"] == [] and rec["empty_configs"] == 0 and rec["result_bytes"] == 2
+    assert rec["packages"] == {"polars": "1"} and rec["cpu_model"] == "x" and rec["loadavg"] == ["1.0", "1.0", "1.0"]
+    assert rec["cpus"] == "0-3" and rec["container"] == {"cpu": 2, "ram_gb": 4} and rec["api_host"] == "api.example"
+    assert rec["engine_commit"] == "abc1234" and rec["stage_peaks_kib"] == {"simulation": 100}
+    assert cli.record_key(rec) == cli.run_key("abc1234", "plain process", "low_pe", "1", "main", "0-3", None)
 
 
 def test_the_resume_key_includes_the_engine_and_matches_a_record():
@@ -404,7 +500,8 @@ def _record(case="low_pe", size="1", tier="big", wall=40.0, peak=3.5, fetch=20.0
             "problems": [] if ok else ["query failed: t"], "wall_seconds": wall, "peak_pss_gib": peak,
             "fetch_seconds": fetch, "signal_seconds": 5.0, "simulation_seconds": 10.0, "result_bytes": 1000,
             "start_utc": "2026-11-16T12:00:00Z", "tier_limits": TIERS, "empty_configs": 0, "cpus": "0-3",
-            "engine_commit": engine, "image": "plain process", "python": "3.13", "packages": {"polars": "1"},
+            "engine_commit": engine, "engine_dirty": False, "image": "plain process", "python": "3.13",
+            "packages": {"polars": "1"},
             "user_tier": "big", "polars_threads": 4, "cpu_model": "x", "api_host": "h",
             "queries": [{"table": "nse.nse_charting_day", "rows": 6_000_000, "cut": False, "ok": ok, "error": None,
                          "server_seconds": server, "resources": {"memoryMb": 16000, "threads": 6}}]}
@@ -416,12 +513,12 @@ def test_container_credits_by_hand():
 
 
 def test_query_credits_by_hand():
-    # ceil(9.2) = 10 s x (6 threads x 0.01 + 15.625 GB x 0.001 + 8 GB default disk x 0.0001) = 10 x 0.076425
+    # ceil(9.2) = 10 s x (6 threads x 0.01 + 15.625 GB x 0.001 + 7.8125 GB default disk x 0.0001) = 10 x 0.07640625
     low, high = report.query_credits({"server_seconds": 9.2, "resources": {"memoryMb": 16000, "threads": 6}},
                                      TIERS["big"], PLATFORM)
-    assert low == pytest.approx(0.76425)
-    assert high == pytest.approx(0.76425 + 6 * 10 * 0.01)  # every thread busy for the whole 10 s
-    # the minimum wraps the whole sum: 1 s x (2 x 0.01 + ~0.98 GB x 0.001 + ~1.95 GB x 0.0001) < 0.5
+    assert low == pytest.approx(0.7640625)
+    assert high == pytest.approx(0.7640625 + 6 * 10 * 0.01)  # every thread busy for the whole 10 s
+    # the minimum wraps the whole sum: 1 s x (5 x 0.01 + ~0.98 GB x 0.001 + ~1.95 GB x 0.0001), plus 0.05, < 0.5
     assert report.query_credits({"server_seconds": 0.2, "resources": {}}, TIERS["small"], PLATFORM) == (0.5, 0.5)
 
 
@@ -479,6 +576,12 @@ def test_markdown_has_a_row_per_size_and_marks_invalid_runs():
     assert "NOT A PASS" in rows[1] and rows[1].endswith("n/a | n/a |")
     assert md.startswith("Runs: ") and "Cap breaches" in md
     assert len(table.splitlines()[2].split("|")) == len(table.splitlines()[3].split("|"))  # header matches rule
+
+
+def test_markdown_for_an_engine_with_no_main_runs():
+    md = report.markdown([_record(tier="small"), dict(_record(engine="def5678"), engine_dirty=True)], PLATFORM)
+    assert "No main runs for this engine" in md.split("## Engine def5678")[0]
+    assert "def5678 with uncommitted changes" in md
 
 
 def test_markdown_keeps_two_engines_apart():

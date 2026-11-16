@@ -28,7 +28,7 @@ from scripts.benchmark import cases, measure, report, stages  # noqa: E402
 
 CHILD = os.path.join(ROOT, "scripts", "benchmark", "child.py")
 ENGINE_PATHS = ["engine", "lib", "run.py", "requirements.txt"]
-HOOKED = ("fetch_ohlcv", "generate_orders", "stats", "save")  # each fires once in every run that simulates
+HOOKED = ("query", "fetch_ohlcv", "generate_orders", "stats", "save")  # each fires in every run that simulates
 
 
 def hosted_env(run_dir, container_cpus):
@@ -160,7 +160,8 @@ def cmd_run(args):
     except BlockingIOError:
         sys.exit(f"Another run holds {args.out}.lock")
     args.engine_commit, args.engine_dirty = engine_commit()
-    done = {record_key(r) for r in recorded(args.out) if report.passed(r)}
+    # a run on uncommitted engine changes never counts as done: its commit doesn't name the code it ran
+    done = {record_key(r) for r in recorded(args.out) if report.passed(r) and not r["engine_dirty"]}
     for size in args.sizes.split(","):
         for name in names:
             if run_key(args.engine_commit, args.image, name, size, args.tag, args.cpus, args.query_tier) in done:
@@ -176,6 +177,12 @@ def cmd_run(args):
                   f"fetch {rec['fetch_seconds']:.1f} / signal {rec['signal_seconds']:.1f} / "
                   f"sim {rec['simulation_seconds']:.1f} s"
                   + (f" NOT A PASS: {'; '.join(rec['problems'])}" if rec["problems"] else ""), flush=True)
+
+
+def default_tag(args):
+    if args.query_tier:
+        return "tier"
+    return "unpinned" if args.cpus == "all" else "main"
 
 
 def load_platform(path):
@@ -200,7 +207,8 @@ def main():
     r.add_argument("--query-tier", help="ask every data query for this tier's caps and defaults")
     r.add_argument("--row-cap", type=int, help="the key's row cap, when it has one: a query returning this "
                                                "many rows is recorded as cut")
-    r.add_argument("--tag", help="a label for the runs (default: main, or tier with --query-tier)")
+    r.add_argument("--tag", help="a label for the runs (default: tier with --query-tier, unpinned with "
+                                 "--cpus all, else main; the report's tables show main)")
     r.add_argument("--image", default="plain process", help="what the runs ran in, for the record")
     r.add_argument("--out", default=os.path.join(ROOT, "results", "benchmark", "runs.jsonl"),
                    help="the JSON-lines file runs append to; run folders go beside it")
@@ -211,7 +219,7 @@ def main():
     p.add_argument("--platform", required=True, help="the platform file: container shape, rates and caps")
     args = ap.parse_args()
     if args.command == "run":
-        args.tag = args.tag or ("tier" if args.query_tier else "main")
+        args.tag = args.tag or default_tag(args)
         args.container = load_platform(args.platform)["container"]
         cmd_run(args)
     else:

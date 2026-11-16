@@ -151,7 +151,8 @@ def strategy_table(case, records, by_tier, platform):
 
 def header(records):
     """What every row shares, said once: where and how the runs were made."""
-    fields = {"engine_commit": lambda r: r["engine_commit"], "image": lambda r: r["image"],
+    fields = {"engine_commit": lambda r: r["engine_commit"] + (" with uncommitted changes" if r["engine_dirty"] else ""),
+              "image": lambda r: r["image"],
               "python": lambda r: r["python"], "polars": lambda r: (r.get("packages") or {}).get("polars"),
               "user_tier": lambda r: r["user_tier"], "cpus": lambda r: r["cpus"],
               "polars_threads": lambda r: r["polars_threads"], "cpu_model": lambda r: r["cpu_model"],
@@ -171,8 +172,10 @@ def engine_section(records, platform):
     by_tier = tier_records(records)
     main = [r for r in records if r["tag"] == "main"]
     cases = list(dict.fromkeys(r["case"] for r in main))
-    parts = [header(main)] + [strategy_table(c, [r for r in main if r["case"] == c], by_tier, platform)
-                              for c in cases]
+    parts = [header(main or records)] + [strategy_table(c, [r for r in main if r["case"] == c], by_tier, platform)
+                                         for c in cases]
+    if not main:
+        parts.append("No main runs for this engine, so no per-strategy tables.")
     parts.append("### Cap breaches\n\n" + "\n".join(f"- {b}" for b in breaches(records, platform)))
     return "\n\n".join(parts)
 
