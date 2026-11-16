@@ -5,8 +5,11 @@ Each run goes through the hosted backtest wrapper's steps (scripts/benchmark/chi
 
 Run from the repo root, with CR_API_KEY (and CR_BASE_URL if not the default host) in the environment:
   python scripts/benchmark_catalog.py run [--cases low_pe,eod_breakout] [--sizes 1,10,50] [--cpus 0-3|all]
-      [--query-tier basic] [--tag main] [--image DIGEST] [--out results/benchmark/runs.jsonl]
-  python scripts/benchmark_catalog.py report results/benchmark/runs.jsonl --platform platform.json
+      [--query-tier basic] [--tag main] [--image DIGEST] [--out results/benchmark/runs.jsonl] --platform FILE
+  python scripts/benchmark_catalog.py report results/benchmark/runs.jsonl --platform FILE
+
+The platform file (fields in scripts/benchmark/report.py) holds the container a hosted run requests and
+the platform's rates and caps; it stays outside the repo.
 
 `run` goes size by size (every case at 1, then 10, then 50), skips a run already recorded as valid in
 --out, starts one only inside --hours (UTC, default 4-23, none in the last 30 minutes) and kills one
@@ -30,14 +33,12 @@ from scripts.benchmark import cases, measure, report, stages  # noqa: E402
 
 CHILD = os.path.join(ROOT, "scripts", "benchmark", "child.py")
 ENGINE_PATHS = ["engine", "lib", "run.py", "requirements.txt"]
-CONTAINER_CPUS = "4"  # the hosted run's request; the executor sets its BLAS and OpenMP threads to it
-
-
-def hosted_env(run_dir):
-    """What the hosted executor passes its subprocess: a fixed set, plus the CR_ and TS_ variables."""
+def hosted_env(run_dir, container_cpus):
+    """What the hosted executor passes its subprocess: a fixed set, with BLAS and OpenMP threads set to
+    the container's CPU count, plus the CR_ and TS_ variables."""
     env = {"PATH": f"{os.path.dirname(sys.executable)}:/usr/local/bin:/usr/bin:/bin", "HOME": run_dir,
            "PYTHONUNBUFFERED": "1", "MPLBACKEND": "Agg", "OUTPUT_DIR": run_dir,
-           **{k: CONTAINER_CPUS for k in ("OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "OMP_NUM_THREADS")}}
+           **{k: str(container_cpus) for k in ("OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "OMP_NUM_THREADS")}}
     env.update({k: v for k, v in os.environ.items() if k.startswith(("CR_", "TS_"))})
     return env
 
@@ -75,6 +76,7 @@ def make_record(name, size, configs, args, m, child_out, run_dir):
     events = child_out.get("events", [])
     rec = {
         "case": name, "size": size, "configs": configs, "tag": args.tag, "query_tier_asked": args.query_tier,
+        "container": args.container,
         "start_utc": utc(m["start"]),
         "end_utc": utc(m["end"]), "exit": m["exit"], "timed_out": m["timed_out"], "wall_seconds": m["wall_seconds"],
         "peak_pss_gib": m["peak_pss_gib"], "maxrss_gib": m["maxrss_gib"], "cpus": m["cpus"],
@@ -105,7 +107,8 @@ def run_one(name, case, size, args):
         json.dump(config, f, indent=1)
     cmd = [sys.executable, CHILD, config_path, run_dir] + (["--query-tier", args.query_tier] if args.query_tier else [])
     with open(os.path.join(run_dir, "run.log"), "w") as log:
-        m = measure.measure(cmd, cpus=None if args.cpus == "all" else args.cpus, env=hosted_env(run_dir),
+        m = measure.measure(cmd, cpus=None if args.cpus == "all" else args.cpus,
+                            env=hosted_env(run_dir, args.container["cpu"]),
                             timeout=args.timeout, stdout=log, cwd=run_dir)
     with open(os.path.join(run_dir, "samples.json"), "w") as f:
         json.dump(m["samples"], f)
@@ -149,12 +152,15 @@ def cmd_run(args):
                   + ("" if rec["valid"] else f" INVALID: {'; '.join(rec['problems'])}"), flush=True)
 
 
+def load_platform(path):
+    with open(path) as f:
+        return json.load(f)
+
+
 def cmd_report(args):
     with open(args.runs) as f:
         records = [json.loads(line) for line in f if line.strip()]
-    with open(args.platform) as f:
-        platform = json.load(f)
-    print(report.markdown(records, platform), end="")
+    print(report.markdown(records, load_platform(args.platform)), end="")
 
 
 def main():
@@ -170,12 +176,14 @@ def main():
     r.add_argument("--out", default=os.path.join(ROOT, "results", "benchmark", "runs.jsonl"))
     r.add_argument("--hours", default="4-23")
     r.add_argument("--timeout", type=int, default=3660)
+    r.add_argument("--platform", required=True)
     p = sub.add_parser("report")
     p.add_argument("runs")
     p.add_argument("--platform", required=True)
     args = ap.parse_args()
     if args.command == "run":
         args.tag = args.tag or ("tier" if args.query_tier else "main")
+        args.container = load_platform(args.platform)["container"]
         cmd_run(args)
     else:
         cmd_report(args)

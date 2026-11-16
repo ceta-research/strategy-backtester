@@ -1,15 +1,30 @@
 """Turn benchmark run records into markdown tables, cap breaches and credit estimates.
 
-The platform file (passed to `report --platform`) holds what the engine repo doesn't: the container a
-hosted run requests, compute and query rates, which tiers can run, and container timeouts to check:
+The platform file (passed with --platform) holds what the engine repo doesn't: the container a hosted
+run requests, compute and query rates, which tiers can run, and the container caps to check:
 {"container": {"cpu", "ram_gb", "disk_gb", "timeout_s", "max_timeout_s"},
  "container_rates": {"cpu", "ram_gb", "disk_gb"},
  "query_rates": {"thread", "ram_gb", "disk_gb", "cpu", "minimum"},
- "paid_tiers": [...], "refused_tiers": [...], "possible_container_timeouts": {tier: seconds}}
+ "paid_tiers": [...], "refused_tiers": [...], "container_ram_caps_gb": {tier: GB},
+ "possible_container_timeouts": {tier: seconds}}
 Query caps and defaults per tier come from each record (read live from /resource-limits).
 """
 
 import math
+
+
+def peak(r):
+    """The larger of the tree's summed PSS and the kernel's ru_maxrss, in GiB."""
+    return max(r["peak_pss_gib"], r.get("maxrss_gib") or 0)
+
+
+def _by_value(caps, exceeded, unit):
+    """'a, b 300 s; c 600 s' for the tiers whose cap the value exceeds, grouped by cap."""
+    over = {}
+    for tier, cap in caps.items():
+        if exceeded(cap):
+            over.setdefault(cap, []).append(tier)
+    return "; ".join(f"{', '.join(tiers)} {cap} {unit}" for cap, tiers in sorted(over.items()))
 
 
 def container_credits(wall, platform):
@@ -81,20 +96,20 @@ def breaches(records, platform):
         where = f"{r['case']} {r['size']} ({r.get('tag', 'main')}, {r['query_tier']} query caps, cpus {r.get('cpus')})"
         if not r.get("valid", True):
             found.append(f"{where}: not a pass: {'; '.join(r.get('problems', []))}")
-        if r["peak_pss_gib"] > box["ram_gb"]:
-            found.append(f"{where}: peak {r['peak_pss_gib']} GiB above the {box['ram_gb']} GiB request (every paid tier)")
-        elif r["peak_pss_gib"] > box["ram_gb"] - AT_RISK_GIB:
-            found.append(f"{where}: peak {r['peak_pss_gib']} GiB, within {AT_RISK_GIB} GiB of the {box['ram_gb']} GiB request")
+        top = peak(r)
+        if top > box["ram_gb"]:
+            found.append(f"{where}: peak {top} GiB above the {box['ram_gb']} GiB request (every paid tier)")
+        elif top > box["ram_gb"] - AT_RISK_GIB:
+            found.append(f"{where}: peak {top} GiB, within {AT_RISK_GIB} GiB of the {box['ram_gb']} GiB request")
+        ram = _by_value(platform.get("container_ram_caps_gb", {}), lambda cap: top > cap, "GB")
+        if ram:
+            found.append(f"{where}: peak {top} GiB above the container RAM cap of {ram}: no request fits")
         for cap, label in ((box["timeout_s"], "default timeout"), (box["max_timeout_s"], "max timeout")):
             if r["wall_seconds"] > cap:
                 found.append(f"{where}: {r['wall_seconds']} s above the {cap} s {label}")
-        over = {}
-        for tier, cap in platform.get("possible_container_timeouts", {}).items():
-            if r["wall_seconds"] > cap:
-                over.setdefault(cap, []).append(tier)
-        if over:
-            caps = "; ".join(f"{', '.join(tiers)} {cap} s" for cap, tiers in sorted(over.items()))
-            found.append(f"{where}: {r['wall_seconds']} s above {caps} (if those caps are live)")
+        slow = _by_value(platform.get("possible_container_timeouts", {}), lambda cap: r["wall_seconds"] > cap, "s")
+        if slow:
+            found.append(f"{where}: {r['wall_seconds']} s above {slow} (if those caps are live)")
         if r.get("result_bytes", 0) > box["disk_gb"] * 1024 ** 3:
             found.append(f"{where}: result.json {r['result_bytes']:,} B above the {box['disk_gb']} GB disk")
         if r.get("empty_configs"):
@@ -123,7 +138,7 @@ def strategy_table(case, records, by_tier, platform):
         credits = " | ".join(_fmt_credits(credits_at(r, t, by_tier, platform) if r.get("valid", True) else None)
                              for t in tiers)
         lines.append(f"| {r['configs']} | {rows} | {cut} | {r['fetch_seconds']:.1f} | {r['signal_seconds']:.1f} | "
-                     f"{r['simulation_seconds']:.1f} | {r['wall_seconds']:.1f} | {r['peak_pss_gib']:.2f} | {during} | "
+                     f"{r['simulation_seconds']:.1f} | {r['wall_seconds']:.1f} | {peak(r):.2f} | {during} | "
                      f"{r['result_bytes']:,} | {r['start_utc'][:16]} | {credits} |")
     return "\n".join(lines)
 
@@ -135,7 +150,8 @@ def header(records):
     dates = sorted(r["start_utc"] for r in records)
     return ("Runs: " + "; ".join(f"{k} {', '.join(v)}" for k, v in seen.items())
             + f"; container request as in the platform file; started {dates[0]} to {dates[-1]}, one at a time. "
-            "Peak = summed PSS of the process tree, sampled every 0.2 s, with no memory limit. "
+            "Peak = the larger of the process tree's summed PSS (sampled every 0.2 s) and ru_maxrss, with no "
+            "memory limit. "
             "Credits = container time + data queries, low-high (high adds the queries' CPU-seconds term at its "
             "ceiling); ~ = derived from that tier's size-1 run. result.json details at most the top configs, "
             "so its size flattens with large sweeps.")

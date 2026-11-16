@@ -307,10 +307,10 @@ def test_hosted_env_is_built_not_inherited(monkeypatch):
     monkeypatch.setenv("POLARS_MAX_THREADS", "2")
     monkeypatch.setenv("PYTHONPATH", "/elsewhere")
     monkeypatch.setenv("CR_API_KEY", "k")
-    env = cli.hosted_env("/tmp/run")
+    env = cli.hosted_env("/tmp/run", container_cpus=3)
     assert "POLARS_MAX_THREADS" not in env and "PYTHONPATH" not in env
     assert env["CR_API_KEY"] == "k" and env["OUTPUT_DIR"] == env["HOME"] == "/tmp/run"
-    assert env["OMP_NUM_THREADS"] == env["OPENBLAS_NUM_THREADS"] == env["MKL_NUM_THREADS"] == "4"
+    assert env["OMP_NUM_THREADS"] == env["OPENBLAS_NUM_THREADS"] == env["MKL_NUM_THREADS"] == "3"
     assert env["PYTHONUNBUFFERED"] == "1"
 
 
@@ -368,6 +368,7 @@ PLATFORM = {
     "query_rates": {"thread": 0.01, "ram_gb": 0.001, "disk_gb": 0.0001, "cpu": 0.01, "minimum": 0.5},
     "paid_tiers": ["small", "big"],
     "refused_tiers": ["none"],
+    "container_ram_caps_gb": {"small": 6, "big": 12},
     "possible_container_timeouts": {"small": 30, "big": 60},
 }
 
@@ -409,6 +410,14 @@ def test_breaches():
     assert "700 s above small 30 s; big 60 s (if those caps are live)" in text
     assert "3 of 10 configs had no orders" in text
     assert "none: every strategy: refused at submit" in text
+    assert "container RAM cap" not in text  # 4.3 GiB fits both tiers' caps
+
+
+def test_breaches_against_tier_ram_caps_use_the_larger_peak():
+    found = report.breaches([dict(_record(case="huge", peak=6.5), maxrss_gib=13.0)], PLATFORM)
+    assert any("peak 13.0 GiB above the container RAM cap of small 6 GB; big 12 GB: no request fits" in f
+               for f in found)
+    assert report.peak({"peak_pss_gib": 2.0, "maxrss_gib": None}) == 2.0
 
 
 def test_derived_wall_for_other_tier():
