@@ -1,0 +1,10 @@
+# Data caches the scripts write beside themselves when re-run; the kept inputs and results stay.
+backtest/*.json
+screen/*.json
+!backtest/audit_2026-10-10.json
+!backtest/basket_once.json
+!backtest/classifications_partial.json
+!backtest/kept_bound.json
+!backtest/kept_verified.json
+!backtest/surv_episodes.json
+!screen/bc_top10_final.json
