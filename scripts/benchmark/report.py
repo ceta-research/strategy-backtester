@@ -13,6 +13,15 @@ Query caps and defaults per tier come from each record (read live from /resource
 import math
 
 AT_RISK_GIB = 0.3  # in a container the executor and its output buffer share the same memory limit
+# A query's resource knobs: request body key, CetaResearch._submit argument, the tier default that fills it.
+KNOBS = (("memoryMb", "memory_mb", "defaultMemory"), ("threads", "threads", "defaultThreads"),
+         ("diskMb", "disk_mb", "defaultDisk"))
+COLUMNS = ("Configs", "Rows fetched", "Cut", "Fetch s", "Signal s", "Simulation s", "Wall s", "Peak GiB",
+           "Peak during", "result.json B", "Start UTC")
+
+
+def passed(r):
+    return not r["problems"]
 
 
 def peak(r):
@@ -39,9 +48,8 @@ def query_credits(q, limits, platform):
     CPU-seconds term at its ceiling (every thread busy for the whole query), since no API reports it.
     Latency is the task's executionTime (started to completed), at or above the engine's own."""
     r, res = platform["query_rates"], q.get("resources") or {}
-    threads = res.get("threads", limits["defaultThreads"])
-    mem_gb = res.get("memoryMb", limits["defaultMemory"]) / 1024
-    disk_gb = res.get("diskMb", limits["defaultDisk"]) / 1024
+    sent = {key: res.get(key, limits[default]) for key, _, default in KNOBS}
+    threads, mem_gb, disk_gb = sent["threads"], sent["memoryMb"] / 1024, sent["diskMb"] / 1024
     secs = math.ceil(q.get("server_seconds") or 0)
     latency = secs * (threads * r["thread"] + mem_gb * r["ram_gb"] + disk_gb * r["disk_gb"])
     cpu_ceiling = threads * secs * r["cpu"]
@@ -54,9 +62,9 @@ def derived_wall(record, tier_size1):
 
 
 def tier_records(records):
-    """{(case, tier): size-1 record} for runs made at a tier's query caps."""
+    """{(case, tier): size-1 record} for passing runs made at a tier's query caps."""
     return {(r["case"], r["query_tier"]): r for r in records
-            if r["size"] == "1" and r.get("tag") == "tier" and r.get("valid", True)}
+            if r["size"] == "1" and r.get("query_tier_asked") and passed(r)}
 
 
 def same_caps(a, b):
@@ -94,9 +102,9 @@ def breaches(records, platform):
     for tier in platform.get("refused_tiers", []):
         found.append(f"{tier}: every strategy: refused at submit")
     for r in records:
-        where = f"{r['case']} {r['size']} ({r.get('tag', 'main')}, {r['query_tier']} query caps, cpus {r.get('cpus')})"
-        if not r.get("valid", True):
-            found.append(f"{where}: not a pass: {'; '.join(r.get('problems', []))}")
+        where = f"{r['case']} {r['size']} ({r['tag']}, {r['query_tier']} query caps, cpus {r['cpus']})"
+        if not passed(r):
+            found.append(f"{where}: not a pass: {'; '.join(r['problems'])}")
         top = peak(r)
         if top > box["ram_gb"]:
             found.append(f"{where}: peak {top} GiB above the {box['ram_gb']} GiB request (every paid tier)")
@@ -111,58 +119,68 @@ def breaches(records, platform):
         slow = _by_value(platform.get("possible_container_timeouts", {}), lambda cap: r["wall_seconds"] > cap, "s")
         if slow:
             found.append(f"{where}: {r['wall_seconds']} s above {slow} (if those caps are live)")
-        if r.get("result_bytes", 0) > box["disk_gb"] * 1024 ** 3:
+        if r["result_bytes"] > box["disk_gb"] * 1024 ** 3:
             found.append(f"{where}: result.json {r['result_bytes']:,} B above the {box['disk_gb']} GB disk")
-        if r.get("empty_configs"):
+        if r["empty_configs"]:
             found.append(f"{where}: {r['empty_configs']} of {r['configs']} configs had no orders")
-        caps = (r.get("tier_limits") or {}).get(r["query_tier"], {})  # none when the limits read failed
+        caps = (r["tier_limits"] or {}).get(r["query_tier"], {})  # none when the limits read failed
         for q in r["queries"]:
-            if q.get("ok", True) and (q.get("server_seconds") or 0) > caps.get("maxExecutionTimeout", math.inf):
+            if q["ok"] and (q.get("server_seconds") or 0) > caps.get("maxExecutionTimeout", math.inf):
                 found.append(f"{where}: {q['table']} ran {q['server_seconds']} s, above {caps['maxExecutionTimeout']} s")
-            if q.get("cut"):
+            if q["cut"]:
                 found.append(f"{where}: {q['table']} cut at {q['rows']} rows")
     return found
 
 
 def strategy_table(case, records, by_tier, platform):
-    tiers = platform["paid_tiers"]
-    head = ("| Configs | Rows fetched | Cut | Fetch s | Signal s | Simulation s | Wall s | Peak GiB | Peak during "
-            "| result.json B | Start UTC | " + " | ".join(f"Credits {t}" for t in tiers) + " |")
-    lines = [f"### {case}", "", head, "|" + "---:|" * (11 + len(tiers))]
+    cols = COLUMNS + tuple(f"Credits {t}" for t in platform["paid_tiers"])
+    lines = [f"### {case}", "", "| " + " | ".join(cols) + " |", "|" + "---:|" * len(cols)]
     for r in records:
         rows = " + ".join(f"{q['rows']:,}" for q in r["queries"])
-        cut = "yes" if any(q.get("cut") for q in r["queries"]) else "no"
+        cut = "yes" if any(q["cut"] for q in r["queries"]) else "no"
         peaks = r.get("stage_peaks_kib") or {}
-        during = max(peaks, key=peaks.get) if peaks else ""
-        if not r.get("valid", True):
-            during = "NOT A PASS"
-        credits = " | ".join(_fmt_credits(credits_at(r, t, by_tier, platform) if r.get("valid", True) else None)
-                             for t in tiers)
-        lines.append(f"| {r['configs']} | {rows} | {cut} | {r['fetch_seconds']:.1f} | {r['signal_seconds']:.1f} | "
-                     f"{r['simulation_seconds']:.1f} | {r['wall_seconds']:.1f} | {peak(r):.2f} | {during} | "
-                     f"{r['result_bytes']:,} | {r['start_utc'][:16]} | {credits} |")
+        during = (max(peaks, key=peaks.get) if peaks else "") if passed(r) else "NOT A PASS"
+        credits = [_fmt_credits(credits_at(r, t, by_tier, platform) if passed(r) else None)
+                   for t in platform["paid_tiers"]]
+        cells = [r["configs"], rows, cut, f"{r['fetch_seconds']:.1f}", f"{r['signal_seconds']:.1f}",
+                 f"{r['simulation_seconds']:.1f}", f"{r['wall_seconds']:.1f}", f"{peak(r):.2f}", during,
+                 f"{r['result_bytes']:,}", r["start_utc"][:16], *credits]
+        lines.append("| " + " | ".join(str(c) for c in cells) + " |")
     return "\n".join(lines)
 
 
 def header(records):
     """What every row shares, said once: where and how the runs were made."""
-    keys = ("engine_commit", "image", "python", "polars", "user_tier", "cpus", "polars_threads", "cpu_model", "api_host")
-    seen = {k: sorted({str(r.get(k)) for r in records}) for k in keys}
+    fields = {"engine_commit": lambda r: r["engine_commit"], "image": lambda r: r["image"],
+              "python": lambda r: r["python"], "polars": lambda r: (r.get("packages") or {}).get("polars"),
+              "user_tier": lambda r: r["user_tier"], "cpus": lambda r: r["cpus"],
+              "polars_threads": lambda r: r["polars_threads"], "cpu_model": lambda r: r["cpu_model"],
+              "api_host": lambda r: r["api_host"]}
+    seen = {k: sorted({str(get(r)) for r in records}) for k, get in fields.items()}
     dates = sorted(r["start_utc"] for r in records)
     return ("Runs: " + "; ".join(f"{k} {', '.join(v)}" for k, v in seen.items())
             + f"; container request as in the platform file; started {dates[0]} to {dates[-1]}, one at a time. "
-            "Peak = the larger of the process tree's summed PSS (sampled every 0.2 s) and ru_maxrss, with no "
-            "memory limit. "
+            "Peak = the larger of the process tree's summed PSS (sampled every 0.25-0.4 s) and ru_maxrss, "
+            "with no memory limit. "
             "Credits = container time + data queries, low-high (high adds the queries' CPU-seconds term at its "
             "ceiling); ~ = derived from that tier's size-1 run. result.json details at most the top configs, "
             "so its size flattens with large sweeps.")
 
 
-def markdown(records, platform):
+def engine_section(records, platform):
     by_tier = tier_records(records)
-    main = [r for r in records if r.get("tag", "main") == "main"]
+    main = [r for r in records if r["tag"] == "main"]
     cases = list(dict.fromkeys(r["case"] for r in main))
     parts = [header(main)] + [strategy_table(c, [r for r in main if r["case"] == c], by_tier, platform)
                               for c in cases]
     parts.append("### Cap breaches\n\n" + "\n".join(f"- {b}" for b in breaches(records, platform)))
-    return "\n\n".join(parts) + "\n"
+    return "\n\n".join(parts)
+
+
+def markdown(records, platform):
+    """One section per engine commit, so runs of two releases never share a table."""
+    engines = list(dict.fromkeys(r["engine_commit"] for r in records))
+    if len(engines) == 1:
+        return engine_section(records, platform) + "\n"
+    return "\n\n".join(f"## Engine {e}\n\n" + engine_section([r for r in records if r["engine_commit"] == e], platform)
+                       for e in engines) + "\n"

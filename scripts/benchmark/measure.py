@@ -1,10 +1,13 @@
 """Run a command and record its wall time and the peak memory of its whole process tree (Linux).
 
-Memory is the sum of Pss over the process and all its descendants, read from /proc every 0.2 s, so a
-page shared by forked workers counts once. ru_maxrss is the kernel's exact peak RSS of the largest
-waited-for process. There is no cgroup or memory limit here: a run a container would kill still finishes.
+Memory is the sum of Pss over the process and all its descendants, read from /proc, so a page shared
+by forked workers counts once. A sample starts 0.2 s after the last one ended; reading a 20 GiB tree
+takes about 0.15 s, so samples land 0.25 to 0.4 s apart. ru_maxrss is the kernel's exact peak RSS of
+the largest waited-for process. There is no cgroup or memory limit here: a run a container would kill
+still finishes.
 """
 
+import glob
 import os
 import signal
 import subprocess
@@ -14,26 +17,18 @@ SAMPLE_SECONDS = 0.2
 GIB_KIB = 1024 * 1024
 
 
-def children_map():
-    kids = {}
-    for name in os.listdir("/proc"):
-        if not name.isdigit():
-            continue
-        try:
-            with open(f"/proc/{name}/stat") as f:
-                ppid = int(f.read().rsplit(")", 1)[1].split()[1])
-        except (OSError, ValueError, IndexError):
-            continue
-        kids.setdefault(ppid, []).append(int(name))
-    return kids
-
-
 def tree(root):
-    kids, todo, seen = children_map(), [root], []
+    """The root and its descendants, from each thread's /proc children list."""
+    todo, seen = [root], []
     while todo:
         pid = todo.pop()
         seen.append(pid)
-        todo.extend(kids.get(pid, []))
+        for path in glob.glob(f"/proc/{pid}/task/*/children"):
+            try:
+                with open(path) as f:
+                    todo.extend(int(p) for p in f.read().split())
+            except OSError:
+                pass
     return seen
 
 
@@ -60,15 +55,16 @@ def measure(cmd, cpus=None, env=None, timeout=None, stdout=None, cwd=None):
         pid, status, usage = os.wait4(proc.pid, os.WNOHANG)
         if pid:
             break
-        if timeout is not None and time.time() - start > timeout:
+        now = time.time()
+        if timeout is not None and now - start > timeout:
             timed_out = True
             os.killpg(proc.pid, signal.SIGKILL)
         total = sum(pss_kib(p) for p in tree(proc.pid))
-        samples.append((round(time.time(), 2), total))
+        samples.append((round(now, 2), total))
         peak = max(peak, total)
         time.sleep(SAMPLE_SECONDS)
     end = time.time()
     proc.returncode = os.waitstatus_to_exitcode(status)  # reaped by wait4; tell Popen so it doesn't warn
     return {"exit": proc.returncode, "timed_out": timed_out, "start": start, "end": end,
             "wall_seconds": round(end - start, 1), "peak_pss_gib": round(peak / GIB_KIB, 2),
-            "maxrss_gib": round(usage.ru_maxrss / GIB_KIB, 2), "cpus": cpus or "all", "samples": samples}
+            "maxrss_gib": round(usage.ru_maxrss / GIB_KIB, 2), "samples": samples}
