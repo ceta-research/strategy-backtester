@@ -153,12 +153,9 @@ class TestExitBeforeEntryFlag(unittest.TestCase):
         With exit_before_entry=True, trade 1 exits, slot frees, trade 2
         enters same day.
 
-        Note: the exit_before_entry branch of simulator.py recomputes
-        `order_value = current_account_value / max_positions` (line 365),
-        overriding any sim_config['order_value']. We use a large
-        start_margin so that the resulting full-margin order sizing
-        still fits with charges/slippage headroom. This is a documented
-        quirk of the exit_before_entry branch, not a test bug.
+        With no order_value in sim_cfg an order is sized at
+        account / max_positions, the whole account here, so a large
+        start_margin and a max_order_value cap leave headroom for charges.
         """
         start = 1577836800
         end = start + 15 * SECONDS_IN_ONE_DAY
@@ -175,8 +172,7 @@ class TestExitBeforeEntryFlag(unittest.TestCase):
         mtm = [start + d * SECONDS_IN_ONE_DAY for d in range(16)]
         stats = _stats(mtm, {"NSE:A": 102, "NSE:B": 210})
 
-        # Cap max_order_value so exit_before_entry branch doesn't
-        # overcommit when it recomputes `current_account_value / max_positions`.
+        # Cap max_order_value so the whole-account order leaves headroom.
         sim_cfg = {
             "max_positions": 1,
             "max_positions_per_instrument": 1,
@@ -191,6 +187,35 @@ class TestExitBeforeEntryFlag(unittest.TestCase):
         self.assertEqual(len(trade_log), 2,
                          f"exit_before_entry=True should allow both trades; "
                          f"got {len(trade_log)}")
+
+    def test_same_day_exit_frees_margin_for_a_percentage_of_margin_entry(self):
+        """A takes 40% of the 1M margin. On day 5 A exits as B enters at 40% of available
+        margin: about 400k once A's sale settles first, about 240k (40% of the ~600k left)
+        when entries go first."""
+        start = 1577836800
+        end = start + 15 * SECONDS_IN_ONE_DAY
+        exit_day = start + 5 * SECONDS_IN_ONE_DAY
+        df_orders = pl.DataFrame([
+            {"instrument": "NSE:A", "entry_epoch": start + SECONDS_IN_ONE_DAY,
+             "exit_epoch": exit_day, "entry_price": 100.0, "exit_price": 100.0},
+            {"instrument": "NSE:B", "entry_epoch": exit_day,
+             "exit_epoch": start + 10 * SECONDS_IN_ONE_DAY,
+             "entry_price": 100.0, "exit_price": 100.0},
+        ])
+        stats = _stats([start + d * SECONDS_IN_ONE_DAY for d in range(16)],
+                       {"NSE:A": 100, "NSE:B": 100})
+        qty = {}
+        for exits_first in (True, False):
+            sim_cfg = {
+                "max_positions": 2,
+                "max_positions_per_instrument": 1,
+                "exit_before_entry": exits_first,
+                "order_value": {"type": "percentage_of_available_margin", "value": 40},
+            }
+            *_, trade_log = process(_context(start, end), df_orders, stats, {}, sim_cfg, "margin")
+            qty[exits_first] = {t["instrument"]: t["quantity"] for t in trade_log}["NSE:B"]
+        self.assertTrue(3990 <= qty[True] <= 4000, qty)
+        self.assertTrue(2390 <= qty[False] <= 2400, qty)
 
 
 class TestSnapshotResume(unittest.TestCase):

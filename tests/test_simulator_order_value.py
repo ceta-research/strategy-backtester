@@ -43,7 +43,7 @@ def _build_stats(entry_epoch, exit_epoch, entry_price, exit_price):
     }
 
 
-def _run(order_value_cfg, start_margin=1_000_000, multiplier=None):
+def _run(order_value_cfg, start_margin=1_000_000, multiplier=None, exit_before_entry=False):
     """Run one-order simulation and return (first_trade, day_wise_log)."""
     entry_epoch = 1_600_000_000
     exit_epoch = entry_epoch + 86400
@@ -64,6 +64,8 @@ def _run(order_value_cfg, start_margin=1_000_000, multiplier=None):
         sim_cfg["order_value"] = order_value_cfg
     if multiplier is not None:
         sim_cfg["order_value_multiplier"] = multiplier
+    if exit_before_entry:
+        sim_cfg["exit_before_entry"] = True
 
     df_orders = _build_orders(entry_epoch, exit_epoch)
     stats = _build_stats(entry_epoch, exit_epoch, 100.0, 110.0)
@@ -75,36 +77,46 @@ def _run(order_value_cfg, start_margin=1_000_000, multiplier=None):
 
 
 class TestOrderValueTypes(unittest.TestCase):
+    EXITS_FIRST = False
+
+    def _run(self, *args, **kwargs):
+        return _run(*args, exit_before_entry=self.EXITS_FIRST, **kwargs)
 
     def test_fixed_sizes_at_literal_value(self):
         """fixed: quantity = int(200000 / 100) = 2000 shares."""
-        trades, _ = _run({"type": "fixed", "value": 200_000})
+        trades, _ = self._run({"type": "fixed", "value": 200_000})
         self.assertEqual(len(trades), 1)
         self.assertEqual(trades[0]["quantity"], 2000)
 
     def test_percentage_of_account_value(self):
         """10% of 1_000_000 account → 100_000 notional → 1000 shares at ₹100."""
-        trades, _ = _run({"type": "percentage_of_account_value", "value": 10.0})
+        trades, _ = self._run({"type": "percentage_of_account_value", "value": 10.0})
         self.assertEqual(len(trades), 1)
         self.assertEqual(trades[0]["quantity"], 1000)
 
     def test_percentage_of_available_margin(self):
         """20% of 1_000_000 cash (no prior positions) → 200_000 → 2000 shares."""
-        trades, _ = _run({"type": "percentage_of_available_margin", "value": 20.0})
+        trades, _ = self._run({"type": "percentage_of_available_margin", "value": 20.0})
         self.assertEqual(len(trades), 1)
         self.assertEqual(trades[0]["quantity"], 2000)
 
     def test_default_sizing_account_over_max_positions(self):
         """No order_value cfg → account_value / max_positions (10) = 100_000 → 1000 sh."""
-        trades, _ = _run(None)
+        trades, _ = self._run(None)
         self.assertEqual(len(trades), 1)
         self.assertEqual(trades[0]["quantity"], 1000)
 
     def test_order_value_multiplier_scales_fixed(self):
         """fixed 100k × 2× multiplier → 200_000 notional → 2000 shares."""
-        trades, _ = _run({"type": "fixed", "value": 100_000}, multiplier=2)
+        trades, _ = self._run({"type": "fixed", "value": 100_000}, multiplier=2)
         self.assertEqual(len(trades), 1)
         self.assertEqual(trades[0]["quantity"], 2000)
+
+
+class TestOrderValueTypesExitsFirst(TestOrderValueTypes):
+    """The same sizing rules when exits settle before entries (exit_before_entry)."""
+    EXITS_FIRST = True
+
 
 if __name__ == "__main__":
     unittest.main()
