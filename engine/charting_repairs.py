@@ -78,7 +78,8 @@ def back_adjust(df: pl.DataFrame, events: pl.DataFrame) -> pl.DataFrame:
     f = (df.select(["symbol", "date_epoch"])
            .join(events.select(["symbol", "jump_epoch", "raw_ratio"]), on="symbol", how="inner")
            .filter(pl.col("date_epoch") < pl.col("jump_epoch"))
-           .group_by(["symbol", "date_epoch"])
+           .sort(["symbol", "date_epoch", "jump_epoch"])  # fixes the order of the product
+           .group_by(["symbol", "date_epoch"], maintain_order=True)
            .agg(pl.col("raw_ratio").product().alias("_f")))
     df = df.join(f, on=["symbol", "date_epoch"], how="left").with_columns(pl.col("_f").fill_null(1.0))
     return df.with_columns(
@@ -146,7 +147,7 @@ def split_stitches(df: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame]:
         ((pl.col("date_epoch").cast(pl.Int64) - pl.col("date_epoch").shift(1).over("symbol").cast(pl.Int64))
          > STITCH_GAP_DAYS * SECONDS_IN_ONE_DAY).fill_null(False).cum_sum().over("symbol").alias("_seg"))
     df = df.with_columns(pl.col("_seg").max().over("symbol").alias("_last"))
-    splits = (df.filter(pl.col("_last") > 0).group_by(["symbol", "_seg"])
+    splits = (df.filter(pl.col("_last") > 0).group_by(["symbol", "_seg"], maintain_order=True)
                 .agg(pl.col("date_epoch").min().alias("from"), pl.col("date_epoch").max().alias("to"))
                 .sort(["symbol", "_seg"]))
     df = df.with_columns(
