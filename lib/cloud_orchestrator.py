@@ -32,6 +32,7 @@ EOD_ENGINE_FILES = [
     "engine/charges.py",
     "engine/constants.py",
     "engine/data_provider.py",
+    "engine/charting_repairs.py",
 ]
 
 INTRADAY_ENGINE_FILES = [
