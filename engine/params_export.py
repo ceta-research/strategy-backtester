@@ -51,7 +51,7 @@ DISPATCHES = {
         "engine/signals/trending_value.py", "compute_rebalance_epochs", "frequency", fallback="monthly"),
 }
 
-# String params with no options here, by name (or name.key inside a dict param), and why.
+# String params with no options here, by name (name.key for a string inside a param's value), and why.
 NOT_OPTIONS = {
     "strategy_type": "names the generator; the strategies section lists them",
     "data_granularity": "stored in the static config; no EOD code branches on it",
@@ -63,6 +63,7 @@ NOT_OPTIONS = {
     "exit_fill": "an enum whose options aren't exported yet",
     "stop_mode": "an enum whose options aren't exported yet",
     "max_order_value.type": "an enum whose options aren't exported yet",
+    "instruments.exchange": "an exchange code such as NSE",
 }
 
 
@@ -97,7 +98,7 @@ def dispatch_options(dispatch):
         if not names:
             continue
         literals = [c for c in node.comparators if isinstance(c, ast.Constant) and isinstance(c.value, str)]
-        if node.left is not names[0] or not all(isinstance(op, ast.Eq) for op in node.ops) or len(literals) != len(node.comparators):
+        if not all(isinstance(op, ast.Eq) for op in node.ops) or len(literals) != len(node.comparators):
             raise LookupError(f"{dispatch.function} in {dispatch.path} compares {dispatch.variable} in a way "
                               f"this reader doesn't follow (line {node.lineno})")
         found |= {c.value for c in literals}

@@ -79,13 +79,19 @@ def test_each_enum_default_is_one_of_its_options(exported):
 
 
 def test_every_string_param_is_an_exported_enum_or_says_why_not(exported):
+    def nested(name, v):  # every string in a value, through its lists and dicts: max_order_value.type
+        if isinstance(v, str):
+            yield name
+        elif isinstance(v, list):
+            for x in v:
+                yield from nested(name, x)
+        elif isinstance(v, dict):
+            for k, x in v.items():
+                yield from nested(f"{name}.{k}", x)
+
     def strings(section):
         for name, v in section.items():
-            v = v[0] if isinstance(v, list) and v else v
-            if isinstance(v, str):
-                yield name
-            elif isinstance(v, dict):  # a dict param's own string keys, such as max_order_value.type
-                yield from (f"{name}.{k}" for k, x in v.items() if isinstance(x, str))
+            yield from nested(name, v)
     found = {(None, s, n) for s in exported["shared"] for n in strings(exported["shared"][s])}
     found |= {(st, s, n) for st, secs in exported["strategies"].items() for s in secs for n in strings(secs[s])}
     unclassified = {k for k in found if k not in params_export.DISPATCHES and k[2] not in params_export.NOT_OPTIONS}
