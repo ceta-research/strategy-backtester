@@ -49,6 +49,8 @@ def test_champions_are_their_files_loaded_with_every_raw_key_kept(exported):
     assert sorted(exported["champions"]) == sorted(f.parent.name for f in files)
     for f in files:
         champion = exported["champions"][f.parent.name]
+        assert champion == params_export.sections(load_config(str(f))), f
+        assert champion["static"]["strategy_type"] == f.parent.name, f
         for section, values in yaml.safe_load(f.read_text()).items():
             for key, value in values.items():
                 assert champion[section][key] == value, (f, section, key)
@@ -79,12 +81,33 @@ def test_each_enum_default_is_one_of_its_options(exported):
 def test_every_string_param_is_an_exported_enum_or_says_why_not(exported):
     def strings(section):
         for name, v in section.items():
-            if isinstance(v[0] if isinstance(v, list) and v else v, str):
+            v = v[0] if isinstance(v, list) and v else v
+            if isinstance(v, str):
                 yield name
+            elif isinstance(v, dict):  # a dict param's own string keys, such as max_order_value.type
+                yield from (f"{name}.{k}" for k, x in v.items() if isinstance(x, str))
     found = {(None, s, n) for s in exported["shared"] for n in strings(exported["shared"][s])}
     found |= {(st, s, n) for st, secs in exported["strategies"].items() for s in secs for n in strings(secs[s])}
     unclassified = {k for k in found if k not in params_export.DISPATCHES and k[2] not in params_export.NOT_OPTIONS}
     assert unclassified == set()
+
+
+def test_not_options_is_exported(exported):
+    assert exported["not_options"] == params_export.NOT_OPTIONS
+
+
+@pytest.mark.parametrize("body", [
+    "if mode in ('a', 'b'):\n        pass",
+    "if 'a' == mode:\n        pass",
+    "if mode != 'a':\n        pass",
+    "if mode == other:\n        pass",
+])
+def test_a_comparison_the_reader_cant_follow_fails(tmp_path, monkeypatch, body):
+    (tmp_path / "engine").mkdir()
+    (tmp_path / "engine" / "x.py").write_text(f"def f(mode):\n    if mode == 'z':\n        pass\n    {body}\n")
+    monkeypatch.setattr(params_export, "ROOT", tmp_path)
+    with pytest.raises(LookupError, match="doesn't follow"):
+        params_export.dispatch_options(params_export.Dispatch("engine/x.py", "f", "mode"))
 
 
 def test_a_dispatch_that_moved_fails_instead_of_exporting_nothing():
