@@ -6,7 +6,7 @@ YAML configs for the engine, one folder per active strategy, plus each strategy'
 - `static.strategy_type` names the signal generator. How one is registered, and why `breakout_pullback/` fails with `Unknown strategy_type`: `engine/signals/CLAUDE.md`.
 - File names follow the rounds in `docs/OPTIMIZATION_RUNBOOK.md`: `config_baseline.yaml` (R0), `config_round1*.yaml`, `config_round2.yaml`, `config_round3.yaml`, `config_r4_*.yaml` (validation). `config_champion.yaml` is the current pick.
 - `<name>/OPTIMIZATION.md` logs each round and the champion. `OPTIMIZATION_QUEUE.yaml` tracks status per strategy; no item is PENDING.
-- `schema.yaml` and `_shared_schema.yaml` hold UI labels and ranges. No code in this repo reads them; defaults live in `engine/config_loader.py` and the signal classes.
+- Defaults live in `engine/config_loader.py` and the signal classes. `engine/params_export.py` exports them, and these champion configs, as JSON (`engine/CLAUDE.md`). The old `schema.yaml` files, which nothing read, are gone.
 
 ## Run and check (from the repo root)
 - Run: `mkdir -p results/eod_breakout && .venv/bin/python run.py --config strategies/eod_breakout/config_champion.yaml --output results/eod_breakout/champion.json` (not run here: needs `CR_API_KEY`). `run.py` doesn't create the output folder, so without the `mkdir` the save fails after the whole backtest.
