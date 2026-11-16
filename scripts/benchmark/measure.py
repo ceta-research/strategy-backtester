@@ -68,6 +68,7 @@ def measure(cmd, cpus=None, env=None, timeout=None, stdout=None, cwd=None):
         peak = max(peak, total)
         time.sleep(SAMPLE_SECONDS)
     end = time.time()
-    return {"exit": os.waitstatus_to_exitcode(status), "timed_out": timed_out, "start": start, "end": end,
+    proc.returncode = os.waitstatus_to_exitcode(status)  # reaped by wait4; tell Popen so it doesn't warn
+    return {"exit": proc.returncode, "timed_out": timed_out, "start": start, "end": end,
             "wall_seconds": round(end - start, 1), "peak_pss_gib": round(peak / GIB_KIB, 2),
             "maxrss_gib": round(usage.ru_maxrss / GIB_KIB, 2), "cpus": cpus or "all", "samples": samples}

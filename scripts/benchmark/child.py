@@ -143,7 +143,7 @@ def install(rec, provider_classes=None, query_tier_limits=None, row_cap=None):
 
     def submit_for(submit):
         def submit_logged(self, *args, **kwargs):
-            post = self.session.post
+            post, own = self.session.post, vars(self.session).get("post")
 
             def post_logged(url, json=None, **kw):
                 if query_tier_limits is not None and json and "resources" in json:
@@ -155,7 +155,10 @@ def install(rec, provider_classes=None, query_tier_limits=None, row_cap=None):
             try:
                 return submit(self, *args, **kwargs)
             finally:
-                del self.session.post
+                if own is None:
+                    del self.session.post
+                else:
+                    self.session.post = own
         return submit_logged
     _wrap(CetaResearch, "_submit", submit_for, undo)
 

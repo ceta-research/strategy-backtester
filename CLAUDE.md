@@ -54,7 +54,7 @@ There is no CI: no `.github/workflows/`, Makefile or pyproject. The gate is the 
 .venv/bin/python -m pytest tests -q
 ```
 
-- It collects 577 tests, needs no key and makes no API calls.
+- It collects 580 tests, needs no key and makes no API calls.
 - Use pytest, not `python -m unittest discover -s tests`. unittest skips the 61 plain `def test_*` functions in six files, `tests/test_charges.py` among them.
 - On `b45c980` two tests fail before any change: `tests/test_determinism.py::TestGroupByMaintainOrderAudit::test_engine_root_group_by_has_maintain_order` and `tests/test_edge_cases.py::TestConfigLoaderFallbacks::test_simulation_config_defaults_for_missing_keys`. Any other failure comes from your change.
 - The four skips are a slow regression: `STRATEGY_BACKTESTER_AUDIT_REGRESSION=1 .venv/bin/python -m pytest tests/test_audit_noninvasive.py` (not run here: needs `CR_API_KEY` and the gitignored `results/<strategy>/champion_pre_audit_baseline.json` files).

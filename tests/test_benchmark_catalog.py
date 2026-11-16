@@ -447,6 +447,32 @@ def test_markdown_has_a_row_per_size_and_marks_invalid_runs():
     assert md.startswith("Runs: ") and "Cap breaches" in md
 
 
+def test_child_cmd_passes_tier_and_row_cap():
+    base = SimpleNamespace(query_tier=None, row_cap=None)
+    assert cli.child_cmd("c.json", "out", base)[2:] == ["c.json", "out"]
+    full = SimpleNamespace(query_tier="small", row_cap=100)
+    assert cli.child_cmd("c.json", "out", full)[2:] == ["c.json", "out", "--query-tier", "small", "--row-cap", "100"]
+
+
+def test_breaches_survive_a_record_whose_limits_read_failed():
+    rec = dict(_record(ok=False), tier_limits=None, queries=[])
+    assert any("not a pass" in b for b in report.breaches([rec], PLATFORM))
+    assert report.credits_at(dict(_record(), tier_limits={"big": TIERS["big"]}), "small", {}, PLATFORM) is None
+
+
+def test_submit_capture_puts_back_a_sessions_own_post():
+    rec = child.Recorder()
+    undo = child.install(rec, provider_classes=[])
+    try:
+        c = _fake_client(TIERS["big"])
+        own = c.session.post
+        c.session.post = own  # an instance attribute of its own, as a test double may set
+        c._submit("SELECT 1", timeout=60, limit=10, format="parquet")
+    finally:
+        undo()
+    assert vars(c.session)["post"] == own
+
+
 def test_run_key_matches_what_cmd_run_skips():
     args = SimpleNamespace(tag="main", query_tier=None, image="plain process")
     rec = {"case": "low_pe", "size": "1", "tag": args.tag, "cpus": "0-3", "query_tier_asked": args.query_tier}

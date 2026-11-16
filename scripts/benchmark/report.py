@@ -12,6 +12,8 @@ Query caps and defaults per tier come from each record (read live from /resource
 
 import math
 
+AT_RISK_GIB = 0.3  # in a container the executor and its output buffer share the same memory limit
+
 
 def peak(r):
     """The larger of the tree's summed PSS and the kernel's ru_maxrss, in GiB."""
@@ -65,6 +67,8 @@ def same_caps(a, b):
 def credits_at(record, tier, by_tier, platform):
     """(low, high, derived) for one record priced at a tier, or None when no run covers that tier."""
     limits = record["tier_limits"]
+    if tier not in limits:
+        return None
     if tier == record["query_tier"] or same_caps(limits[tier], limits[record["query_tier"]]):
         source, wall, derived = record, record["wall_seconds"], False
     elif (record["case"], tier) in by_tier:
@@ -83,9 +87,6 @@ def _fmt_credits(c):
         return "n/a"
     low, high, derived = c
     return f"{'~' if derived else ''}{low:.3f}-{high:.3f}"
-
-
-AT_RISK_GIB = 0.3  # in a container the executor and its output buffer share the same memory limit
 
 
 def breaches(records, platform):
@@ -114,7 +115,7 @@ def breaches(records, platform):
             found.append(f"{where}: result.json {r['result_bytes']:,} B above the {box['disk_gb']} GB disk")
         if r.get("empty_configs"):
             found.append(f"{where}: {r['empty_configs']} of {r['configs']} configs had no orders")
-        caps = r["tier_limits"].get(r["query_tier"], {})
+        caps = (r.get("tier_limits") or {}).get(r["query_tier"], {})  # none when the limits read failed
         for q in r["queries"]:
             if q.get("ok", True) and (q.get("server_seconds") or 0) > caps.get("maxExecutionTimeout", math.inf):
                 found.append(f"{where}: {q['table']} ran {q['server_seconds']} s, above {caps['maxExecutionTimeout']} s")

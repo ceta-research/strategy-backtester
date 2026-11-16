@@ -5,7 +5,8 @@ Each run goes through the hosted backtest wrapper's steps (scripts/benchmark/chi
 
 Run from the repo root, with CR_API_KEY (and CR_BASE_URL if not the default host) in the environment:
   python scripts/benchmark_catalog.py run [--cases low_pe,eod_breakout] [--sizes 1,10,50] [--cpus 0-3|all]
-      [--query-tier basic] [--tag main] [--image DIGEST] [--out results/benchmark/runs.jsonl] --platform FILE
+      [--query-tier basic] [--row-cap N] [--tag main] [--image DIGEST] [--out results/benchmark/runs.jsonl]
+      --platform FILE
   python scripts/benchmark_catalog.py report results/benchmark/runs.jsonl --platform FILE
 
 The platform file (fields in scripts/benchmark/report.py) holds the container a hosted run requests and
@@ -33,6 +34,8 @@ from scripts.benchmark import cases, measure, report, stages  # noqa: E402
 
 CHILD = os.path.join(ROOT, "scripts", "benchmark", "child.py")
 ENGINE_PATHS = ["engine", "lib", "run.py", "requirements.txt"]
+
+
 def hosted_env(run_dir, container_cpus):
     """What the hosted executor passes its subprocess: a fixed set, with BLAS and OpenMP threads set to
     the container's CPU count, plus the CR_ and TS_ variables."""
@@ -96,6 +99,15 @@ def make_record(name, size, configs, args, m, child_out, run_dir):
     return rec
 
 
+def child_cmd(config_path, run_dir, args):
+    cmd = [sys.executable, CHILD, config_path, run_dir]
+    if args.query_tier:
+        cmd += ["--query-tier", args.query_tier]
+    if args.row_cap is not None:
+        cmd += ["--row-cap", str(args.row_cap)]
+    return cmd
+
+
 def run_one(name, case, size, args):
     config = cases.build_config(case, size)
     configs = cases.count_configs(config)
@@ -105,15 +117,16 @@ def run_one(name, case, size, args):
     config_path = os.path.join(run_dir, "config.json")
     with open(config_path, "w") as f:
         json.dump(config, f, indent=1)
-    cmd = [sys.executable, CHILD, config_path, run_dir] + (["--query-tier", args.query_tier] if args.query_tier else [])
     with open(os.path.join(run_dir, "run.log"), "w") as log:
-        m = measure.measure(cmd, cpus=None if args.cpus == "all" else args.cpus,
+        m = measure.measure(child_cmd(config_path, run_dir, args), cpus=None if args.cpus == "all" else args.cpus,
                             env=hosted_env(run_dir, args.container["cpu"]),
                             timeout=args.timeout, stdout=log, cwd=run_dir)
     with open(os.path.join(run_dir, "samples.json"), "w") as f:
         json.dump(m["samples"], f)
-    stages_path = os.path.join(run_dir, "stages.json")
-    child_out = json.load(open(stages_path)) if os.path.exists(stages_path) else {}
+    child_out = {}
+    if os.path.exists(os.path.join(run_dir, "stages.json")):
+        with open(os.path.join(run_dir, "stages.json")) as f:
+            child_out = json.load(f)
     return make_record(name, size, configs, args, m, child_out, run_dir)
 
 
@@ -171,6 +184,8 @@ def main():
     r.add_argument("--sizes", default=",".join(cases.SIZES))
     r.add_argument("--cpus", default="0-3")
     r.add_argument("--query-tier")
+    r.add_argument("--row-cap", type=int, help="the key's row cap, when it has one: a query that returns this "
+                                               "many rows is recorded as cut")
     r.add_argument("--tag")
     r.add_argument("--image", default="plain process")
     r.add_argument("--out", default=os.path.join(ROOT, "results", "benchmark", "runs.jsonl"))
