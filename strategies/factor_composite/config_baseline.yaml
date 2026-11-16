@@ -1,5 +1,5 @@
 # factor_composite Round 0 baseline (NSE 2010-2026, post-audit engine fbcd36a+).
-# Defaults from schema.yaml. Universal NSE scanner (price>50, avg_txn 70M/125d).
+# Defaults from the old schema.yaml (since removed). Universal NSE scanner (price>50, avg_txn 70M/125d).
 
 static:
   strategy_type: factor_composite
