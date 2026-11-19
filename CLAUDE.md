@@ -28,7 +28,7 @@ A position-level backtester for trading strategies. A YAML config drives a pipel
 - `docs/`: guides, status, leaderboard, inspection reports. See `docs/CLAUDE.md`.
 - `studies/`: research write-ups with their scripts and logs (`bluechip_derating`, `long_window`, `momentum_cascade_audit`). The scripts read cached data the repo doesn't hold, and nothing outside imports them except `scripts/momentum_cascade_daily.py --snapshot`, which loads `studies/long_window/providers.py`.
 - `templates/`: starter configs (`eod/config.yaml`, `intraday/config.yaml`) and strategy templates.
-- `run.py`: local CLI, `python run.py --list | --strategy <name> | --config <yaml> [--output <json>]` (`--strategy` and `--config` not run here: need `CR_API_KEY`). It sends `static.strategy_type: intraday` to `engine/intraday_pipeline.py` and everything else to `engine/pipeline.py`.
+- `run.py`: local CLI, `python run.py --list | --strategy <name> | --config <yaml> [--output <json>]` (`--strategy` and `--config` not run here: need `CR_API_KEY`). It sends `static.strategy_type: intraday` to `engine/intraday_pipeline.py` and everything else to `engine/pipeline.py`. With `PIPELINE_CONFIG` set, as the platform's run wrapper sets it, the run is hosted: it checks the config before fetching (`engine/hosted.py`), exits 2 on a refusal and 1 when there is no result, with the reason as the last stderr line, and doesn't append to `results/catalog.jsonl`. A local run with no result still exits 0.
 - `run_global.py`: runs `darvas_box`, `swing_master`, `squeeze` and `holp_lohp`, all four retired, across 15 exchanges.
 - `run_remote.py`: runs a script or pipeline YAML on Ceta Research cloud compute. It writes the gitignored `.remote_project.json` and `.remote_hashes.json`.
 
@@ -54,7 +54,7 @@ There is no CI: no `.github/workflows/`, Makefile or pyproject. The gate is the 
 .venv/bin/python -m pytest tests -q
 ```
 
-- It collects 589 tests, needs no key and makes no API calls.
+- It collects 719 tests, needs no key and makes no API calls.
 - Use pytest, not `python -m unittest discover -s tests`. unittest skips the 61 plain `def test_*` functions in six files, `tests/test_charges.py` among them.
 - On `b45c980` two tests fail before any change: `tests/test_determinism.py::TestGroupByMaintainOrderAudit::test_engine_root_group_by_has_maintain_order` and `tests/test_edge_cases.py::TestConfigLoaderFallbacks::test_simulation_config_defaults_for_missing_keys`. Any other failure comes from your change.
 - The four skips are a slow regression: `STRATEGY_BACKTESTER_AUDIT_REGRESSION=1 .venv/bin/python -m pytest tests/test_audit_noninvasive.py` (not run here: needs `CR_API_KEY` and the gitignored `results/<strategy>/champion_pre_audit_baseline.json` files).

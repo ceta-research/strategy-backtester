@@ -38,9 +38,9 @@ def next_form_default(strategy):
     """The same submit in the platform's next catalog: no data_granularity, n_day_gain_threshold only
     where the strategy reads it, and a 10,000,000 start margin."""
     cfg = form_default(strategy)
-    del cfg["static"]["data_granularity"]
+    cfg["static"].pop("data_granularity", None)
     if strategy != "eod_technical":
-        del cfg["scanner"]["n_day_gain_threshold"]
+        cfg["scanner"].pop("n_day_gain_threshold", None)
     cfg["static"]["start_margin"] = 10000000
     return cfg
 

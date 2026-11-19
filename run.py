@@ -98,7 +98,7 @@ def main():
 
     if not sweep.configs:
         if is_hosted:
-            fail("NoResultError", getattr(sweep, "no_result_reason", None) or "the run produced no result", 1)
+            fail("NoResultError", sweep.no_result_reason or "the run produced no result", 1)
     elif args.output:
         sweep.save(args.output, catalog=not is_hosted)
         print(f"\nResults written to: {args.output}")
