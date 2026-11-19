@@ -10,7 +10,6 @@ meaningful only when all exchanges share a currency (e.g. NSE + BSE, both INR)
 or when the user interprets results as "portfolio in mixed local currencies."
 """
 
-import math
 import sys
 import os
 import time
@@ -20,6 +19,7 @@ import polars as pl
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from engine.config_loader import (
+    combinations,
     load_config,
     sweep_sizes,
     get_scanner_config_iterator,
@@ -63,8 +63,7 @@ def run_pipeline(config_path, data_provider=None):
     signal_gen = get_signal_generator(strategy_type)
     print(f"Strategy: {strategy_type}")
 
-    sizes = sweep_sizes(config)
-    total_configs = math.prod(sizes.values())
+    sizes, total_configs = sweep_sizes(config), combinations(config)
     print(f"Config combinations: {sizes['scanner']} scanner x {sizes['entry']} entry x "
           f"{sizes['exit']} exit x {sizes['simulation']} sim = {total_configs} total")
 

@@ -1,7 +1,7 @@
 """A hosted run: the config contract it checks before fetching, its exits, and the files it writes.
 
-A run is hosted when PIPELINE_CONFIG is set (engine/hosted.py). These tests run run.main() the way
-the platform's wrapper does: the config written as JSON to a file, argv set to --config and --output.
+A run is hosted when PIPELINE_CONFIG is set (engine/hosted.py). These tests run run.main() through
+the benchmark child's copy of the platform wrapper's steps (scripts/benchmark/child.run_hosted).
 """
 
 import copy
@@ -25,16 +25,11 @@ from engine.signals import factor_composite, low_pe, trending_value  # noqa: E40
 from engine.signals.base import DataFetchError  # noqa: E402
 from lib import backtest_result  # noqa: E402
 from lib.cr_client import CetaResearch, CetaResearchError  # noqa: E402
+from scripts.benchmark import child  # noqa: E402
+from scripts.benchmark.cases import load_base as form_default  # noqa: E402
 from tests.test_pipeline import MINIMAL_CONFIG, make_deterministic_data  # noqa: E402
 
-FORM_CONFIGS = os.path.join(ROOT, "scripts", "benchmark", "configs")
 DELETE = object()
-
-
-def form_default(strategy):
-    """What the platform's form submits for strategy when nothing is edited."""
-    with open(os.path.join(FORM_CONFIGS, f"{strategy}.json")) as f:
-        return json.load(f)
 
 
 def next_form_default(strategy):
@@ -148,7 +143,7 @@ def test_what_the_platform_sends_passes(strategy, dotted, value):
     hosted.check(as_wrapper_writes(with_value(form_default(strategy), dotted, value)))
 
 
-@pytest.mark.parametrize("provider", ["nse_charting", "cr", "bhavcopy"])
+@pytest.mark.parametrize("provider", hosted.PROVIDERS)
 def test_each_catalog_provider_passes(provider):
     hosted.check(as_wrapper_writes(with_value(form_default("low_pe"), "static.data_provider", provider)))
 
@@ -228,15 +223,16 @@ REFUSED = [  # (name, cfg, field, words the reason holds)
      "scanner.avg_day_transaction_threshold[0].threshold", "a number"),
     ("a section that isn't an object", with_value(EOD, "entry", []), "entry", "an object"),
     ("a static section that isn't an object", with_value(EOD, "static", None), "static", "an object"),
+    ("a start after the end", with_value(EOD, "static.start_epoch", 1773878400),
+     "static.start_epoch", "before static.end_epoch"),
+    ("no positions", with_value(EOD, "simulation.max_positions", [15, 0]),
+     "simulation.max_positions[1]", "above 0"),
 ]
 
 
-@pytest.mark.parametrize("name,cfg,field,words", REFUSED, ids=[r[0] for r in REFUSED])
-def test_refusals_name_the_field(name, cfg, field, words):
-    e = refusal(cfg)
-    assert e.field == field
-    assert words in e.want
-    assert str(e) == (f"{field}: {e.want}" if field else e.want)
+def test_a_refusal_reads_field_then_want():
+    assert str(hosted.ConfigError("entry.n_day_high[1]", "a number")) == "entry.n_day_high[1]: a number"
+    assert str(hosted.ConfigError("", "at most 100 combinations")) == "at most 100 combinations"
 
 
 def test_a_config_that_isnt_an_object_is_refused():
@@ -262,17 +258,21 @@ def test_only_the_wrapper_makes_a_run_hosted():
 # --- run.py --------------------------------------------------------------------------------------
 
 def run_main(tmp_path, monkeypatch, cfg, is_hosted=True):
-    """run.main() as the wrapper calls it; returns (exit code, the last stderr line, result path)."""
-    config_path, out = tmp_path / "pipeline_config.yaml", tmp_path / "result.json"
-    config_path.write_text(json.dumps(cfg))
-    if is_hosted:
-        monkeypatch.setenv("PIPELINE_CONFIG", json.dumps(cfg))
-    else:
-        monkeypatch.delenv("PIPELINE_CONFIG", raising=False)
-    monkeypatch.setattr(sys, "argv", ["run.py", "--config", str(config_path), "--output", str(out)])
+    """run.main() through the wrapper's steps, or as a local run.py --config; returns (exit code,
+    result path)."""
+    monkeypatch.setenv("PIPELINE_CONFIG", "")  # so a value set here is undone after the test
+    monkeypatch.setattr(sys, "argv", list(sys.argv))
+    out = tmp_path / "result.json"
     code = 0
     try:
-        run.main()
+        if is_hosted:
+            child.run_hosted(cfg, str(tmp_path))
+        else:
+            monkeypatch.delenv("PIPELINE_CONFIG")
+            config_path = tmp_path / "pipeline_config.yaml"
+            config_path.write_text(json.dumps(cfg))
+            sys.argv = ["run.py", "--config", str(config_path), "--output", str(out)]
+            run.main()
     except SystemExit as e:
         code = e.code
     return code, out
@@ -341,24 +341,12 @@ def synthetic_config(**static):
     return cfg
 
 
-def test_empty_data_exits_1_and_says_so(tmp_path, monkeypatch, capsys, stub_data):
-    stub_data.frame = pl.DataFrame()
-    code, out = run_main(tmp_path, monkeypatch, synthetic_config())
-    assert code == 1
-    assert last_stderr_line(capsys) == "NoResultError: no price data for the config's instruments and dates"
-    assert not out.exists()
-
-
-def test_zero_orders_exits_1_and_says_so(tmp_path, monkeypatch, capsys, stub_data):
-    cfg = with_value(synthetic_config(), "entry.direction_score", [{"n_day_ma": 3, "score": 2.0}])  # never reached
-    code, out = run_main(tmp_path, monkeypatch, cfg)
-    assert code == 1
-    assert last_stderr_line(capsys) == "NoResultError: the strategy generated no orders for this data and config"
-    assert not out.exists()
-
-
-def failing_query(*a, **k):
-    raise CetaResearchError("Submit failed (403): forbidden")
+def fail_queries(monkeypatch, message="Submit failed (403): forbidden"):
+    """Every API query raises CetaResearchError(message)."""
+    def failing(*a, **k):
+        raise CetaResearchError(message)
+    monkeypatch.setenv("CR_API_KEY", "test-only")
+    monkeypatch.setattr(CetaResearch, "query", failing)
 
 
 def low_pe_on_synthetic_data(stub):
@@ -371,43 +359,59 @@ def low_pe_on_synthetic_data(stub):
     return cfg
 
 
-def test_a_failed_fundamentals_query_exits_1_and_says_so(tmp_path, monkeypatch, capsys, stub_data):
-    monkeypatch.setenv("CR_API_KEY", "test-only")
-    monkeypatch.setattr(CetaResearch, "query", failing_query)
-    code, out = run_main(tmp_path, monkeypatch, low_pe_on_synthetic_data(stub_data))
-    assert code == 1
-    assert last_stderr_line(capsys) == ("NoResultError: the fundamentals query failed "
-                                        "(CetaResearchError: Submit failed (403): forbidden)")
-    assert not out.exists()
+def empty_data(stub, monkeypatch):
+    stub.frame = pl.DataFrame()
+    return synthetic_config()
+
+
+def no_entry_fires(stub, monkeypatch):
+    return with_value(synthetic_config(), "entry.direction_score", [{"n_day_ma": 3, "score": 2.0}])
+
+
+def fundamentals_fail(stub, monkeypatch):
+    fail_queries(monkeypatch)
+    return low_pe_on_synthetic_data(stub)
+
+
+NO_RESULT = [
+    (empty_data, "no price data for the config's instruments and dates"),
+    (no_entry_fires, "the strategy generated no orders for this data and config"),
+    (fundamentals_fail, "the fundamentals query failed (CetaResearchError: Submit failed (403): forbidden)"),
+]
+
+
+@pytest.mark.parametrize("setup,reason", NO_RESULT, ids=[s.__name__ for s, _ in NO_RESULT])
+def test_no_result_exits_1_and_says_why(setup, reason, tmp_path, monkeypatch, capsys, stub_data):
+    code, out = run_main(tmp_path, monkeypatch, setup(stub_data, monkeypatch))
+    assert code == 1 and not out.exists()
+    assert last_stderr_line(capsys) == f"NoResultError: {reason}"
 
 
 def test_a_local_run_with_no_result_still_exits_0(tmp_path, monkeypatch, stub_data):
-    stub_data.frame = pl.DataFrame()
-    code, out = run_main(tmp_path, monkeypatch, synthetic_config(), is_hosted=False)
+    code, out = run_main(tmp_path, monkeypatch, empty_data(stub_data, monkeypatch), is_hosted=False)
     assert code == 0 and not out.exists()
 
 
 def test_the_pipeline_still_returns_an_empty_sweep_with_the_reason(tmp_path, monkeypatch, stub_data):
-    monkeypatch.setenv("CR_API_KEY", "test-only")
-    monkeypatch.setattr(CetaResearch, "query", failing_query)
     path = tmp_path / "config.yaml"
-    path.write_text(json.dumps(low_pe_on_synthetic_data(stub_data)))
+    path.write_text(json.dumps(fundamentals_fail(stub_data, monkeypatch)))
     sweep = pipeline.run_pipeline(str(path))
     assert sweep.configs == []
     assert sweep.no_result_reason.startswith("the fundamentals query failed (CetaResearchError")
 
 
-@pytest.mark.parametrize("fetch", [low_pe.fetch_pe_fundamentals, trending_value.fetch_quality_growth_data,
-                                   factor_composite.fetch_fundamentals])
+FUNDAMENTALS_FETCHES = [low_pe.fetch_pe_fundamentals, trending_value.fetch_quality_growth_data,
+                        factor_composite.fetch_fundamentals]
+
+
+@pytest.mark.parametrize("fetch", FUNDAMENTALS_FETCHES)
 def test_each_fundamentals_fetch_raises_when_its_query_fails(fetch, monkeypatch):
-    monkeypatch.setenv("CR_API_KEY", "test-only")
-    monkeypatch.setattr(CetaResearch, "query", failing_query)
+    fail_queries(monkeypatch)
     with pytest.raises(DataFetchError, match=r"^the fundamentals query failed \(CetaResearchError: Submit failed"):
         fetch(["NSE"])
 
 
-@pytest.mark.parametrize("fetch", [low_pe.fetch_pe_fundamentals, trending_value.fetch_quality_growth_data,
-                                   factor_composite.fetch_fundamentals])
+@pytest.mark.parametrize("fetch", FUNDAMENTALS_FETCHES)
 def test_each_fundamentals_fetch_returns_empty_when_its_query_has_no_rows(fetch, monkeypatch):
     monkeypatch.setenv("CR_API_KEY", "test-only")
     monkeypatch.setattr(CetaResearch, "query", lambda *a, **k: b"")
@@ -415,11 +419,7 @@ def test_each_fundamentals_fetch_returns_empty_when_its_query_has_no_rows(fetch,
 
 
 def test_a_long_error_is_cut_to_one_short_line(monkeypatch):
-    monkeypatch.setenv("CR_API_KEY", "test-only")
-
-    def long_error(*a, **k):
-        raise CetaResearchError("Poll failed (500): " + "x" * 400 + "\nsecond line")
-    monkeypatch.setattr(CetaResearch, "query", long_error)
+    fail_queries(monkeypatch, "Poll failed (500): " + "x" * 400 + "\nsecond line")
     with pytest.raises(DataFetchError) as e:
         low_pe.fetch_pe_fundamentals(["NSE"])
     assert "\n" not in str(e.value) and "second line" not in str(e.value) and len(str(e.value)) < 200

@@ -591,14 +591,12 @@ class SweepResult:
         print(f"  Saved {path} ({size_mb:.1f} MB, {len(self.configs)} configs, "
               f"top {min(top_n, len(self.configs))} detailed)")
 
-        if not catalog:
-            return path
-        # Append top-10 summaries to catalog
-        try:
-            _append_to_catalog(self.meta, output["all_configs"], sort_by,
-                               result_file=path)
-        except Exception as e:
-            print(f"  Warning: catalog append failed: {e}")
+        if catalog:
+            try:
+                _append_to_catalog(self.meta, output["all_configs"], sort_by,
+                                   result_file=path)
+            except Exception as e:
+                print(f"  Warning: catalog append failed: {e}")
 
         return path
 

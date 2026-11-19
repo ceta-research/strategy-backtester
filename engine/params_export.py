@@ -64,11 +64,6 @@ NOT_OPTIONS = {
 }
 
 
-def load_raw(raw):
-    """`build_config` on a config given as a dict, by section."""
-    return sections(build_config(raw))
-
-
 def dispatch_options(dispatch):
     """The string literals `dispatch.variable` is compared with (==) in `dispatch.function`.
 
@@ -105,8 +100,8 @@ def options():
 
 
 def export():
-    empty = load_raw({})
-    built = {name: load_raw({"static": {"strategy_type": name}}) for name in sorted(_STRATEGY_REGISTRY)}
+    empty = sections(build_config({}))
+    built = {name: sections(build_config({"static": {"strategy_type": name}})) for name in sorted(_STRATEGY_REGISTRY)}
     return {
         "shared": {s: empty[s] for s in SHARED},
         "strategies": {name: {s: cfg[s] for s in OWN} for name, cfg in built.items()},

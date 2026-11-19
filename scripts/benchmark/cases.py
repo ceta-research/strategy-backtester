@@ -1,7 +1,6 @@
 """Benchmark cases: base configs, sweep sizes and the engine's own config count."""
 
 import json
-import math
 import os
 
 from engine import config_loader
@@ -33,7 +32,7 @@ def build_config(name, case, size):
 
 def count_configs(cfg):
     """Total combinations as engine/pipeline.py counts them, after the loader's defaults."""
-    return math.prod(config_loader.sweep_sizes(config_loader.build_config(cfg)).values())
+    return config_loader.combinations(config_loader.build_config(cfg))
 
 
 def in_window(now, hours, margin_minutes=30):

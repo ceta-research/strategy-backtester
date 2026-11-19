@@ -13,7 +13,7 @@ import math
 import os
 import re
 
-from engine.config_loader import SWEEP_SECTIONS, build_config, sections, sweep_sizes
+from engine.config_loader import SWEEP_SECTIONS, ConfigError, build_config, combinations, sections
 
 STRATEGIES = ("eod_breakout", "eod_technical", "factor_composite", "low_pe", "momentum_cascade",
               "quality_dip_tiered", "trending_value")
@@ -34,21 +34,13 @@ _GROUP_WANT = "a non-empty list of {exchange, symbols} objects, one scanner conf
 _OVER_CAP = f"at most {MAX_COMBINATIONS} combinations across scanner, entry, exit and simulation"
 
 
-class ConfigError(ValueError):
-    """A config the hosted contract refuses: the field's path ("" for the whole config) and what it
-    takes there. It never holds a value that was sent."""
-
-    def __init__(self, field, want):
-        super().__init__(f"{field}: {want}" if field else want)
-        self.field, self.want = field, want
-
-
 def is_hosted(environ=os.environ):
     return "PIPELINE_CONFIG" in environ
 
 
 def check(raw):
-    """Raise ConfigError for the first part of raw a hosted run refuses."""
+    """Raise ConfigError for the first part of raw a hosted run refuses, the engine's own checks
+    (config_loader.validate_config) included."""
     if not isinstance(raw, dict):
         raise ConfigError("", "an object with sections " + ", ".join(SECTIONS))
     for sec in sorted(raw, key=str):
@@ -61,17 +53,18 @@ def check(raw):
     if not isinstance(strategy, str) or strategy not in STRATEGIES:
         raise ConfigError("static.strategy_type", "one of " + ", ".join(STRATEGIES))
     defaults = sections(build_config({"static": {"strategy_type": strategy}}))
-    for sec in SECTIONS:
+    for key in sorted(static, key=str):
+        if key not in STATIC:
+            raise ConfigError(f"static.{_name(key)}", "one of " + ", ".join(STATIC))
+        _check_value(f"static.{key}", static[key], defaults["static"][key])
+    for sec in SWEEP_SECTIONS:
         for key in sorted(raw.get(sec, {}), key=str):
-            if sec == "static" and key not in STATIC:
-                raise ConfigError(f"static.{_name(key)}", "one of " + ", ".join(STATIC))
             if key not in defaults[sec]:
                 raise ConfigError(f"{sec}.{_name(key)}", "a param this strategy reads")
-            _check_param(sec, key, raw[sec][key], defaults[sec][key])
-    provider = static.get("data_provider", defaults["static"]["data_provider"])
-    if provider not in PROVIDERS:
+            _check_sweep(f"{sec}.{key}", raw[sec][key], defaults[sec][key])
+    if static.get("data_provider", defaults["static"]["data_provider"]) not in PROVIDERS:
         raise ConfigError("static.data_provider", "one of " + ", ".join(PROVIDERS))
-    if math.prod(sweep_sizes(build_config(raw)).values()) > MAX_COMBINATIONS:
+    if combinations(build_config(raw)) > MAX_COMBINATIONS:
         raise ConfigError("", _OVER_CAP)
 
 
@@ -80,16 +73,12 @@ def _name(key):
     return key if isinstance(key, str) and _PARAM_NAME.fullmatch(key) else "<unknown key>"
 
 
-def _check_param(sec, key, value, default):
-    field = f"{sec}.{key}"
-    if sec == "static":
-        _check_value(field, value, default)
-        return
+def _check_sweep(field, value, default):
     if not isinstance(value, list) or not value:
         raise ConfigError(field, "a list of values, one per sweep step")
     if len(value) > MAX_COMBINATIONS:
         raise ConfigError("", _OVER_CAP)
-    if key == "instruments":
+    if field == "scanner.instruments":
         _check_instruments(field, value)
         return
     for i, item in enumerate(value):
