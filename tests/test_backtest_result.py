@@ -136,6 +136,15 @@ class TestTradeMetrics(unittest.TestCase):
         # Avg hold = (2,2,2,2,2) = 2 days
         self.assertAlmostEqual(tm["avg_hold_days"], 2.0, places=4)
 
+    def test_slippage_can_turn_a_gross_gain_into_a_loss(self):
+        r = _fresh()
+        r.add_trade(1577836800, 1577836800 + 2 * DAY, 100.0, 100.5, 100, charges=10.0, slippage=60.0)
+        self.assertEqual(r.trades[0]["gross_pnl"], 50.0)
+        self.assertEqual(r.trades[0]["net_pnl"], -20.0)
+        tm = r._trade_metrics()
+        self.assertEqual((tm["winning_trades"], tm["losing_trades"]), (0, 1))
+        self.assertEqual(r.costs["total_slippage"], 60.0)
+
     def test_all_wins_profit_factor_is_none(self):
         """All-wins sets profit_factor / payoff / Kelly to None (no
         losses to divide by), not infinity."""

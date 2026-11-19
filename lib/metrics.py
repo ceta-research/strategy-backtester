@@ -43,7 +43,8 @@ def compute_metrics_from_curve(port_curve, bench_curve=None,
         additional_benchmarks: Optional dict[str, EquityCurve].
 
     Returns:
-        Same dict shape as compute_metrics(). See that function's docstring.
+        Same dict shape as compute_metrics() (see its docstring), except that
+        "benchmark" and "comparison" are None without a bench_curve.
     """
     if not isinstance(port_curve, EquityCurve):
         raise TypeError(f"port_curve must be EquityCurve, got {type(port_curve).__name__}")
