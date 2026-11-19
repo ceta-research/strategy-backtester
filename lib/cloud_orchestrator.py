@@ -1,7 +1,7 @@
 """Shared cloud execution orchestrator for strategy-backtester.
 
 Centralizes project management, file sync, run submission, polling, and
-result download. Used by run_remote.py, run_all_cloud.py, and cloud_sweep.py.
+result download. Used by run_remote.py and cloud_sweep.py.
 
 All low-level API calls go through lib/cr_client.py — this module composes
 them into higher-level orchestration workflows.
@@ -50,9 +50,6 @@ LIB_FILES = [
     "lib/cr_client.py",
     "lib/metrics.py",
     "lib/backtest_result.py",
-    "lib/data_utils.py",
-    "lib/indicators.py",
-    "lib/data_fetchers.py",
 ]
 
 DEFAULT_DEPENDENCIES = ["requests", "pyyaml", "polars==1.37.1", "pyarrow"]
@@ -280,8 +277,7 @@ class CloudOrchestrator:
     def upsert_with_retry(self, project_id, path, content, max_retries=10):
         """Upload a file with rate-limit retry and exponential backoff.
 
-        Extracted from run_all_cloud.py's _upsert(). Handles 429, RATE_LIMIT,
-        and connection errors with up to 10 retries.
+        Handles 429, RATE_LIMIT and connection errors with up to 10 retries.
         """
         for attempt in range(max_retries):
             try:

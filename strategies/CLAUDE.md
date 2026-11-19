@@ -3,7 +3,7 @@
 YAML configs for the engine, one folder per active strategy, plus each strategy's optimization record.
 
 ## Config pattern
-- `static.strategy_type` names the signal generator. How one is registered, and why `breakout_pullback/` fails with `Unknown strategy_type`: `engine/signals/CLAUDE.md`.
+- `static.strategy_type` names the signal generator. How one is registered: `engine/signals/CLAUDE.md`.
 - File names follow the rounds in `docs/OPTIMIZATION_RUNBOOK.md`: `config_baseline.yaml` (R0), `config_round1*.yaml`, `config_round2.yaml`, `config_round3.yaml`, `config_r4_*.yaml` (validation). `config_champion.yaml` is the current pick.
 - `<name>/OPTIMIZATION.md` logs each round and the champion. `OPTIMIZATION_QUEUE.yaml` tracks status per strategy; no item is PENDING.
 - Defaults live in `engine/config_loader.py` and the signal classes. `engine/params_export.py` exports them, and these champion configs, as JSON (`engine/CLAUDE.md`). The old `schema.yaml` files, which nothing read, are gone.
