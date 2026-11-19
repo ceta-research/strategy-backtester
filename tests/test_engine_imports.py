@@ -9,8 +9,16 @@ SHIPPED = ("run.py", "tests/test_pipeline.py")
 PACKAGES = ("engine", "lib")
 
 
+def _outside(name):
+    """True for a repo folder other than engine/ and lib/, or a root module the image doesn't hold."""
+    if name in PACKAGES:
+        return False
+    return os.path.isdir(os.path.join(ROOT, name)) or (
+        os.path.isfile(os.path.join(ROOT, f"{name}.py")) and f"{name}.py" not in SHIPPED)
+
+
 def _repo_imports_outside(path):
-    """The top-level repo folders other than engine/ and lib/ that path imports from, at any depth."""
+    """The repo folders and root modules outside the image that path imports from, at any depth."""
     with open(path) as f:
         tree = ast.parse(f.read())
     tops = set()
@@ -19,7 +27,7 @@ def _repo_imports_outside(path):
             tops |= {a.name.split(".")[0] for a in n.names}
         elif isinstance(n, ast.ImportFrom) and n.module and n.level == 0:
             tops.add(n.module.split(".")[0])
-    return sorted(t for t in tops if t not in PACKAGES and os.path.isdir(os.path.join(ROOT, t)))
+    return sorted(t for t in tops if _outside(t))
 
 
 def _shipped_files():
@@ -37,5 +45,5 @@ def test_the_shipped_files_import_only_engine_and_lib():
 
 def test_an_import_from_another_folder_is_caught(tmp_path):
     path = tmp_path / "planted.py"
-    path.write_text("def f():\n    from scripts.parquet_providers import ParquetDataProvider\n")
-    assert _repo_imports_outside(str(path)) == ["scripts"]
+    path.write_text("import run_remote\n\ndef f():\n    from scripts.parquet_providers import ParquetDataProvider\n")
+    assert _repo_imports_outside(str(path)) == ["run_remote", "scripts"]

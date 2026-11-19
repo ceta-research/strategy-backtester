@@ -82,11 +82,11 @@ class TestBuildOrbSignalSql(unittest.TestCase):
         self.assertNotIn("COALESCE(x.exit_price", sql)
 
     def test_signal_sql_has_entry_ctes(self):
-        """Has all shared CTEs: all_eod through first_entry."""
+        """Defines all shared CTEs: all_eod (the look-ahead fix) through first_entry."""
         sql = build_orb_signal_sql(SIGNAL_CFG)
         for cte in ["all_eod", "filtered_eod", "bench", "bars",
                      "opening_range", "entry_candidates", "first_entry"]:
-            self.assertIn(cte, sql, f"Missing CTE: {cte}")
+            self.assertIn(f"{cte} AS (", sql, f"Missing CTE: {cte}")
 
     def test_signal_sql_returns_string(self):
         sql = build_orb_signal_sql(SIGNAL_CFG)
