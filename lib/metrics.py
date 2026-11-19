@@ -51,10 +51,7 @@ def compute_metrics_from_curve(port_curve, bench_curve=None,
         raise TypeError(f"bench_curve must be EquityCurve or None, got {type(bench_curve).__name__}")
 
     if len(port_curve) < 2:
-        result = _empty_metrics()
-        if bench_curve is None:
-            result.update(benchmark=None, comparison=None)
-        return result
+        return _empty_metrics(with_benchmark=bench_curve is not None)
 
     ppy = port_curve.frequency.periods_per_year
     port_returns = port_curve.period_returns()
@@ -634,8 +631,8 @@ def format_metrics(metrics, strategy_name="Strategy", benchmark_name="S&P 500"):
     return "\n".join(lines)
 
 
-def _empty_metrics():
-    """Return empty metrics dict for edge cases (n < 2)."""
+def _empty_metrics(with_benchmark=True):
+    """Return empty metrics dict for edge cases (n < 2); no benchmark gives None for benchmark and comparison."""
     empty_series = {
         "cagr": None, "total_return": None, "max_drawdown": None,
         "max_dd_duration_periods": None, "annualized_volatility": None,
@@ -652,6 +649,6 @@ def _empty_metrics():
     }
     return {
         "portfolio": empty_series.copy(),
-        "benchmark": empty_series.copy(),
-        "comparison": empty_comp,
+        "benchmark": empty_series.copy() if with_benchmark else None,
+        "comparison": empty_comp if with_benchmark else None,
     }

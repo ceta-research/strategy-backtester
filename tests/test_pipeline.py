@@ -53,6 +53,13 @@ def make_deterministic_data():
     return pl.DataFrame(rows)
 
 
+class FakeProvider:
+    """A data provider serving make_deterministic_data(), with no API call."""
+
+    def fetch_ohlcv(self, **kw):
+        return make_deterministic_data()
+
+
 MINIMAL_CONFIG = """
 static:
   start_margin: 1000000
