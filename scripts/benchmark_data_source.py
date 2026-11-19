@@ -24,8 +24,8 @@ from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from engine.data_provider import (
-    CRDataProvider,
+from engine.data_provider import CRDataProvider
+from scripts.parquet_providers import (
     DuckDBParquetDataProvider,
     FMPParquetDataProvider,
     PolarsParquetDataProvider,
