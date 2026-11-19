@@ -19,13 +19,14 @@ import polars as pl
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from engine.config_loader import (
+    combinations,
     load_config,
+    sweep_sizes,
     get_scanner_config_iterator,
     get_entry_config_iterator,
     get_exit_config_iterator,
     get_simulation_config_iterator,
 )
-from engine.config_sweep import create_config_iterator
 from engine.data_provider import CRDataProvider, BhavcopyDataProvider, NseChartingDataProvider
 from engine import simulator
 from engine.ranking import sort_orders
@@ -33,7 +34,14 @@ from engine.utils import create_epoch_wise_instrument_stats, create_config_df_lo
 from lib.backtest_result import BacktestResult, SweepResult
 
 import engine.signals  # noqa: F401 — registers all signal generators
-from engine.signals.base import get_signal_generator, sanitize_orders, validate_orders
+from engine.signals.base import DataFetchError, get_signal_generator, sanitize_orders, validate_orders
+
+
+def _no_result(sweep, reason):
+    """Return the sweep with no configs, saying why."""
+    print(f"No result: {reason}. Aborting.")
+    sweep.no_result_reason = reason
+    return sweep
 
 
 def run_pipeline(config_path, data_provider=None):
@@ -55,14 +63,9 @@ def run_pipeline(config_path, data_provider=None):
     signal_gen = get_signal_generator(strategy_type)
     print(f"Strategy: {strategy_type}")
 
-    # Count total config combinations
-    scanner_total, _ = create_config_iterator(**config["scanner_config_input"])
-    entry_total, _ = create_config_iterator(**config["entry_config_input"])
-    exit_total, _ = create_config_iterator(**config["exit_config_input"])
-    sim_total, _ = create_config_iterator(**config["simulation_config_input"])
-    total_configs = scanner_total * entry_total * exit_total * sim_total
-    print(f"Config combinations: {scanner_total} scanner x {entry_total} entry x "
-          f"{exit_total} exit x {sim_total} sim = {total_configs} total")
+    sizes, total_configs = sweep_sizes(config), combinations(config)
+    print(f"Config combinations: {sizes['scanner']} scanner x {sizes['entry']} entry x "
+          f"{sizes['exit']} exit x {sizes['simulation']} sim = {total_configs} total")
 
     start_margin = static["start_margin"]
 
@@ -89,7 +92,7 @@ def run_pipeline(config_path, data_provider=None):
         "start_epoch": static["start_epoch"],
         "end_epoch": static["end_epoch"],
         "prefetch_days": static["prefetch_days"],
-        "total_exit_configs": exit_total,
+        "total_exit_configs": sizes["exit"],
         "slippage_rate": static.get("slippage_rate", 0.0005),
         "multiprocessing_workers": static.get("multiprocessing_workers", 4),
         "anomalous_drop_threshold_pct": static.get("anomalous_drop_threshold_pct", 20),
@@ -142,25 +145,25 @@ def run_pipeline(config_path, data_provider=None):
     )
 
     if df_tick_data.is_empty():
-        print("No data fetched. Aborting.")
-        return sweep
+        return _no_result(sweep, "no price data for the config's instruments and dates")
 
     # Signal generation (strategy-specific scanner + order gen)
-    df_orders = signal_gen.generate_orders(context, df_tick_data)
+    try:
+        df_orders = signal_gen.generate_orders(context, df_tick_data)
+    except DataFetchError as e:
+        return _no_result(sweep, str(e))
 
     if not df_orders.is_empty():
         validate_orders(df_orders, strategy_type)
 
     if df_orders.is_empty():
-        print("No orders generated. Aborting.")
-        return sweep
+        return _no_result(sweep, "the strategy generated no orders for this data and config")
 
     # Sanitize orders: remove zero-price entries only (no return cap - matches ATO_Simulator)
     df_orders = sanitize_orders(df_orders, max_return_mult=999.0)
 
     if df_orders.is_empty():
-        print("All orders removed by sanitization. Aborting.")
-        return sweep
+        return _no_result(sweep, "every order had a zero or missing price")
 
     # Build epoch-wise instrument stats (used by simulator + ranking)
     print("\n--- Building Instrument Stats ---")

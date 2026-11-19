@@ -26,9 +26,5 @@
  "momentum_cascade": {
   "10": {"entry.accel_threshold_pct": [10, 15], "exit.trailing_stop_pct": [10, 12, 15, 18, 20]},
   "50": {"entry.accel_threshold_pct": [5, 10, 15, 20, 25], "exit.trailing_stop_pct": [8, 10, 12, 14, 15, 16, 18, 20, 22, 25]}
- },
- "enhanced_breakout": {
-  "10": {"entry.breakout_window": [5, 10], "exit.trailing_stop_pct": [10, 14, 18, 22, 26]},
-  "50": {"entry.breakout_window": [3, 5, 10, 20, 40], "exit.trailing_stop_pct": [10, 12, 14, 16, 18, 20, 22, 24, 26, 30]}
  }
 }

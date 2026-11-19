@@ -32,9 +32,8 @@ from engine.signals.factor_composite import (
     FILING_LAG_DAYS,
     _empty_orders,
     _build_exchange_filter,
+    query_fundamentals,
 )
-from lib.cr_client import CetaResearch
-import io
 
 
 # -----------------------------------------------------------------------
@@ -48,7 +47,6 @@ def fetch_quality_growth_data(exchanges: list[str]) -> pl.DataFrame:
         instrument, period_epoch, fiscal_year, net_income, revenue,
         total_debt, total_assets, equity, roe
     """
-    client = CetaResearch()
     exchange_filter, needs_profile = _build_exchange_filter(exchanges)
 
     profile_join = "JOIN fmp.profile p ON i.symbol = p.symbol" if needs_profile else ""
@@ -81,18 +79,7 @@ def fetch_quality_growth_data(exchanges: list[str]) -> pl.DataFrame:
     """
 
     print("  Fetching quality + growth data...")
-    try:
-        data = client.query(
-            sql, timeout=600, limit=5000000, format="parquet",
-            verbose=True, memory_mb=16384, threads=6,
-        )
-        if not data:
-            print("  WARNING: No fundamental data returned")
-            return pl.DataFrame()
-        df = pl.read_parquet(io.BytesIO(data))
-    except Exception as e:
-        print(f"  WARNING: Fundamental fetch failed: {e}")
-        return pl.DataFrame()
+    df = query_fundamentals(sql)
 
     if df.is_empty():
         return df

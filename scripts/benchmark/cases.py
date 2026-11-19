@@ -3,13 +3,11 @@
 import json
 import os
 
-from engine.config_sweep import create_config_iterator
-from engine.params_export import load_raw
+from engine import config_loader
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SUITE = os.path.join(HERE, "suite.json")
 SIZES = ("1", "10", "50")
-SECTIONS = ("scanner", "entry", "exit", "simulation")
 
 
 def load_suite(path=SUITE):
@@ -34,11 +32,7 @@ def build_config(name, case, size):
 
 def count_configs(cfg):
     """Total combinations as engine/pipeline.py counts them, after the loader's defaults."""
-    loaded, total = load_raw(cfg), 1
-    for section in SECTIONS:
-        n, _ = create_config_iterator(**loaded[section])
-        total *= n
-    return total
+    return config_loader.combinations(config_loader.build_config(cfg))
 
 
 def in_window(now, hours, margin_minutes=30):

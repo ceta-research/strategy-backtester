@@ -1,7 +1,7 @@
 """Run one pipeline config the way the hosted backtest wrapper does, with stage timers and a query log.
 
 Run by scripts/benchmark_catalog.py: `python scripts/benchmark/child.py --help` lists the arguments.
-The wrapper's steps: write the config to OUT_DIR/pipeline_config.yaml, set argv to
+The wrapper's steps: set PIPELINE_CONFIG, write the config to OUT_DIR/pipeline_config.yaml, set argv to
 `run.py --config ... --output OUT_DIR/result.json`, call run.main(). OUT_DIR/stages.json gets the stage
 spans, every data query (rows, server time, resources sent) and the environment, rewritten after each
 span so a killed run shows where it stopped.
@@ -228,7 +228,8 @@ def write_json(path, data):
 
 
 def run_hosted(config, out_dir):
-    """The backend wrapper's steps for one config."""
+    """The backend wrapper's steps for one config, PIPELINE_CONFIG included, so the run is hosted."""
+    os.environ["PIPELINE_CONFIG"] = json.dumps(config)
     config_path = os.path.join(out_dir, "pipeline_config.yaml")
     with open(config_path, "w") as f:
         json.dump(config, f)

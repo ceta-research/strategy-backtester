@@ -36,6 +36,10 @@ class SignalGenerator(Protocol):
 _STRATEGY_REGISTRY: dict[str, type] = {}
 
 
+class DataFetchError(RuntimeError):
+    """A query a generator needs failed, so the run has no result to give; the message says which."""
+
+
 def register_strategy(name: str, cls: type):
     _STRATEGY_REGISTRY[name] = cls
 

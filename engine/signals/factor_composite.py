@@ -28,7 +28,7 @@ from engine.config_loader import (
     get_entry_config_iterator,
     get_exit_config_iterator,
 )
-from engine.signals.base import register_strategy, run_scanner
+from engine.signals.base import DataFetchError, register_strategy, run_scanner
 from lib.cr_client import CetaResearch
 
 SECONDS_PER_DAY = 86400
@@ -96,6 +96,27 @@ def _build_exchange_filter(exchanges: list[str]) -> tuple[str, bool]:
     return " AND ".join(clauses) if clauses else "1=1", needs_profile
 
 
+def query_fundamentals(sql: str) -> pl.DataFrame:
+    """Run a fundamentals query; an empty frame when it returns no rows.
+
+    Raises DataFetchError when the query fails, so a failure doesn't read as a screen that
+    found nothing.
+    """
+    client = CetaResearch()
+    try:
+        data = client.query(
+            sql, timeout=600, limit=5000000, format="parquet",
+            verbose=True, memory_mb=16384, threads=6,
+        )
+        if not data:
+            print("  WARNING: No fundamental data returned")
+            return pl.DataFrame()
+        return pl.read_parquet(io.BytesIO(data))
+    except Exception as e:
+        first_line = (str(e).splitlines() or [""])[0][:120]
+        raise DataFetchError(f"the fundamentals query failed ({type(e).__name__}: {first_line})") from e
+
+
 def fetch_fundamentals(exchanges: list[str]) -> pl.DataFrame:
     """Fetch FMP fundamental data for factor scoring.
 
@@ -103,7 +124,6 @@ def fetch_fundamentals(exchanges: list[str]) -> pl.DataFrame:
         instrument, period_epoch, gross_profit, ebitda, total_assets,
         enterprise_value, book_value_per_share
     """
-    client = CetaResearch()
     exchange_filter, needs_profile = _build_exchange_filter(exchanges)
 
     profile_join = "LEFT JOIN fmp.profile p ON i.symbol = p.symbol" if needs_profile else ""
@@ -144,18 +164,7 @@ def fetch_fundamentals(exchanges: list[str]) -> pl.DataFrame:
     """
 
     print("  Fetching fundamental data...")
-    try:
-        data = client.query(
-            sql, timeout=600, limit=5000000, format="parquet",
-            verbose=True, memory_mb=16384, threads=6,
-        )
-        if not data:
-            print("  WARNING: No fundamental data returned")
-            return pl.DataFrame()
-        df = pl.read_parquet(io.BytesIO(data))
-    except Exception as e:
-        print(f"  WARNING: Fundamental fetch failed: {e}")
-        return pl.DataFrame()
+    df = query_fundamentals(sql)
 
     # Map FMP symbols to instrument format
     if df.is_empty():

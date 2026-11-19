@@ -20,12 +20,9 @@ import dataclasses
 import json
 import pathlib
 import sys
-import tempfile
-
-import yaml
 
 import engine.signals  # noqa: F401  (registers every generator)
-from engine.config_loader import load_config
+from engine.config_loader import build_config, load_config, sections
 from engine.signals.base import _STRATEGY_REGISTRY
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -67,19 +64,6 @@ NOT_OPTIONS = {
 }
 
 
-def sections(cfg):
-    """A `load_config` result keyed by the config file's own section names."""
-    return {"static": cfg["static_config"], **{s: cfg[f"{s}_config_input"] for s in ("scanner", *OWN, "simulation")}}
-
-
-def load_raw(raw):
-    """`load_config` on a config given as a dict."""
-    with tempfile.TemporaryDirectory() as tmp:
-        path = pathlib.Path(tmp) / "config.yaml"
-        path.write_text(yaml.safe_dump(raw))
-        return sections(load_config(str(path)))
-
-
 def dispatch_options(dispatch):
     """The string literals `dispatch.variable` is compared with (==) in `dispatch.function`.
 
@@ -116,8 +100,8 @@ def options():
 
 
 def export():
-    empty = load_raw({})
-    built = {name: load_raw({"static": {"strategy_type": name}}) for name in sorted(_STRATEGY_REGISTRY)}
+    empty = sections(build_config({}))
+    built = {name: sections(build_config({"static": {"strategy_type": name}})) for name in sorted(_STRATEGY_REGISTRY)}
     return {
         "shared": {s: empty[s] for s in SHARED},
         "strategies": {name: {s: cfg[s] for s in OWN} for name, cfg in built.items()},

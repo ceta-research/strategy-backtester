@@ -5,13 +5,61 @@ simulation_config.py from ATO_Simulator with YAML-driven configuration.
 Supports per-strategy config schemas via strategy_type in static section.
 """
 
+import json
+import math
+
 import yaml
 
 from engine.config_sweep import create_config_iterator
 
+SWEEP_SECTIONS = ("scanner", "entry", "exit", "simulation")
+
+
+class ConfigError(ValueError):
+    """A config value the engine refuses: the field's path ("" for the whole config) and what it
+    takes there. It never holds a value that was sent."""
+
+    def __init__(self, field, want):
+        super().__init__(f"{field}: {want}" if field else want)
+        self.field, self.want = field, want
+
+
+def read_config(path: str):
+    """A config file's contents: JSON when it parses as JSON, else YAML.
+
+    JSON first because YAML 1.1 reads a float written as 5e-05 or 1e+21, as Python's json
+    writes them, as a string.
+    """
+    with open(path, "r") as f:
+        text = f.read()
+    try:
+        return json.loads(text)
+    except ValueError:
+        return yaml.safe_load(text)
+
 
 def load_config(yaml_path: str) -> dict:
-    """Load YAML config and return structured dict.
+    """Load a config file and return build_config's structured dict."""
+    return build_config(read_config(yaml_path))
+
+
+def sections(config: dict) -> dict:
+    """A build_config result keyed by the config file's own section names."""
+    return {"static": config["static_config"], **{s: config[f"{s}_config_input"] for s in SWEEP_SECTIONS}}
+
+
+def sweep_sizes(config: dict) -> dict:
+    """How many configs each sweep section of a build_config result runs."""
+    return {s: create_config_iterator(**config[f"{s}_config_input"])[0] for s in SWEEP_SECTIONS}
+
+
+def combinations(config: dict) -> int:
+    """How many configs the pipeline runs for a build_config result."""
+    return math.prod(sweep_sizes(config).values())
+
+
+def build_config(raw: dict) -> dict:
+    """Build the structured config from a config's sections.
 
     Dispatches to strategy-specific config builders based on static.strategy_type.
     Each signal generator class defines its own build_entry_config() and
@@ -22,9 +70,6 @@ def load_config(yaml_path: str) -> dict:
         scanner_config_input, entry_config_input, exit_config_input,
         simulation_config_input, static_config
     """
-    with open(yaml_path, "r") as f:
-        raw = yaml.safe_load(f)
-
     static = _build_static_config(raw.get("static", {}))
     strategy_type = static.get("strategy_type", "eod_technical")
 
@@ -190,7 +235,7 @@ def _build_static_config(static: dict) -> dict:
 
 
 def validate_config(config: dict) -> None:
-    """Validate config structure. Raises ValueError on issues."""
+    """Validate config structure. Raises ConfigError on a value it refuses."""
     required_sections = [
         "scanner_config_input", "entry_config_input", "exit_config_input",
         "simulation_config_input", "static_config",
@@ -201,19 +246,19 @@ def validate_config(config: dict) -> None:
 
     static = config["static_config"]
     if static["start_epoch"] >= static["end_epoch"]:
-        raise ValueError("start_epoch must be less than end_epoch")
+        raise ConfigError("static.start_epoch", "an epoch before static.end_epoch")
 
     sim = config["simulation_config_input"]
-    for mp in sim["max_positions"]:
+    for i, mp in enumerate(sim["max_positions"]):
         if mp <= 0:
-            raise ValueError("max_positions must be > 0")
+            raise ConfigError(f"simulation.max_positions[{i}]", "a number above 0")
 
     # Strategy-specific validation
     strategy_type = static.get("strategy_type", "eod_technical")
     if strategy_type == "eod_technical":
-        for tsl in config["exit_config_input"]["trailing_stop_pct"]:
+        for i, tsl in enumerate(config["exit_config_input"]["trailing_stop_pct"]):
             if tsl <= 0:
-                raise ValueError("trailing_stop_pct must be > 0")
+                raise ConfigError(f"exit.trailing_stop_pct[{i}]", "a number above 0")
 
 
 def get_scanner_config_iterator(context):

@@ -24,7 +24,6 @@ Reimplemented inside strategy-backtester to fix:
   - Same-bar entry bias (now MOC execution)
 """
 
-import io
 import time
 from datetime import datetime, timezone
 
@@ -40,12 +39,12 @@ from engine.signals.factor_composite import (
     _epoch_to_ym,
     _empty_orders,
     _build_exchange_filter,
+    query_fundamentals,
     EXCHANGE_SUFFIX,
     US_EXCHANGES,
     SECONDS_PER_DAY,
     FILING_LAG_DAYS,
 )
-from lib.cr_client import CetaResearch
 
 
 REBALANCE_MONTHS = {1, 4, 7, 10}  # Jan, Apr, Jul, Oct
@@ -61,7 +60,6 @@ def fetch_pe_fundamentals(exchanges: list[str]) -> pl.DataFrame:
     Returns DataFrame with columns:
         instrument, period_epoch, pe_ratio, roe, de_ratio, market_cap
     """
-    client = CetaResearch()
     exchange_filter, needs_profile = _build_exchange_filter(exchanges)
 
     profile_join = "LEFT JOIN fmp.profile p ON k.symbol = p.symbol" if needs_profile else ""
@@ -94,18 +92,7 @@ def fetch_pe_fundamentals(exchanges: list[str]) -> pl.DataFrame:
     """
 
     print("  Fetching P/E fundamental data...")
-    try:
-        data = client.query(
-            sql, timeout=600, limit=5000000, format="parquet",
-            verbose=True, memory_mb=16384, threads=6,
-        )
-        if not data:
-            print("  WARNING: No fundamental data returned")
-            return pl.DataFrame()
-        df = pl.read_parquet(io.BytesIO(data))
-    except Exception as e:
-        print(f"  WARNING: Fundamental fetch failed: {e}")
-        return pl.DataFrame()
+    df = query_fundamentals(sql)
 
     if df.is_empty():
         return df
