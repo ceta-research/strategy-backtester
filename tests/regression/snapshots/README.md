@@ -42,6 +42,10 @@ are pinned. The two `AUDIT_BLOCKED` and one `AUDIT_RETIRED` strategies are
 deliberately NOT pinned — their numbers are known to be biased and will
 change materially when re-optimised.
 
+The pipeline put each trade's slippage into its `net_pnl` only from November
+2026, so these pins' `win_rate` and `profit_factor` count trades before
+slippage. A fresh run of the same config reads lower on both.
+
 | Snapshot | Source file | CAGR | Calmar | Sharpe | Trades |
 |---|---|---:|---:|---:|---:|
 | `eod_breakout_champion` | `results_v2/eod_breakout/champion.json` | 14.51% | 0.536 | 0.816 | 833 |

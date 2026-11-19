@@ -37,13 +37,14 @@ def compute_metrics_from_curve(port_curve, bench_curve=None,
     Args:
         port_curve: EquityCurve of portfolio values.
         bench_curve: EquityCurve of benchmark values. Must have the same
-            frequency and equal length as port_curve; if omitted, benchmark
-            metrics are reported as zeros.
+            frequency and equal length as port_curve; if omitted, the result's
+            "benchmark" and "comparison" are None.
         risk_free_rate: Annual risk-free rate (default 0.02).
         additional_benchmarks: Optional dict[str, EquityCurve].
 
     Returns:
-        Same dict shape as compute_metrics(). See that function's docstring.
+        Same dict shape as compute_metrics() (see its docstring), except that
+        "benchmark" and "comparison" are None without a bench_curve.
     """
     if not isinstance(port_curve, EquityCurve):
         raise TypeError(f"port_curve must be EquityCurve, got {type(port_curve).__name__}")
@@ -51,11 +52,16 @@ def compute_metrics_from_curve(port_curve, bench_curve=None,
         raise TypeError(f"bench_curve must be EquityCurve or None, got {type(bench_curve).__name__}")
 
     if len(port_curve) < 2:
-        return _empty_metrics()
+        return _empty_metrics(with_benchmark=bench_curve is not None)
 
     ppy = port_curve.frequency.periods_per_year
     port_returns = port_curve.period_returns()
 
+    port_cagr, port_total_return = _cagr_from_curve(port_curve)
+    port = _compute_series_metrics_with_cagr(
+        port_returns, ppy, risk_free_rate, port_cagr, port_total_return)
+
+    bench = comp = None
     if bench_curve is not None:
         if bench_curve.frequency != port_curve.frequency:
             raise ValueError(
@@ -68,24 +74,11 @@ def compute_metrics_from_curve(port_curve, bench_curve=None,
                 f"port_curve length ({len(port_curve)})"
             )
         bench_returns = bench_curve.period_returns()
-    else:
-        bench_returns = [0.0] * len(port_returns)
-
-    port_cagr, port_total_return = _cagr_from_curve(port_curve)
-    port = _compute_series_metrics_with_cagr(
-        port_returns, ppy, risk_free_rate, port_cagr, port_total_return)
-
-    if bench_curve is not None:
         bench_cagr, bench_total_return = _cagr_from_curve(bench_curve)
         bench = _compute_series_metrics_with_cagr(
             bench_returns, ppy, risk_free_rate, bench_cagr, bench_total_return)
-    else:
-        bench_cagr = 0.0
-        bench = _compute_series_metrics_with_cagr(
-            bench_returns, ppy, risk_free_rate, 0.0, 0.0)
-
-    comp = _compute_comparison(port_returns, bench_returns, ppy, risk_free_rate,
-                               port_cagr, bench_cagr)
+        comp = _compute_comparison(port_returns, bench_returns, ppy, risk_free_rate,
+                                   port_cagr, bench_cagr)
 
     result = {"portfolio": port, "benchmark": bench, "comparison": comp}
 
@@ -639,8 +632,8 @@ def format_metrics(metrics, strategy_name="Strategy", benchmark_name="S&P 500"):
     return "\n".join(lines)
 
 
-def _empty_metrics():
-    """Return empty metrics dict for edge cases (n < 2)."""
+def _empty_metrics(with_benchmark=True):
+    """Return empty metrics dict for edge cases (n < 2); no benchmark gives None for benchmark and comparison."""
     empty_series = {
         "cagr": None, "total_return": None, "max_drawdown": None,
         "max_dd_duration_periods": None, "annualized_volatility": None,
@@ -657,6 +650,6 @@ def _empty_metrics():
     }
     return {
         "portfolio": empty_series.copy(),
-        "benchmark": empty_series.copy(),
-        "comparison": empty_comp,
+        "benchmark": empty_series.copy() if with_benchmark else None,
+        "comparison": empty_comp if with_benchmark else None,
     }

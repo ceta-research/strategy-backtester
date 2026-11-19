@@ -7,7 +7,8 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from lib.metrics import compute_metrics, _compute_series_metrics, _empty_metrics
+from lib.metrics import compute_metrics, compute_metrics_from_curve, _compute_series_metrics, _empty_metrics
+from tests.test_metrics_properties import _curve
 
 
 class TestComputeMetrics(unittest.TestCase):
@@ -155,6 +156,26 @@ class TestEmptyMetrics(unittest.TestCase):
         self.assertIn("comparison", m)
         self.assertIsNone(m["portfolio"]["cagr"])
         self.assertIsNone(m["comparison"]["excess_cagr"])
+
+
+class TestCurveWithoutBenchmark(unittest.TestCase):
+    """compute_metrics_from_curve with no benchmark curve reports none, not one of zeros."""
+
+    def test_no_benchmark_curve(self):
+        m = compute_metrics_from_curve(_curve([100.0, 101.0, 102.0, 103.0, 104.0]))
+        self.assertIsNone(m["benchmark"])
+        self.assertIsNone(m["comparison"])
+        self.assertIsNotNone(m["portfolio"]["cagr"])
+
+    def test_a_curve_too_short_for_metrics(self):
+        m = compute_metrics_from_curve(_curve([100.0]))
+        self.assertIsNone(m["benchmark"])
+        self.assertIsNone(m["comparison"])
+
+    def test_a_benchmark_curve(self):
+        m = compute_metrics_from_curve(_curve([100.0, 101.0, 102.0, 103.0, 104.0]), _curve([50, 49, 51, 50.5, 52]))
+        self.assertIsNotNone(m["benchmark"]["cagr"])
+        self.assertIsNotNone(m["comparison"]["tracking_error"])
 
 
 if __name__ == "__main__":

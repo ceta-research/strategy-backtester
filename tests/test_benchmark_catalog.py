@@ -25,7 +25,7 @@ from lib.cr_client import CetaResearch  # noqa: E402
 from scripts import benchmark_catalog as cli  # noqa: E402
 from scripts.benchmark import cases, child, measure, report, stages  # noqa: E402
 from tests.test_cr_client_tier_clamp import FakeResponse, make_client, submitted_body  # noqa: E402
-from tests.test_pipeline import MINIMAL_CONFIG, make_deterministic_data  # noqa: E402
+from tests.test_pipeline import MINIMAL_CONFIG, FakeProvider, make_deterministic_data  # noqa: E402
 
 LINUX = sys.platform.startswith("linux")
 TIERS = {
@@ -203,11 +203,6 @@ def test_stage_peaks_take_the_innermost_span():
     events = [{"stage": "generate_orders", "t0": 0, "t1": 10}, {"stage": "query", "t0": 2, "t1": 4}]
     peaks = stages.stage_peaks([(1, 100), (3, 500), (5, 300), (11, 50)], events)
     assert peaks == {"signal": 300, "fetch": 500, "other": 50}
-
-
-class FakeProvider:
-    def fetch_ohlcv(self, **kw):
-        return make_deterministic_data()
 
 
 def _run_fake(tmp_path, name, hooks, config=TWO_EXITS):

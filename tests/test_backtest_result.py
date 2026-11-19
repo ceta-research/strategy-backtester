@@ -12,7 +12,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from lib.backtest_result import BacktestResult
+from lib.backtest_result import BacktestResult, SweepResult
 from lib.equity_curve import EquityCurve, Frequency
 
 DAY = 86400
@@ -135,6 +135,15 @@ class TestTradeMetrics(unittest.TestCase):
         self.assertAlmostEqual(tm["kelly_criterion"], 0.4, places=4)
         # Avg hold = (2,2,2,2,2) = 2 days
         self.assertAlmostEqual(tm["avg_hold_days"], 2.0, places=4)
+
+    def test_slippage_can_turn_a_gross_gain_into_a_loss(self):
+        r = _fresh()
+        r.add_trade(1577836800, 1577836800 + 2 * DAY, 100.0, 100.5, 100, charges=10.0, slippage=60.0)
+        self.assertEqual(r.trades[0]["gross_pnl"], 50.0)
+        self.assertEqual(r.trades[0]["net_pnl"], -20.0)
+        tm = r._trade_metrics()
+        self.assertEqual((tm["winning_trades"], tm["losing_trades"]), (0, 1))
+        self.assertEqual(r.costs["total_slippage"], 60.0)
 
     def test_all_wins_profit_factor_is_none(self):
         """All-wins sets profit_factor / payoff / Kelly to None (no
@@ -277,6 +286,46 @@ class TestYearlyBucketing(unittest.TestCase):
         # 2022 MDD: carries 2021's 1.5 peak → 1.0 final = -33.3%.
         # This is THE Phase 1.3 regression lock.
         self.assertAlmostEqual(years[2022]["mdd"], -1 / 3, places=4)
+
+
+class TestNoBenchmark(unittest.TestCase):
+    """With no benchmark series the result says so with null, never a comparison against zeros."""
+
+    def _curve(self, n=5):
+        r = _fresh()
+        for i in range(n):
+            r.add_equity_point(1577836800 + i * DAY, 1_000_000 * (1 + 0.01 * i))
+        return r
+
+    def assert_no_benchmark(self, d):
+        self.assertIsNone(d["benchmark"])
+        self.assertIsNone(d["comparison"])
+
+    def test_no_benchmark_set(self):
+        self.assert_no_benchmark(self._curve().to_dict())
+
+    def test_benchmark_of_the_wrong_length(self):
+        r = self._curve()
+        r.set_benchmark_values([1577836800, 1577836800 + DAY], [100.0, 101.0])
+        self.assert_no_benchmark(r.to_dict())
+
+    def test_a_result_with_no_curve(self):
+        self.assert_no_benchmark(self._curve(1).to_dict())
+
+    def test_compact_keeps_the_null(self):
+        self.assert_no_benchmark(self._curve().compact().to_dict())
+
+    def test_a_sweep_detail(self):
+        sweep = SweepResult("test", "NSE:TEST", "NSE", 1_000_000)
+        sweep.add_config({"config_id": "1"}, self._curve())
+        self.assert_no_benchmark(sweep._to_dict()["detailed"][0])
+
+    def test_a_benchmark_series_is_still_compared(self):
+        r = self._curve()
+        r.set_benchmark_values([e for e, _ in r.equity_curve], [100.0, 99.0, 101.0, 100.5, 102.0])
+        d = r.to_dict()
+        self.assertIsNotNone(d["benchmark"]["cagr"])
+        self.assertIsNotNone(d["comparison"]["tracking_error"])
 
 
 if __name__ == "__main__":

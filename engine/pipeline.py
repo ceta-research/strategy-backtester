@@ -228,6 +228,7 @@ def run_pipeline(config_path, data_provider=None):
                         br.add_trade(t["entry_epoch"], t["exit_epoch"],
                                      t["entry_price"], t["exit_price"],
                                      t["quantity"], charges=total_charges,
+                                     slippage=t.get("slippage", 0),
                                      symbol=t.get("instrument", ""),
                                      exit_reason=t.get("exit_reason", ""))
 

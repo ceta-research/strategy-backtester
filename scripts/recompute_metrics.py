@@ -88,19 +88,18 @@ def _extract_curve(result, frequency=None):
     return EquityCurve.from_pairs(pairs, frequency)
 
 
-def _write_migrated(result_path, out_path, top, new_port_metrics, new_bench_metrics,
-                    new_comparison, frequency_name, report):
+def _write_migrated(result_path, out_path, top, new_port_metrics, frequency_name, report):
     """Write a v2 result file with corrected summary + provenance of the old one.
 
     Preserves the original file's shape (single-result or sweep) and structure;
-    only the summary/benchmark/comparison of the top config are overwritten.
+    only the summary of the top config is overwritten; its benchmark and comparison stay as stored.
     The full original summary is preserved under `summary_v1_pre_fix` for audit.
     """
     with open(result_path) as f:
         original = json.load(f)
 
     def _patch_config_dict(cfg):
-        """Overwrite cfg["summary"], cfg["benchmark"], cfg["comparison"] in place."""
+        """Overwrite cfg["summary"] in place."""
         old_summary = cfg.get("summary", {})
         # Preserve trade metrics and time-series outputs from the old result
         # (they don't depend on the ppy bug). Only overwrite the fields the
@@ -109,8 +108,6 @@ def _write_migrated(result_path, out_path, top, new_port_metrics, new_bench_metr
         new_summary.update(new_port_metrics)
         cfg["summary"] = new_summary
         cfg["summary_v1_pre_fix"] = old_summary
-        cfg["benchmark"] = new_bench_metrics
-        cfg["comparison"] = new_comparison
         cfg["equity_curve_frequency"] = frequency_name
 
     if isinstance(original, list):
@@ -216,8 +213,6 @@ def recompute_one(result_path, frequency=None, risk_free_rate=None):
         "delta": delta,
         "_top_config": top,   # for --out-dir writer
         "_new_portfolio_metrics": new_metrics["portfolio"],
-        "_new_benchmark_metrics": new_metrics["benchmark"],
-        "_new_comparison": new_metrics["comparison"],
     }
 
 
@@ -278,8 +273,7 @@ def main():
             report_slim = {k: v for k, v in r.items() if not k.startswith("_")}
             _write_migrated(
                 r["path"], str(out_path), r["_top_config"],
-                r["_new_portfolio_metrics"], r["_new_benchmark_metrics"],
-                r["_new_comparison"], r["frequency"], report_slim,
+                r["_new_portfolio_metrics"], r["frequency"], report_slim,
             )
             written += 1
         print(f"\nWrote {written} migrated files to {out_root}")
