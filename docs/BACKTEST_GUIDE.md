@@ -569,7 +569,6 @@ static:
   start_epoch: 1262304000        # 2010-01-01
   end_epoch: 1735689600          # 2025-01-01
   prefetch_days: 400             # warmup for indicators
-  data_granularity: day
 
 scanner:
   instruments:

@@ -50,9 +50,6 @@ def detect_intraday(config_path):
         stype = config.get("static", {}).get("strategy_type", "")
         if "intraday" in stype.lower() or "orb" in stype.lower():
             return True
-        granularity = config.get("static", {}).get("data_granularity", "day")
-        if granularity in ("minute", "1min", "5min", "15min"):
-            return True
     except Exception:
         pass
     return False

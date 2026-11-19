@@ -5,7 +5,7 @@ import os
 import tempfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from engine.config_loader import load_config, validate_config
+from engine.config_loader import UNREAD_STATIC, load_config, validate_config
 
 
 SAMPLE_YAML = """
@@ -67,6 +67,19 @@ def test_load_config():
     assert len(config["exit_config_input"]["min_hold_time_days"]) == 2
 
 
+def test_a_config_carrying_data_granularity_loads_without_it():
+    """Older configs and the platform's form send data_granularity; no engine code reads it."""
+    assert UNREAD_STATIC == {"data_granularity": "day"}
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+        f.write(SAMPLE_YAML)
+    try:
+        config = load_config(f.name)
+    finally:
+        os.unlink(f.name)
+    assert "data_granularity" not in config["static_config"]
+    assert config["static_config"]["prefetch_days"] == 200
+
+
 def test_validate_config_bad_epochs():
     config = {
         "scanner_config_input": {"price_threshold": [50]},
@@ -113,6 +126,7 @@ def test_defaults():
 
 if __name__ == "__main__":
     test_load_config()
+    test_a_config_carrying_data_granularity_loads_without_it()
     test_validate_config_bad_epochs()
     test_validate_config_bad_max_positions()
     test_defaults()

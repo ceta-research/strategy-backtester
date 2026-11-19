@@ -20,7 +20,7 @@ sys.path.insert(0, ROOT)
 
 import run  # noqa: E402
 from engine import hosted, pipeline  # noqa: E402
-from engine.config_loader import read_config  # noqa: E402
+from engine.config_loader import build_config, read_config  # noqa: E402
 from engine.signals import factor_composite, low_pe, trending_value  # noqa: E402
 from engine.signals.base import DataFetchError  # noqa: E402
 from lib import backtest_result  # noqa: E402
@@ -97,6 +97,14 @@ CATALOG = ["eod_breakout", "eod_technical", "factor_composite", "low_pe", "momen
 @pytest.mark.parametrize("shape", [form_default, next_form_default])
 def test_form_defaults_pass(strategy, shape):
     hosted.check(as_wrapper_writes(shape(strategy)))
+
+
+def test_data_granularity_is_taken_and_dropped():
+    """The form and older configs send it; the loader keeps no copy, so nothing can branch on it."""
+    cfg = form_default("eod_breakout")
+    assert cfg["static"]["data_granularity"] == "day"
+    hosted.check(as_wrapper_writes(cfg))
+    assert "data_granularity" not in build_config(cfg)["static_config"]
 
 
 def test_the_contract_names_the_catalog():

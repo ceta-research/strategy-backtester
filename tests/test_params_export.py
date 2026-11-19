@@ -8,7 +8,7 @@ import pytest
 import yaml
 
 from engine import params_export
-from engine.config_loader import load_config
+from engine.config_loader import UNREAD_STATIC, load_config
 from engine.params_export import ROOT
 from engine.signals.base import _STRATEGY_REGISTRY
 
@@ -44,6 +44,14 @@ def test_spot_defaults(exported):
     assert exported["strategies"]["eod_technical"]["exit"]["trailing_stop_pct"] == [15]
 
 
+def _dropped_keys(path):
+    """(section, key) of each value the file sets that its loaded config doesn't keep as set, apart from
+    the static keys no code reads."""
+    loaded = params_export.sections(load_config(str(path)))
+    return [(s, k) for s, values in yaml.safe_load(path.read_text()).items() for k, v in values.items()
+            if not (s == "static" and k in UNREAD_STATIC) and loaded[s].get(k, _dropped_keys) != v]
+
+
 def test_champions_are_their_files_loaded_with_every_raw_key_kept(exported):
     files = sorted(ROOT.glob("strategies/*/config_champion.yaml"))
     assert sorted(exported["champions"]) == sorted(f.parent.name for f in files)
@@ -51,9 +59,20 @@ def test_champions_are_their_files_loaded_with_every_raw_key_kept(exported):
         champion = exported["champions"][f.parent.name]
         assert champion == params_export.sections(load_config(str(f))), f
         assert champion["static"]["strategy_type"] == f.parent.name, f
-        for section, values in yaml.safe_load(f.read_text()).items():
-            for key, value in values.items():
-                assert champion[section][key] == value, (f, section, key)
+        assert _dropped_keys(f) == [], f
+
+
+def test_only_the_unread_static_keys_may_be_dropped(tmp_path):
+    path = tmp_path / "config_champion.yaml"
+    path.write_text(yaml.safe_dump({"static": {"strategy_type": "low_pe", "data_granularity": "day", "typo_key": 1},
+                                    "entry": {"pe_max": [8], "pe_maxx": [9]}}))
+    assert sorted(_dropped_keys(path)) == [("entry", "pe_maxx"), ("static", "typo_key")]
+
+
+def test_data_granularity_is_not_exported(exported):
+    assert "data_granularity" not in exported["shared"]["static"]
+    assert "data_granularity" not in params_export.NOT_OPTIONS
+    assert all("data_granularity" not in c["static"] for c in exported["champions"].values())
 
 
 def test_options_are_the_compared_values_plus_the_else_branch(exported):
