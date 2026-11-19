@@ -227,6 +227,14 @@ REFUSED = [  # (name, cfg, field, words the reason holds)
      "static.start_epoch", "before static.end_epoch"),
     ("no positions", with_value(EOD, "simulation.max_positions", [15, 0]),
      "simulation.max_positions[1]", "above 0"),
+    ("no trailing stop on eod_technical", with_value(form_default("eod_technical"), "exit.trailing_stop_pct", [0]),
+     "exit.trailing_stop_pct[0]", "above 0"),
+    ("an instrument with no symbols key", with_value(EOD, "scanner.instruments", [[{"exchange": "NSE"}]]),
+     "scanner.instruments[0][0]", "keys exchange, symbols"),
+    ("symbols as a string", with_value(EOD, "scanner.instruments", [[{"exchange": "NSE", "symbols": "TCS"}]]),
+     "scanner.instruments[0][0].symbols", "a list of symbols"),
+    ("a list past the cap, refused before its values are read",
+     with_value(EOD, "entry.n_day_high", ["not a number"] * 101), "", "at most 100 combinations"),
 ]
 
 
@@ -373,9 +381,15 @@ def fundamentals_fail(stub, monkeypatch):
     return low_pe_on_synthetic_data(stub)
 
 
+def every_order_invalid(stub, monkeypatch):
+    monkeypatch.setattr(pipeline, "sanitize_orders", lambda df, **k: df.clear())
+    return synthetic_config()
+
+
 NO_RESULT = [
     (empty_data, "no price data for the config's instruments and dates"),
     (no_entry_fires, "the strategy generated no orders for this data and config"),
+    (every_order_invalid, "every order had a zero or missing price"),
     (fundamentals_fail, "the fundamentals query failed (CetaResearchError: Submit failed (403): forbidden)"),
 ]
 
