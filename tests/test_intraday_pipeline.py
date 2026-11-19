@@ -187,85 +187,14 @@ class TestV2KeyClassification(unittest.TestCase):
 
 class TestV2PipelineWithMockClient(unittest.TestCase):
 
-    def _make_v2_config_file(self, exchange="NSE"):
-        """Create a minimal v2 YAML config and return the path."""
-        import tempfile
-        import yaml
-
-        config = {
-            "static": {
-                "strategy_name": "orb",
-                "pipeline_version": "v2",
-                "start_date": "2024-01-01",
-                "end_date": "2024-03-31",
-                "initial_capital": 500000,
-                "risk_free_rate": 0.065,
-                "exchange": exchange,
-            },
-            "scanner": {
-                "min_volume": 5000000,
-                "min_price": 100,
-                "min_range_pct": 0.01,
-            },
-            "entry": {
-                "or_window": 15,
-                "max_entry_bar": 120,
-            },
-            "exit": {
-                "target_pct": 0.015,
-                "stop_pct": 0.01,
-                "max_hold_bars": 60,
-            },
-            "simulation": {
-                "max_positions": 5,
-                "order_value": 50000,
-            },
-        }
-
-        fd, path = tempfile.mkstemp(suffix=".yaml")
-        with os.fdopen(fd, "w") as f:
-            yaml.dump(config, f)
-        return path
-
     @patch("engine.intraday_pipeline.CetaResearch")
     def test_v2_pipeline_produces_results(self, MockCR):
-        """Mock CR query -> v2 pipeline produces SweepResult."""
-        # Signal matrix rows: 2 entries, each with 5 bars
-        mock_signal_matrix = []
-        for bar_num in range(16, 21):
-            close = 100 + (bar_num - 16) * 0.5
-            mock_signal_matrix.append({
-                "symbol": "TEST.NS", "trade_date": "2024-01-15",
-                "entry_bar": 16, "entry_price": 100.0,
-                "or_high": 105, "or_low": 90, "or_range": 15,
-                "signal_strength": 0.05,
-                "bar_num": bar_num,
-                "bar_open": close, "bar_high": close + 1,
-                "bar_low": close - 1, "bar_close": close,
-                "bench_ret": 0.001,
-            })
-        for bar_num in range(18, 23):
-            close = 200 + (bar_num - 18) * 1.0
-            mock_signal_matrix.append({
-                "symbol": "TEST2.NS", "trade_date": "2024-01-16",
-                "entry_bar": 18, "entry_price": 200.0,
-                "or_high": 210, "or_low": 185, "or_range": 25,
-                "signal_strength": 0.03,
-                "bar_num": bar_num,
-                "bar_open": close, "bar_high": close + 2,
-                "bar_low": close - 2, "bar_close": close,
-                "bench_ret": 0.002,
-            })
-
-        mock_client = MagicMock()
-        mock_client.query.return_value = mock_signal_matrix
-        MockCR.return_value = mock_client
-
-        config_path = self._make_v2_config_file()
-        try:
-            sweep = run_intraday_pipeline(config_path)
-        finally:
-            os.unlink(config_path)
+        """A config that names v2 runs as one with no pipeline_version."""
+        rows = signal_rows(
+            ("TEST.NS", "2024-01-15", 16, [100, 100.5, 101, 101.5, 102], 0.05, 0.001),
+            ("TEST2.NS", "2024-01-16", 18, [200, 201, 202, 203, 204], 0.03, 0.002),
+        )
+        sweep, _ = _run_with_rows(MockCR, rows, pipeline_version="v2")
 
         from lib.backtest_result import SweepResult
         self.assertIsInstance(sweep, SweepResult)

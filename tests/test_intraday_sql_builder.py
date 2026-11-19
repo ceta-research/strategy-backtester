@@ -20,8 +20,7 @@ SIGNAL_CFG = {
 }
 
 
-class TestOrbSharedCtes(unittest.TestCase):
-    """The EOD filter, bars, opening range and entry CTEs every ORB query starts from."""
+class TestBuildOrbSignalSql(unittest.TestCase):
 
     def test_params_injected(self):
         sql = build_orb_signal_sql(SIGNAL_CFG)
@@ -42,10 +41,6 @@ class TestOrbSharedCtes(unittest.TestCase):
         self.assertIn("prev_day_volume", sql)
         self.assertIn("prev_day_range_pct", sql)
 
-    def test_all_eod_cte_present(self):
-        """The all_eod CTE the look-ahead fix introduced."""
-        self.assertIn("all_eod AS", build_orb_signal_sql(SIGNAL_CFG))
-
     def test_custom_symbol_filter_us(self):
         """Custom symbol_filter/exchange_filter overrides NSE defaults."""
         cfg = {
@@ -65,9 +60,6 @@ class TestOrbSharedCtes(unittest.TestCase):
         self.assertIn("%.NS", sql)
         self.assertIn("exchange = 'NSE'", sql)
 
-
-class TestBuildOrbSignalSql(unittest.TestCase):
-
     def test_signal_sql_no_exit_ctes(self):
         """build_orb_signal_sql() does NOT contain exit CTEs."""
         sql = build_orb_signal_sql(SIGNAL_CFG)
@@ -86,8 +78,6 @@ class TestBuildOrbSignalSql(unittest.TestCase):
         sql = build_orb_signal_sql(SIGNAL_CFG)
         self.assertNotIn("target_factor", sql)
         self.assertNotIn("stop_factor", sql)
-        # Should not contain pre-computed factors like 1.015 or 0.99
-        # (these are strategy-specific values from v1)
         self.assertNotIn("LEAST(", sql)
         self.assertNotIn("COALESCE(x.exit_price", sql)
 

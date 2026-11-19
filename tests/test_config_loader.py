@@ -47,12 +47,18 @@ simulation:
 """
 
 
-def test_load_config():
+def _load(text):
+    """load_config on a temporary file holding text."""
     with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-        f.write(SAMPLE_YAML)
-        f.flush()
-        config = load_config(f.name)
-    os.unlink(f.name)
+        f.write(text)
+    try:
+        return load_config(f.name)
+    finally:
+        os.unlink(f.name)
+
+
+def test_load_config():
+    config = _load(SAMPLE_YAML)
 
     assert "scanner_config_input" in config
     assert "entry_config_input" in config
@@ -70,12 +76,7 @@ def test_load_config():
 def test_a_config_carrying_data_granularity_loads_without_it():
     """Older configs and the platform's form send data_granularity; no engine code reads it."""
     assert UNREAD_STATIC == {"data_granularity": "day"}
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-        f.write(SAMPLE_YAML)
-    try:
-        config = load_config(f.name)
-    finally:
-        os.unlink(f.name)
+    config = _load(SAMPLE_YAML)
     assert "data_granularity" not in config["static_config"]
     assert config["static_config"]["prefetch_days"] == 200
 
@@ -112,12 +113,7 @@ def test_validate_config_bad_max_positions():
 
 def test_defaults():
     """Minimal YAML should get defaults for everything."""
-    minimal_yaml = "static:\n  start_margin: 100000\n"
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-        f.write(minimal_yaml)
-        f.flush()
-        config = load_config(f.name)
-    os.unlink(f.name)
+    config = _load("static:\n  start_margin: 100000\n")
 
     assert config["static_config"]["start_margin"] == 100000
     assert config["static_config"]["prefetch_days"] == 400

@@ -15,7 +15,8 @@ from engine.config_sweep import create_config_iterator
 SWEEP_SECTIONS = ("scanner", "entry", "exit", "simulation")
 
 # Static keys a config may carry that no engine code reads, each with the value it holds: older configs and
-# the platform's form still send data_granularity. The loader drops them; engine/hosted.py accepts them.
+# the platform's form still send data_granularity. engine/hosted.py accepts them, and the champion test lets
+# them drop on load as the loader drops any static key it doesn't build.
 UNREAD_STATIC = {"data_granularity": "day"}
 
 

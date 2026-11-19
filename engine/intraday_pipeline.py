@@ -32,7 +32,8 @@ SQL_BUILDERS_V2 = {
     "vwap_mr": build_vwap_mr_signal_sql,
 }
 
-# Keys that change the query; every other key only changes the simulation, which reuses the query's rows
+# The query keys scripts/cloud_sweep.py batches on. The pipeline itself sends every key outside SIM_KEYS_V2
+# to the query, and SIM_KEYS_V2 only to the simulation, which reuses the query's rows.
 SQL_KEYS_V2 = {"min_volume", "min_price", "min_range_pct", "or_window", "max_entry_bar",
                "min_rvol", "warmup_bars", "dip_pct"}
 

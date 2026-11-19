@@ -13,9 +13,12 @@ def _repo_imports_outside(path):
     """The top-level repo folders other than engine/ and lib/ that path imports from, at any depth."""
     with open(path) as f:
         tree = ast.parse(f.read())
-    names = [a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names]
-    names += [n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) and n.module and n.level == 0]
-    tops = {name.split(".")[0] for name in names}
+    tops = set()
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Import):
+            tops |= {a.name.split(".")[0] for a in n.names}
+        elif isinstance(n, ast.ImportFrom) and n.module and n.level == 0:
+            tops.add(n.module.split(".")[0])
     return sorted(t for t in tops if t not in PACKAGES and os.path.isdir(os.path.join(ROOT, t)))
 
 

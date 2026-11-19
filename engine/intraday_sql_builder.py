@@ -101,10 +101,10 @@ first_entry AS (
 
 
 def build_orb_signal_sql(cfg: dict) -> str:
-    """Build Opening Range Breakout signal matrix SQL (v2).
+    """Build Opening Range Breakout signal matrix SQL.
 
-    Returns all bars from entry onward for each entry signal, without exit logic.
-    Exit logic moves to Python simulator (intraday_simulator_v2).
+    Returns all bars from entry onward for each entry signal, without exit logic:
+    the Python simulator (intraday_simulator_v2) resolves exits.
 
     cfg keys: start_date, end_date, min_volume, min_price, min_range_pct,
               or_window, max_entry_bar, symbol_filter, exchange_filter
@@ -284,7 +284,7 @@ bars AS (
 
 
 def build_vwap_mr_signal_sql(cfg: dict) -> str:
-    """Build VWAP Mean Reversion signal matrix SQL (v2).
+    """Build VWAP Mean Reversion signal matrix SQL.
 
     Entry: first bar where close drops below VWAP by dip_pct, after warmup_bars.
     Returns all bars from entry onward for Python exit logic.
@@ -292,7 +292,7 @@ def build_vwap_mr_signal_sql(cfg: dict) -> str:
     cfg keys: start_date, end_date, min_volume, min_price, min_range_pct,
               warmup_bars, max_entry_bar, dip_pct, symbol_filter, exchange_filter
 
-    Returns: SQL string producing columns matching v2 signal matrix format:
+    Returns: SQL string producing columns in the signal matrix format:
         symbol, trade_date, entry_bar, entry_price,
         or_high (=VWAP at entry), or_low (=entry_price), or_range (=deviation),
         signal_strength (=dip_pct magnitude),

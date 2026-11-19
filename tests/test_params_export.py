@@ -44,11 +44,10 @@ def test_spot_defaults(exported):
     assert exported["strategies"]["eod_technical"]["exit"]["trailing_stop_pct"] == [15]
 
 
-def _dropped_keys(path):
-    """(section, key) of each value the file sets that its loaded config doesn't keep as set, apart from
-    the static keys no code reads."""
-    loaded = params_export.sections(load_config(str(path)))
-    return [(s, k) for s, values in yaml.safe_load(path.read_text()).items() for k, v in values.items()
+def _dropped_keys(raw, loaded):
+    """(section, key) of each value raw sets that its loaded sections don't keep as set, apart from the
+    static keys no code reads."""
+    return [(s, k) for s, values in raw.items() for k, v in values.items()
             if not (s == "static" and k in UNREAD_STATIC) and loaded[s].get(k, _dropped_keys) != v]
 
 
@@ -59,14 +58,13 @@ def test_champions_are_their_files_loaded_with_every_raw_key_kept(exported):
         champion = exported["champions"][f.parent.name]
         assert champion == params_export.sections(load_config(str(f))), f
         assert champion["static"]["strategy_type"] == f.parent.name, f
-        assert _dropped_keys(f) == [], f
+        assert _dropped_keys(yaml.safe_load(f.read_text()), champion) == [], f
 
 
 def test_only_the_unread_static_keys_may_be_dropped(tmp_path):
-    path = tmp_path / "config_champion.yaml"
-    path.write_text(yaml.safe_dump({"static": {"strategy_type": "low_pe", "data_granularity": "day", "typo_key": 1},
-                                    "entry": {"pe_max": [8], "pe_maxx": [9]}}))
-    assert sorted(_dropped_keys(path)) == [("entry", "pe_maxx"), ("static", "typo_key")]
+    raw = {"static": {"strategy_type": "low_pe", "data_granularity": "day", "typo_key": 1},
+           "entry": {"pe_max": [8], "pe_maxx": [9]}}
+    assert sorted(_dropped_keys(raw, _loaded(tmp_path, raw))) == [("entry", "pe_maxx"), ("static", "typo_key")]
 
 
 def test_data_granularity_is_not_exported(exported):
