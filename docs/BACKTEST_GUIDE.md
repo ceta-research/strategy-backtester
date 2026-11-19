@@ -283,6 +283,9 @@ Cross-exchange ratios must normalize to a common currency.
 }
 ```
 
+- `benchmark` and `comparison` are `null` unless `set_benchmark_values()` was given a series of the equity curve's length. The pipelines in `engine/` set none, so their results carry `null`.
+- A trade's `charges` and `slippage` each cover its entry and exit, `net_pnl` is `gross_pnl` less both, and `costs` sums them over the trades.
+
 ### Config Sweep (`type: "sweep"`)
 
 ```json
@@ -314,8 +317,8 @@ Cross-exchange ratios must normalize to a common currency.
       "rank": 1,
       "params": {"lookback_days": 3, "trailing_sl_pct": 5},
       "summary": {},
-      "benchmark": {},
-      "comparison": {},
+      "benchmark": null,
+      "comparison": null,
       "equity_curve": [],
       "trades": [],
       "monthly_returns": {},

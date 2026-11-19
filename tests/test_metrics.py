@@ -7,7 +7,8 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from lib.metrics import compute_metrics, _compute_series_metrics, _empty_metrics
+from lib.equity_curve import EquityCurve, Frequency
+from lib.metrics import compute_metrics, compute_metrics_from_curve, _compute_series_metrics, _empty_metrics
 
 
 class TestComputeMetrics(unittest.TestCase):
@@ -155,6 +156,32 @@ class TestEmptyMetrics(unittest.TestCase):
         self.assertIn("comparison", m)
         self.assertIsNone(m["portfolio"]["cagr"])
         self.assertIsNone(m["comparison"]["excess_cagr"])
+
+
+class TestCurveWithoutBenchmark(unittest.TestCase):
+    """compute_metrics_from_curve with no benchmark curve reports none, not one of zeros."""
+
+    def _curve(self, n):
+        return EquityCurve.from_pairs([(1577836800 + i * 86400, 100.0 + i) for i in range(n)],
+                                      Frequency.DAILY_CALENDAR)
+
+    def test_no_benchmark_curve(self):
+        m = compute_metrics_from_curve(self._curve(5))
+        self.assertIsNone(m["benchmark"])
+        self.assertIsNone(m["comparison"])
+        self.assertIsNotNone(m["portfolio"]["cagr"])
+
+    def test_a_curve_too_short_for_metrics(self):
+        m = compute_metrics_from_curve(self._curve(1))
+        self.assertIsNone(m["benchmark"])
+        self.assertIsNone(m["comparison"])
+
+    def test_a_benchmark_curve(self):
+        bench = EquityCurve.from_pairs([(1577836800 + i * 86400, v) for i, v in enumerate([50, 49, 51, 50.5, 52])],
+                                       Frequency.DAILY_CALENDAR)
+        m = compute_metrics_from_curve(self._curve(5), bench)
+        self.assertIsNotNone(m["benchmark"]["cagr"])
+        self.assertIsNotNone(m["comparison"]["tracking_error"])
 
 
 if __name__ == "__main__":
