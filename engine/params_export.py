@@ -20,12 +20,9 @@ import dataclasses
 import json
 import pathlib
 import sys
-import tempfile
-
-import yaml
 
 import engine.signals  # noqa: F401  (registers every generator)
-from engine.config_loader import load_config
+from engine.config_loader import build_config, load_config, sections
 from engine.signals.base import _STRATEGY_REGISTRY
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -67,17 +64,9 @@ NOT_OPTIONS = {
 }
 
 
-def sections(cfg):
-    """A `load_config` result keyed by the config file's own section names."""
-    return {"static": cfg["static_config"], **{s: cfg[f"{s}_config_input"] for s in ("scanner", *OWN, "simulation")}}
-
-
 def load_raw(raw):
-    """`load_config` on a config given as a dict."""
-    with tempfile.TemporaryDirectory() as tmp:
-        path = pathlib.Path(tmp) / "config.yaml"
-        path.write_text(yaml.safe_dump(raw))
-        return sections(load_config(str(path)))
+    """`build_config` on a config given as a dict, by section."""
+    return sections(build_config(raw))
 
 
 def dispatch_options(dispatch):

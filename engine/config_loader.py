@@ -11,7 +11,19 @@ from engine.config_sweep import create_config_iterator
 
 
 def load_config(yaml_path: str) -> dict:
-    """Load YAML config and return structured dict.
+    """Load a YAML config and return build_config's structured dict."""
+    with open(yaml_path, "r") as f:
+        return build_config(yaml.safe_load(f))
+
+
+def sections(config: dict) -> dict:
+    """A build_config result keyed by the config file's own section names."""
+    return {"static": config["static_config"],
+            **{s: config[f"{s}_config_input"] for s in ("scanner", "entry", "exit", "simulation")}}
+
+
+def build_config(raw: dict) -> dict:
+    """Build the structured config from a config's sections.
 
     Dispatches to strategy-specific config builders based on static.strategy_type.
     Each signal generator class defines its own build_entry_config() and
@@ -22,9 +34,6 @@ def load_config(yaml_path: str) -> dict:
         scanner_config_input, entry_config_input, exit_config_input,
         simulation_config_input, static_config
     """
-    with open(yaml_path, "r") as f:
-        raw = yaml.safe_load(f)
-
     static = _build_static_config(raw.get("static", {}))
     strategy_type = static.get("strategy_type", "eod_technical")
 

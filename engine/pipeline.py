@@ -33,7 +33,14 @@ from engine.utils import create_epoch_wise_instrument_stats, create_config_df_lo
 from lib.backtest_result import BacktestResult, SweepResult
 
 import engine.signals  # noqa: F401 — registers all signal generators
-from engine.signals.base import get_signal_generator, sanitize_orders, validate_orders
+from engine.signals.base import DataFetchError, get_signal_generator, sanitize_orders, validate_orders
+
+
+def _no_result(sweep, reason):
+    """Return the sweep with no configs, saying why."""
+    print(f"No result: {reason}. Aborting.")
+    sweep.no_result_reason = reason
+    return sweep
 
 
 def run_pipeline(config_path, data_provider=None):
@@ -142,25 +149,25 @@ def run_pipeline(config_path, data_provider=None):
     )
 
     if df_tick_data.is_empty():
-        print("No data fetched. Aborting.")
-        return sweep
+        return _no_result(sweep, "no price data for the config's instruments and dates")
 
     # Signal generation (strategy-specific scanner + order gen)
-    df_orders = signal_gen.generate_orders(context, df_tick_data)
+    try:
+        df_orders = signal_gen.generate_orders(context, df_tick_data)
+    except DataFetchError as e:
+        return _no_result(sweep, str(e))
 
     if not df_orders.is_empty():
         validate_orders(df_orders, strategy_type)
 
     if df_orders.is_empty():
-        print("No orders generated. Aborting.")
-        return sweep
+        return _no_result(sweep, "the strategy generated no orders for this data and config")
 
     # Sanitize orders: remove zero-price entries only (no return cap - matches ATO_Simulator)
     df_orders = sanitize_orders(df_orders, max_return_mult=999.0)
 
     if df_orders.is_empty():
-        print("All orders removed by sanitization. Aborting.")
-        return sweep
+        return _no_result(sweep, "every order had a zero or missing price")
 
     # Build epoch-wise instrument stats (used by simulator + ranking)
     print("\n--- Building Instrument Stats ---")

@@ -529,6 +529,7 @@ class SweepResult:
             "slippage_bps": slippage_bps,
         }
         self.configs = []  # [(params_dict, BacktestResult)]
+        self.no_result_reason = None  # set when the pipeline stops before any config runs
 
     def add_config(self, params, result):
         """Add a completed config. result.compute() is called if needed."""
@@ -574,13 +575,14 @@ class SweepResult:
             "detailed": detailed,
         }
 
-    def save(self, path="result.json", top_n=20, sort_by="calmar_ratio"):
+    def save(self, path="result.json", top_n=20, sort_by="calmar_ratio", catalog=True):
         """Save consolidated sweep result.
 
         Args:
             path: Output file path.
             top_n: Number of configs to include full detail for.
             sort_by: Metric key to sort configs by (descending).
+            catalog: Also append the top summaries to results/catalog.jsonl in the repo.
         """
         output = self._to_dict(top_n, sort_by)
         with open(path, "w") as f:
@@ -589,6 +591,8 @@ class SweepResult:
         print(f"  Saved {path} ({size_mb:.1f} MB, {len(self.configs)} configs, "
               f"top {min(top_n, len(self.configs))} detailed)")
 
+        if not catalog:
+            return path
         # Append top-10 summaries to catalog
         try:
             _append_to_catalog(self.meta, output["all_configs"], sort_by,

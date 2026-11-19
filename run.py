@@ -10,7 +10,15 @@ import yaml
 # Ensure project root is on path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from engine import hosted
 from engine.pipeline import run_pipeline
+
+
+def fail(kind, reason, code):
+    """End a hosted run with a non-zero exit and its reason as the last stderr line."""
+    sys.stdout.flush()
+    print(f"{kind}: {reason}", file=sys.stderr, flush=True)
+    sys.exit(code)
 
 
 def list_strategies():
@@ -73,6 +81,13 @@ def main():
     with open(config_path) as f:
         raw_config = yaml.safe_load(f)
 
+    is_hosted = hosted.is_hosted()
+    if is_hosted:
+        try:
+            hosted.check(raw_config)
+        except hosted.ConfigError as e:
+            fail("ConfigError", e, 2)
+
     strategy_type = raw_config.get("static", {}).get("strategy_type", "eod")
 
     if strategy_type == "intraday":
@@ -81,10 +96,13 @@ def main():
     else:
         sweep = run_pipeline(config_path)
 
-    if args.output and sweep.configs:
-        sweep.save(args.output)
+    if not sweep.configs:
+        if is_hosted:
+            fail("NoResultError", getattr(sweep, "no_result_reason", None) or "the run produced no result", 1)
+    elif args.output:
+        sweep.save(args.output, catalog=not is_hosted)
         print(f"\nResults written to: {args.output}")
-    elif sweep.configs:
+    else:
         sweep.print_leaderboard()
 
 
