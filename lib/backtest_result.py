@@ -653,63 +653,6 @@ class SweepResult:
         return unscored
 
 
-# ── Multi-Sweep Result ───────────────────────────────────────────────────
-
-class MultiSweepResult:
-    """Container for scripts that run multiple named sweeps.
-
-    Usage:
-        multi = MultiSweepResult("alpha_variations", "8 variation sweeps on SPY vs EWJ")
-        multi.add_sweep("zscore_params", sweep_result_1)
-        multi.add_sweep("trend_filter", sweep_result_2)
-        multi.print_leaderboard(top_n=10)
-        multi.save("result.json")
-    """
-
-    def __init__(self, strategy_name, description=""):
-        self.meta = {"strategy_name": strategy_name, "description": description}
-        self.sweeps = {}  # name -> SweepResult
-
-    def add_sweep(self, name, sweep_result):
-        """Add a named sweep."""
-        self.sweeps[name] = sweep_result
-
-    def print_leaderboard(self, top_n=10, sort_by="calmar_ratio"):
-        """Print leaderboards for all sweeps."""
-        for name, sr in self.sweeps.items():
-            print(f"\n  === {name} ===")
-            sr.print_leaderboard(top_n=top_n, sort_by=sort_by)
-
-    def save(self, path="result.json", top_n=20, sort_by="calmar_ratio"):
-        """Save all sweeps into a single JSON file."""
-        output = {
-            "version": "1.0",
-            "type": "multi_sweep",
-            "meta": self.meta,
-            "total_sweeps": len(self.sweeps),
-            "sweeps": {
-                name: sr._to_dict(top_n, sort_by)
-                for name, sr in self.sweeps.items()
-            },
-        }
-        with open(path, "w") as f:
-            json.dump(output, f)
-        size_mb = os.path.getsize(path) / (1024 * 1024)
-        print(f"  Saved {path} ({size_mb:.1f} MB, {len(self.sweeps)} sweeps)")
-
-        # Append each sweep's top-10 to catalog
-        for name, sr in self.sweeps.items():
-            try:
-                meta = {**sr.meta, "strategy_name": f"{self.meta['strategy_name']}:{name}"}
-                sweep_dict = sr._to_dict(top_n, sort_by)
-                _append_to_catalog(meta, sweep_dict["all_configs"], sort_by,
-                                   result_file=path)
-            except Exception as e:
-                print(f"  Warning: catalog append for {name} failed: {e}")
-
-        return path
-
-
 # ── Result Catalog ───────────────────────────────────────────────────────
 
 CATALOG_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),

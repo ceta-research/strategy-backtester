@@ -13,7 +13,7 @@ import sys
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, project_root)
 
-from engine.data_provider import ParquetDataProvider
+from scripts.parquet_providers import ParquetDataProvider
 from engine.pipeline import run_pipeline
 
 FIXED_START_EPOCH = 1577836800   # 2020-01-01

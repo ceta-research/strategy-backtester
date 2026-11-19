@@ -5,7 +5,8 @@ it to a file and calls run.main() on it. The platform checks a submit from its c
 check stops a config that skipped or slipped past that check before it reaches a provider's SQL or a
 strategy the platform doesn't offer. Ranges, labels and options stay with the platform's catalog: a
 string is checked as a plain value, not against an option list. Each param's type is its default's
-type in the engine's own builders. Of the static settings, a hosted run takes only those the platform
+type in the engine's own builders, or, for a static key no engine code reads, its value's type in
+config_loader.UNREAD_STATIC. Of the static settings, a hosted run takes only those the platform
 sends; the engine's execution settings (compute, workers, slippage, filters) keep their defaults.
 """
 
@@ -13,7 +14,7 @@ import math
 import os
 import re
 
-from engine.config_loader import SWEEP_SECTIONS, ConfigError, build_config, combinations, sections
+from engine.config_loader import SWEEP_SECTIONS, UNREAD_STATIC, ConfigError, build_config, combinations, sections
 
 STRATEGIES = ("eod_breakout", "eod_technical", "factor_composite", "low_pe", "momentum_cascade",
               "quality_dip_tiered", "trending_value")
@@ -53,10 +54,11 @@ def check(raw):
     if not isinstance(strategy, str) or strategy not in STRATEGIES:
         raise ConfigError("static.strategy_type", "one of " + ", ".join(STRATEGIES))
     defaults = sections(build_config({"static": {"strategy_type": strategy}}))
+    static_defaults = {**UNREAD_STATIC, **defaults["static"]}
     for key in sorted(static, key=str):
         if key not in STATIC:
             raise ConfigError(f"static.{_name(key)}", "one of " + ", ".join(STATIC))
-        _check_value(f"static.{key}", static[key], defaults["static"][key])
+        _check_value(f"static.{key}", static[key], static_defaults[key])
     for sec in SWEEP_SECTIONS:
         for key in sorted(raw.get(sec, {}), key=str):
             if key not in defaults[sec]:

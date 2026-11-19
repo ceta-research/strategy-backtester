@@ -25,28 +25,21 @@ sys.path.insert(0, ROOT)
 
 from lib.cr_client import CetaResearch, TERMINAL_STATUSES
 from lib.cloud_orchestrator import CloudOrchestrator
-from engine.intraday_pipeline import SQL_KEYS, SIM_KEYS, SQL_KEYS_V2, SIM_KEYS_V2
+from engine.intraday_pipeline import SQL_KEYS_V2
 
 
 # ------------------------------------------------------------------ #
 # Config splitting (unique to this script)
 # ------------------------------------------------------------------ #
 
-def _get_sql_keys(raw_config):
-    """Return the correct SQL key set based on pipeline version."""
-    version = raw_config.get("static", {}).get("pipeline_version", "v2")
-    return SQL_KEYS_V2 if version != "v1" else SQL_KEYS
-
-
 def count_sql_combos(raw_config):
     """Count number of unique SQL queries from a config."""
-    sql_keys = _get_sql_keys(raw_config)
     sql_params = {}
     for section in ("scanner", "entry", "exit", "simulation"):
         if section in raw_config:
             for key, val in raw_config[section].items():
                 vals = val if isinstance(val, list) else [val]
-                if key in sql_keys:
+                if key in SQL_KEYS_V2:
                     sql_params[key] = vals
     if not sql_params:
         return 1
@@ -66,14 +59,12 @@ def split_config_into_batches(raw_config, batch_size):
     if n_sql <= batch_size:
         return [raw_config]
 
-    sql_keys = _get_sql_keys(raw_config)
-
     sql_params = []
     for section in ("scanner", "entry", "exit"):
         if section in raw_config:
             for key, val in raw_config[section].items():
                 vals = val if isinstance(val, list) else [val]
-                if key in sql_keys and len(vals) > 1:
+                if key in SQL_KEYS_V2 and len(vals) > 1:
                     sql_params.append((section, key, vals))
 
     if not sql_params:

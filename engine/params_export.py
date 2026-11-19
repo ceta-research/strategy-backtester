@@ -51,7 +51,6 @@ DISPATCHES = {
 # String params with no options here, by name (name.key for a string inside a param's value), and why.
 NOT_OPTIONS = {
     "strategy_type": "names the generator; the strategies section lists them",
-    "data_granularity": "stored in the static config; no EOD code branches on it",
     "regime_instrument": "free text: an instrument such as NSE:NIFTYBEES, or empty",
     "exit_regime_instrument": "free text: an instrument, or empty",
     "fundamental_missing_mode": "an enum whose options aren't exported yet",

@@ -14,6 +14,11 @@ from engine.config_sweep import create_config_iterator
 
 SWEEP_SECTIONS = ("scanner", "entry", "exit", "simulation")
 
+# Static keys a config may carry that no engine code reads, each with the value it holds: older configs and
+# the platform's form still send data_granularity. engine/hosted.py accepts them, and the champion test lets
+# them drop on load as the loader drops any static key it doesn't build.
+UNREAD_STATIC = {"data_granularity": "day"}
+
 
 class ConfigError(ValueError):
     """A config value the engine refuses: the field's path ("" for the whole config) and what it
@@ -214,7 +219,6 @@ def _build_static_config(static: dict) -> dict:
         "start_epoch": static.get("start_epoch", 1577836800),
         "end_epoch": static.get("end_epoch", 1735689600),
         "prefetch_days": static.get("prefetch_days", 400),
-        "data_granularity": static.get("data_granularity", "day"),
         "strategy_type": static.get("strategy_type", "eod_technical"),
         "data_provider": static.get("data_provider", "cr"),
         # Simulator

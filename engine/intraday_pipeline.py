@@ -18,35 +18,22 @@ import yaml
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from engine.intraday_sql_builder import (
-    build_orb_sql, build_orb_signal_sql, build_rvol_atr_sql,
-    build_vwap_mr_signal_sql,
+    build_orb_signal_sql, build_rvol_atr_sql, build_vwap_mr_signal_sql,
 )
-from engine.intraday_simulator import simulate_intraday, _date_to_epoch
-from engine.intraday_simulator_v2 import simulate_intraday_v2
+from engine.intraday_simulator_v2 import _date_to_epoch, simulate_intraday_v2
 from lib.backtest_result import BacktestResult, SweepResult
 from lib.cr_client import CetaResearch
 from lib.equity_curve import Frequency
 
 
-# Map strategy_name -> SQL builder function
-SQL_BUILDERS = {
-    "orb": build_orb_sql,
-}
-
-# Keys that affect SQL (changing them requires a new query)
-SQL_KEYS = {"min_volume", "min_price", "min_range_pct", "or_window",
-            "max_entry_bar", "target_pct", "stop_pct", "max_hold_bars"}
-
-# Keys that only affect simulation (reuse same query results)
-SIM_KEYS = {"max_positions", "order_value"}
-
-# v2: exit logic moves from SQL to Python simulator
+# strategy_name -> SQL builder of its signal matrix; exits are resolved in Python (intraday_simulator_v2)
 SQL_BUILDERS_V2 = {
     "orb": build_orb_signal_sql,
     "vwap_mr": build_vwap_mr_signal_sql,
 }
 
-# v2: target_pct, stop_pct, max_hold_bars are SIM keys (not SQL)
+# The query keys scripts/cloud_sweep.py batches on. The pipeline itself sends every key outside SIM_KEYS_V2
+# to the query, and SIM_KEYS_V2 only to the simulation, which reuses the query's rows.
 SQL_KEYS_V2 = {"min_volume", "min_price", "min_range_pct", "or_window", "max_entry_bar",
                "min_rvol", "warmup_bars", "dip_pct"}
 
@@ -68,7 +55,7 @@ EXCHANGE_SQL_DEFAULTS = {
 
 
 def run_intraday_pipeline(config_path: str) -> SweepResult:
-    """Run intraday backtesting pipeline (dispatches to v1 or v2).
+    """Run the intraday backtesting pipeline.
 
     Args:
         config_path: path to YAML config file
@@ -79,25 +66,15 @@ def run_intraday_pipeline(config_path: str) -> SweepResult:
     with open(config_path) as f:
         raw = yaml.safe_load(f)
 
-    version = raw.get("static", {}).get("pipeline_version", "v2")
-    if version == "v1":
-        return _run_pipeline(config_path, raw,
-                             SQL_BUILDERS, SQL_KEYS, SIM_KEYS,
-                             simulate_intraday, "v1")
-    return _run_pipeline(config_path, raw,
-                         SQL_BUILDERS_V2, SQL_KEYS_V2, SIM_KEYS_V2,
-                         simulate_intraday_v2, "v2")
+    if raw.get("static", {}).get("pipeline_version") == "v1":
+        raise ValueError("static.pipeline_version: v1 was removed; set v2 or leave it out")
 
-
-def _run_pipeline(config_path, raw, sql_builders, sql_keys, sim_keys,
-                  simulate_fn, version_label):
-    """Shared pipeline logic for v1 and v2."""
     pipeline_start = time.time()
-    print(f"Loading config ({version_label}): {config_path}")
+    print(f"Loading config: {config_path}")
 
     static = raw["static"]
     strategy_name = static.get("strategy_name", "orb")
-    build_sql = sql_builders.get(strategy_name)
+    build_sql = SQL_BUILDERS_V2.get(strategy_name)
     if not build_sql:
         print(f"Unknown intraday strategy: {strategy_name}")
         return SweepResult(strategy_name, "PORTFOLIO", "UNKNOWN", 0)
@@ -109,7 +86,7 @@ def _run_pipeline(config_path, raw, sql_builders, sql_keys, sim_keys,
     exchange_defaults = EXCHANGE_SQL_DEFAULTS.get(exchange, EXCHANGE_SQL_DEFAULTS["NSE"])
 
     sweep = SweepResult(strategy_name, "PORTFOLIO", exchange, initial_capital,
-                        description=f"Intraday {version_label} sweep")
+                        description="Intraday v2 sweep")
 
     # Build all param combos from scanner + entry + exit + simulation sections
     all_params = {}
@@ -122,7 +99,7 @@ def _run_pipeline(config_path, raw, sql_builders, sql_keys, sim_keys,
     sql_params = {}
     sim_params = {}
     for key, vals in all_params.items():
-        if key in sim_keys:
+        if key in SIM_KEYS_V2:
             sim_params[key] = vals
         else:
             sql_params[key] = vals
@@ -149,36 +126,25 @@ def _run_pipeline(config_path, raw, sql_builders, sql_keys, sim_keys,
         print(f"\n  SQL config {sql_idx + 1}/{len(sql_combos)}: {sql_cfg}")
 
         try:
-            if version_label == "v2":
-                exchange = static.get("exchange", "NSE")
-                # US markets have 5-10x more liquid stocks; use smaller chunks.
-                # VWAP MR also benefits from smaller chunks (dense signal matrix).
-                default_months = 3 if exchange in ("NASDAQ", "NYSE", "AMEX") else 6
-                months = static.get("chunk_months", default_months)
-                query_data, row_count = _query_and_build_entries(
-                    client, build_sql, full_sql_cfg, chunk_months=months)
-                # query_data is now a pre-built entries_by_date dict
-            else:
-                sql = build_sql(full_sql_cfg)
-                query_data = client.query(sql, memory_mb=16384, threads=6, disk_mb=40960,
-                                          timeout=600)
-                row_count = len(query_data)
+            # US markets have 5-10x more liquid stocks; use smaller chunks.
+            # VWAP MR also benefits from smaller chunks (dense signal matrix).
+            default_months = 3 if exchange in ("NASDAQ", "NYSE", "AMEX") else 6
+            months = static.get("chunk_months", default_months)
+            query_data, row_count = _query_and_build_entries(
+                client, build_sql, full_sql_cfg, chunk_months=months)  # an entries_by_date dict
         except Exception as e:
             print(f"    Query failed: {e}")
             config_num += len(sim_combos)
             continue
 
         query_elapsed = round(time.time() - query_start, 1)
-        if version_label == "v2":
-            n_entries = sum(len(v) for v in query_data.values())
-            print(f"    {row_count} rows -> {n_entries} entries across {len(query_data)} days ({query_elapsed}s)")
-            # Second pass: enrich with RVOL + ATR (separate lightweight query)
-            query_data = _enrich_entries_rvol_atr(client, query_data, full_sql_cfg)
-            n_after = sum(len(v) for v in query_data.values())
-            if n_after != n_entries:
-                print(f"    After RVOL filter: {n_after} entries across {len(query_data)} days")
-        else:
-            print(f"    {len(query_data)} rows returned ({query_elapsed}s)")
+        n_entries = sum(len(v) for v in query_data.values())
+        print(f"    {row_count} rows -> {n_entries} entries across {len(query_data)} days ({query_elapsed}s)")
+        # Second pass: enrich with RVOL + ATR (separate lightweight query)
+        query_data = _enrich_entries_rvol_atr(client, query_data, full_sql_cfg)
+        n_after = sum(len(v) for v in query_data.values())
+        if n_after != n_entries:
+            print(f"    After RVOL filter: {n_after} entries across {len(query_data)} days")
 
         if not query_data:
             config_num += len(sim_combos)
@@ -192,7 +158,7 @@ def _run_pipeline(config_path, raw, sql_builders, sql_keys, sim_keys,
                 **sim_cfg,
             }
 
-            sim_result = simulate_fn(query_data, full_sim_cfg)
+            sim_result = simulate_intraday_v2(query_data, full_sim_cfg)
             daily_rets = sim_result["daily_returns"]
 
             config_id = _make_config_id(sql_cfg, sim_cfg)
@@ -230,7 +196,7 @@ def _run_pipeline(config_path, raw, sql_builders, sql_keys, sim_keys,
                   f"CAGR={cagr:.1f}% MaxDD={max_dd:.1f}%{calmar_str}")
 
     elapsed = round(time.time() - pipeline_start, 1)
-    print(f"\n--- Intraday Pipeline {version_label} Complete: {elapsed}s ---")
+    print(f"\n--- Intraday Pipeline Complete: {elapsed}s ---")
     if sweep.configs:
         best_params, best_result = sweep._sorted("calmar_ratio")[0]
         bs = best_result.to_dict()["summary"]

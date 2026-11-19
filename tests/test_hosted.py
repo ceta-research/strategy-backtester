@@ -99,6 +99,13 @@ def test_form_defaults_pass(strategy, shape):
     hosted.check(as_wrapper_writes(shape(strategy)))
 
 
+def test_data_granularity_is_accepted():
+    """The form and older configs send it, though no engine code reads it."""
+    cfg = form_default("eod_breakout")
+    assert cfg["static"]["data_granularity"] == "day"
+    hosted.check(as_wrapper_writes(cfg))
+
+
 def test_the_contract_names_the_catalog():
     assert sorted(hosted.STRATEGIES) == CATALOG
     assert sorted(hosted.PROVIDERS) == ["bhavcopy", "cr", "nse_charting"]

@@ -99,7 +99,7 @@ def _summarize_result(result: dict) -> dict:
 
 def _make_provider(kind: str):
     if kind == "parquet":
-        from engine.data_provider import ParquetDataProvider
+        from scripts.parquet_providers import ParquetDataProvider
         return ParquetDataProvider(base_path=os.path.expanduser("~/ATO_DATA/tick_data"))
     if kind == "cr":
         from engine.data_provider import CRDataProvider

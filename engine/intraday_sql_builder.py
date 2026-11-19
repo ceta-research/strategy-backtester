@@ -1,7 +1,8 @@
 """SQL builders for intraday strategies.
 
-Each strategy has a build_*_sql() function that returns a complete SQL query
-to be executed on the CR compute engine. All signal logic lives in SQL CTEs.
+Each strategy has a build_*_signal_sql() function that returns the SQL query, run
+on the CR compute engine, of its signal matrix: entries with every bar from entry on.
+Exits are resolved in Python by engine/intraday_simulator_v2.py.
 
 Strategies:
     ORB (Opening Range Breakout): breakout above first N bars' high
@@ -99,69 +100,11 @@ first_entry AS (
 )"""
 
 
-def build_orb_sql(cfg: dict) -> str:
-    """Build Opening Range Breakout SQL query from config dict.
-
-    cfg keys: start_date, end_date, min_volume, min_price, min_range_pct,
-              or_window, max_entry_bar, target_pct, stop_pct, max_hold_bars
-
-    Returns: SQL string with CTEs + final SELECT producing columns:
-        symbol, trade_date, entry_bar, entry_price, exit_price,
-        exit_type, or_range_pct, signal_strength, bench_ret
-    """
-    target_factor = round(1.0 + cfg["target_pct"], 6)
-    stop_factor = round(1.0 - cfg["stop_pct"], 6)
-
-    shared = _orb_shared_ctes(cfg)
-
-    return f"""
-WITH
-{shared},
-
--- Step 2c: Exit -- target, stop-loss, or below OR low
-exit_candidates AS (
-    SELECT
-        b.symbol, b.trade_date, b.bar_num, b.close AS exit_price,
-        ROW_NUMBER() OVER (PARTITION BY b.symbol, b.trade_date ORDER BY b.bar_num) AS rn
-    FROM bars b
-    JOIN first_entry e USING (symbol, trade_date)
-    WHERE b.bar_num > e.entry_bar
-      AND b.bar_num <= e.entry_bar + {cfg["max_hold_bars"]}
-      AND (b.close >= e.entry_price * {target_factor}
-           OR b.close <= LEAST(e.entry_price * {stop_factor}, e.or_low))
-),
-
-first_exit AS (
-    SELECT symbol, trade_date, exit_price
-    FROM exit_candidates WHERE rn = 1
-),
-
-eod_exit AS (
-    SELECT symbol, trade_date,
-           FIRST(close ORDER BY bar_num DESC) AS eod_price
-    FROM bars GROUP BY symbol, trade_date
-)
-
-SELECT
-    e.symbol, e.trade_date, e.entry_bar, e.entry_price,
-    COALESCE(x.exit_price, eod.eod_price) AS exit_price,
-    CASE WHEN x.exit_price IS NOT NULL THEN 'signal' ELSE 'eod' END AS exit_type,
-    e.or_range / NULLIF(e.or_low, 0) AS or_range_pct,
-    e.or_range / NULLIF(e.or_low, 0) AS signal_strength,
-    b.bench_ret
-FROM first_entry e
-LEFT JOIN first_exit x USING (symbol, trade_date)
-JOIN eod_exit eod USING (symbol, trade_date)
-JOIN bench b USING (trade_date)
-ORDER BY e.trade_date, e.or_range DESC
-"""
-
-
 def build_orb_signal_sql(cfg: dict) -> str:
-    """Build Opening Range Breakout signal matrix SQL (v2).
+    """Build Opening Range Breakout signal matrix SQL.
 
-    Returns all bars from entry onward for each entry signal, without exit logic.
-    Exit logic moves to Python simulator (intraday_simulator_v2).
+    Returns all bars from entry onward for each entry signal, without exit logic:
+    the Python simulator (intraday_simulator_v2) resolves exits.
 
     cfg keys: start_date, end_date, min_volume, min_price, min_range_pct,
               or_window, max_entry_bar, symbol_filter, exchange_filter
@@ -341,7 +284,7 @@ bars AS (
 
 
 def build_vwap_mr_signal_sql(cfg: dict) -> str:
-    """Build VWAP Mean Reversion signal matrix SQL (v2).
+    """Build VWAP Mean Reversion signal matrix SQL.
 
     Entry: first bar where close drops below VWAP by dip_pct, after warmup_bars.
     Returns all bars from entry onward for Python exit logic.
@@ -349,7 +292,7 @@ def build_vwap_mr_signal_sql(cfg: dict) -> str:
     cfg keys: start_date, end_date, min_volume, min_price, min_range_pct,
               warmup_bars, max_entry_bar, dip_pct, symbol_filter, exchange_filter
 
-    Returns: SQL string producing columns matching v2 signal matrix format:
+    Returns: SQL string producing columns in the signal matrix format:
         symbol, trade_date, entry_bar, entry_price,
         or_high (=VWAP at entry), or_low (=entry_price), or_range (=deviation),
         signal_strength (=dip_pct magnitude),

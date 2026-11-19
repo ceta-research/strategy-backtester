@@ -3,7 +3,6 @@ static:
   start_epoch: 1577836800      # 2020-01-01
   end_epoch: 1735689600        # 2025-01-01
   prefetch_days: 400
-  data_granularity: day
 
 scanner:
   instruments:

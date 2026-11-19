@@ -20,4 +20,4 @@ Guides for the engine and the research method, plus a record of past research. M
 - `sessions/`: per-session handovers. `archive/`: audit-era (2026-04) and pre-engine (2026-03) docs.
 
 ## Gotchas
-- Paths in older docs drift: files they name moved to `scripts/archive/`, were deleted, or were never written. Check a path exists before following it.
+- Paths in older docs drift: files they name were moved, deleted or never written. Check a path exists before following it.
