@@ -5,21 +5,42 @@ simulation_config.py from ATO_Simulator with YAML-driven configuration.
 Supports per-strategy config schemas via strategy_type in static section.
 """
 
+import json
+
 import yaml
 
 from engine.config_sweep import create_config_iterator
 
+SWEEP_SECTIONS = ("scanner", "entry", "exit", "simulation")
+
+
+def read_config(path: str):
+    """A config file's contents: JSON when it parses as JSON, else YAML.
+
+    JSON first because YAML 1.1 reads a float written as 5e-05 or 1e+21, as Python's json
+    writes them, as a string.
+    """
+    with open(path, "r") as f:
+        text = f.read()
+    try:
+        return json.loads(text)
+    except ValueError:
+        return yaml.safe_load(text)
+
 
 def load_config(yaml_path: str) -> dict:
-    """Load a YAML config and return build_config's structured dict."""
-    with open(yaml_path, "r") as f:
-        return build_config(yaml.safe_load(f))
+    """Load a config file and return build_config's structured dict."""
+    return build_config(read_config(yaml_path))
 
 
 def sections(config: dict) -> dict:
     """A build_config result keyed by the config file's own section names."""
-    return {"static": config["static_config"],
-            **{s: config[f"{s}_config_input"] for s in ("scanner", "entry", "exit", "simulation")}}
+    return {"static": config["static_config"], **{s: config[f"{s}_config_input"] for s in SWEEP_SECTIONS}}
+
+
+def sweep_sizes(config: dict) -> dict:
+    """How many configs each sweep section of a build_config result runs; the pipeline runs their product."""
+    return {s: create_config_iterator(**config[f"{s}_config_input"])[0] for s in SWEEP_SECTIONS}
 
 
 def build_config(raw: dict) -> dict:

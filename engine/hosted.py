@@ -5,21 +5,23 @@ it to a file and calls run.main() on it. The platform checks a submit from its c
 check stops a config that skipped or slipped past that check before it reaches a provider's SQL or a
 strategy the platform doesn't offer. Ranges, labels and options stay with the platform's catalog: a
 string is checked as a plain value, not against an option list. Each param's type is its default's
-type in the engine's own builders.
+type in the engine's own builders. Of the static settings, a hosted run takes only those the platform
+sends; the engine's execution settings (compute, workers, slippage, filters) keep their defaults.
 """
 
 import math
 import os
 import re
 
-from engine.config_loader import build_config, sections
+from engine.config_loader import SWEEP_SECTIONS, build_config, sections, sweep_sizes
 
 STRATEGIES = ("eod_breakout", "eod_technical", "factor_composite", "low_pe", "momentum_cascade",
               "quality_dip_tiered", "trending_value")
 PROVIDERS = ("bhavcopy", "cr", "nse_charting")
+STATIC = ("data_granularity", "data_provider", "end_epoch", "prefetch_days", "start_epoch", "start_margin",
+          "strategy_type")
 MAX_COMBINATIONS = 100  # the platform catalog's default cap
-SECTIONS = ("static", "scanner", "entry", "exit", "simulation")
-SWEEPS = SECTIONS[1:]
+SECTIONS = ("static", *SWEEP_SECTIONS)
 
 _PARAM_NAME = re.compile(r"[a-z_][a-z0-9_]{0,63}")
 _PLAIN = re.compile(r"[A-Za-z0-9_.:&+-]{0,64}")
@@ -61,13 +63,16 @@ def check(raw):
     defaults = sections(build_config({"static": {"strategy_type": strategy}}))
     for sec in SECTIONS:
         for key in sorted(raw.get(sec, {}), key=str):
+            if sec == "static" and key not in STATIC:
+                raise ConfigError(f"static.{_name(key)}", "one of " + ", ".join(STATIC))
             if key not in defaults[sec]:
                 raise ConfigError(f"{sec}.{_name(key)}", "a param this strategy reads")
             _check_param(sec, key, raw[sec][key], defaults[sec][key])
     provider = static.get("data_provider", defaults["static"]["data_provider"])
     if provider not in PROVIDERS:
         raise ConfigError("static.data_provider", "one of " + ", ".join(PROVIDERS))
-    _check_combinations(raw)
+    if math.prod(sweep_sizes(build_config(raw)).values()) > MAX_COMBINATIONS:
+        raise ConfigError("", _OVER_CAP)
 
 
 def _name(key):
@@ -138,14 +143,3 @@ def _check_instruments(field, sweep):
             exchanges.add(inst["exchange"])
     if len(exchanges) > 1:
         raise ConfigError(field, "one exchange: the engine adds up each exchange's equity in its own currency")
-
-
-def _check_combinations(raw):
-    """The configs pipeline.py runs: the product of the sweep lists (a key left out runs its
-    one-value default)."""
-    n = 1
-    for sec in SWEEPS:
-        for value in raw.get(sec, {}).values():
-            n *= len(value)
-            if n > MAX_COMBINATIONS:
-                raise ConfigError("", _OVER_CAP)

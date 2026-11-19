@@ -10,6 +10,7 @@ meaningful only when all exchanges share a currency (e.g. NSE + BSE, both INR)
 or when the user interprets results as "portfolio in mixed local currencies."
 """
 
+import math
 import sys
 import os
 import time
@@ -20,12 +21,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from engine.config_loader import (
     load_config,
+    sweep_sizes,
     get_scanner_config_iterator,
     get_entry_config_iterator,
     get_exit_config_iterator,
     get_simulation_config_iterator,
 )
-from engine.config_sweep import create_config_iterator
 from engine.data_provider import CRDataProvider, BhavcopyDataProvider, NseChartingDataProvider
 from engine import simulator
 from engine.ranking import sort_orders
@@ -62,14 +63,10 @@ def run_pipeline(config_path, data_provider=None):
     signal_gen = get_signal_generator(strategy_type)
     print(f"Strategy: {strategy_type}")
 
-    # Count total config combinations
-    scanner_total, _ = create_config_iterator(**config["scanner_config_input"])
-    entry_total, _ = create_config_iterator(**config["entry_config_input"])
-    exit_total, _ = create_config_iterator(**config["exit_config_input"])
-    sim_total, _ = create_config_iterator(**config["simulation_config_input"])
-    total_configs = scanner_total * entry_total * exit_total * sim_total
-    print(f"Config combinations: {scanner_total} scanner x {entry_total} entry x "
-          f"{exit_total} exit x {sim_total} sim = {total_configs} total")
+    sizes = sweep_sizes(config)
+    total_configs = math.prod(sizes.values())
+    print(f"Config combinations: {sizes['scanner']} scanner x {sizes['entry']} entry x "
+          f"{sizes['exit']} exit x {sizes['simulation']} sim = {total_configs} total")
 
     start_margin = static["start_margin"]
 
@@ -96,7 +93,7 @@ def run_pipeline(config_path, data_provider=None):
         "start_epoch": static["start_epoch"],
         "end_epoch": static["end_epoch"],
         "prefetch_days": static["prefetch_days"],
-        "total_exit_configs": exit_total,
+        "total_exit_configs": sizes["exit"],
         "slippage_rate": static.get("slippage_rate", 0.0005),
         "multiprocessing_workers": static.get("multiprocessing_workers", 4),
         "anomalous_drop_threshold_pct": static.get("anomalous_drop_threshold_pct", 20),

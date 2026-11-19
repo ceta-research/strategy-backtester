@@ -260,6 +260,7 @@ def _child_main(tmp_path, monkeypatch, *extra):
     df.write_parquet(buf)
     task = {"status": "completed", "rowCount": df.height, "executionTime": 0.5, "artifactId": "a"}
     monkeypatch.setenv("CR_API_KEY", "test-only")
+    monkeypatch.setenv("PIPELINE_CONFIG", "")  # so the child's value is undone after the test
     monkeypatch.setattr(requests.Session, "post", lambda self, url, json=None, **k: FakeResponse(201, {"taskId": "t"}))
     monkeypatch.setattr(CetaResearch, "_tier_limits", lambda self: TIERS["big"])
     monkeypatch.setattr(CetaResearch, "_poll", lambda self, *a, **k: task)
@@ -273,6 +274,7 @@ def _child_main(tmp_path, monkeypatch, *extra):
     child.main([str(cfg), str(out), "--limits", str(limits), *extra])
     got = json.loads((out / "stages.json").read_text())
     assert (out / "result.json").exists() and got["error"] is None
+    assert json.loads(os.environ["PIPELINE_CONFIG"]) == config  # the run was hosted, as the wrapper's is
     assert got["queries"][0]["rows"] == df.height and got["queries"][0]["ok"]
     assert not hasattr(CetaResearch.query, "__wrapped__")  # the child took its hooks off
     return got

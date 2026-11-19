@@ -7,7 +7,9 @@ the platform's wrapper does: the config written as JSON to a file, argv set to -
 import copy
 import json
 import os
+import socket
 import sys
+import tempfile
 
 import polars as pl
 import pytest
@@ -18,6 +20,7 @@ sys.path.insert(0, ROOT)
 
 import run  # noqa: E402
 from engine import hosted, pipeline  # noqa: E402
+from engine.config_loader import read_config  # noqa: E402
 from engine.signals import factor_composite, low_pe, trending_value  # noqa: E402
 from engine.signals.base import DataFetchError  # noqa: E402
 from lib import backtest_result  # noqa: E402
@@ -58,8 +61,25 @@ def with_value(cfg, dotted, value):
 
 
 def as_wrapper_writes(cfg):
-    """cfg as the engine reads it back: the wrapper dumps JSON, run.py and load_config read YAML."""
-    return yaml.safe_load(json.dumps(cfg))
+    """cfg as the engine reads it back from the JSON file the wrapper writes."""
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "pipeline_config.yaml")
+        with open(path, "w") as f:
+            json.dump(cfg, f)
+        return read_config(path)
+
+
+def test_a_json_config_keeps_floats_yaml_would_read_as_strings(tmp_path):
+    path = tmp_path / "pipeline_config.yaml"
+    path.write_text(json.dumps({"entry": {"x": [5e-05, 1e21]}}))
+    assert yaml.safe_load(path.read_text()) == {"entry": {"x": ["5e-05", "1e+21"]}}
+    assert read_config(str(path)) == {"entry": {"x": [5e-05, 1e21]}}
+
+
+def test_a_yaml_config_reads_as_before(tmp_path):
+    path = tmp_path / "config.yaml"
+    path.write_text(MINIMAL_CONFIG)
+    assert read_config(str(path)) == yaml.safe_load(MINIMAL_CONFIG)
 
 
 def nse(*symbols):
@@ -102,7 +122,9 @@ SERVER_SENDS = [  # (strategy, section.key, value): values the platform's own ch
     ("eod_breakout", "scanner.price_threshold", [0, 100000, 99.5]),
     ("eod_breakout", "scanner.n_day_gain_threshold", [{"n": 360, "threshold": -999}]),
     ("eod_breakout", "scanner.avg_day_transaction_threshold", [{"period": 125, "threshold": 70000000.0}]),
-    ("eod_breakout", "entry.internal_regime_threshold", [0, 1, 0.45]),
+    ("eod_breakout", "entry.internal_regime_threshold", [0, 1, 0.45, 0.00005]),
+    ("eod_breakout", "scanner.avg_day_transaction_threshold", [{"period": 125, "threshold": 1e21}]),
+    ("eod_breakout", "scanner.n_day_gain_threshold", [{"n": 360, "threshold": 0.00005}]),
     ("eod_breakout", "entry.force_exit_on_regime_flip", [True, False]),
     ("eod_breakout", "entry.direction_score", [{"n_day_ma": 5, "score": 0}, {"n_day_ma": 10, "score": 0.5}]),
     ("eod_breakout", "entry.regime_instrument",
@@ -154,6 +176,10 @@ REFUSED = [  # (name, cfg, field, words the reason holds)
     ("another strategy's param", with_value(EOD, "entry.pe_max", [8]), "entry.pe_max", "reads"),
     ("a number for a static string", with_value(EOD, "static.data_granularity", 5),
      "static.data_granularity", "plain string"),
+    ("an engine-only static setting", with_value(EOD, "static.cr_api_memory_mb", 65536),
+     "static.cr_api_memory_mb", "one of data_granularity, data_provider"),
+    ("worker count", with_value(EOD, "static.multiprocessing_workers", 64),
+     "static.multiprocessing_workers", "one of data_granularity"),
     ("an unknown section", with_value(EOD, "intraday", {}), "intraday", "one of static"),
     ("an unknown section that isn't a name", with_value(EOD, "dateRange", {}), "<unknown key>", "one of static"),
     ("an unknown provider", with_value(EOD, "static.data_provider", "parquet"),
@@ -259,12 +285,11 @@ def last_stderr_line(capsys):
 
 @pytest.fixture
 def no_fetch(monkeypatch):
-    """Fail the test if the run reaches the pipeline or the API."""
+    """Fail the test if the run reaches the pipeline or opens any network connection."""
     def fetched(*a, **k):
         raise AssertionError("the run fetched data")
     monkeypatch.setattr(run, "run_pipeline", fetched)
-    monkeypatch.setattr(pipeline, "run_pipeline", fetched)
-    monkeypatch.setattr(CetaResearch, "query", fetched)
+    monkeypatch.setattr(socket.socket, "connect", fetched)
 
 
 @pytest.mark.parametrize("name,cfg,field,words", REFUSED, ids=[r[0] for r in REFUSED])
@@ -405,6 +430,13 @@ def catalog_file(tmp_path, monkeypatch):
     path = tmp_path / "catalog" / "catalog.jsonl"
     monkeypatch.setattr(backtest_result, "CATALOG_PATH", str(path))
     return path
+
+
+def test_a_float_written_in_exponent_form_runs(tmp_path, monkeypatch, stub_data):
+    cfg = with_value(synthetic_config(), "entry.internal_regime_threshold", [0.00005])
+    code, out = run_main(tmp_path, monkeypatch, cfg)
+    assert "5e-05" in (tmp_path / "pipeline_config.yaml").read_text()
+    assert code == 0 and out.exists()
 
 
 def test_a_hosted_run_writes_only_its_result(tmp_path, monkeypatch, stub_data, catalog_file):

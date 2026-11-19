@@ -5,12 +5,11 @@ import argparse
 import os
 import sys
 
-import yaml
-
 # Ensure project root is on path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from engine import hosted
+from engine.config_loader import read_config
 from engine.pipeline import run_pipeline
 
 
@@ -78,8 +77,7 @@ def main():
         sys.exit(1)
 
     # Peek at config to determine pipeline type
-    with open(config_path) as f:
-        raw_config = yaml.safe_load(f)
+    raw_config = read_config(config_path)
 
     is_hosted = hosted.is_hosted()
     if is_hosted:
