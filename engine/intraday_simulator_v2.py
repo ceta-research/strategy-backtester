@@ -1,9 +1,9 @@
 """Intraday portfolio simulator v2 (bar-level exit logic in Python).
 
-v1 bakes exit logic into SQL CTEs. v2 receives a signal matrix (all bars
-from entry onward) and resolves exits bar-by-bar in Python.
+It receives a signal matrix (all bars from entry onward) and resolves exits
+bar-by-bar in Python.
 
-Supports: fixed target/stop (v1-equivalent), trailing stops, min hold bars,
+Supports: fixed target/stop, trailing stops, min hold bars,
 bar hi/lo exit triggers, dynamic position sizing, margin checks, and
 per-instrument limits. All features default to off/backward-compatible.
 """
@@ -11,9 +11,22 @@ per-instrument limits. All features default to off/backward-compatible.
 import multiprocessing
 from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
-from engine.intraday_simulator import _date_to_epoch, _get_charges_fn
+from engine.charges import nse_intraday_charges, us_intraday_charges
+
+
+def _get_charges_fn(exchange: str):
+    """Return the charge calculator for the given exchange."""
+    if exchange in ("NASDAQ", "NYSE", "AMEX"):
+        return us_intraday_charges
+    return nse_intraday_charges
+
+
+def _date_to_epoch(date_str: str) -> int:
+    """Convert YYYY-MM-DD string to Unix epoch (midnight UTC)."""
+    dt = datetime.strptime(date_str[:10], "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    return int(dt.timestamp())
 
 
 def simulate_intraday_v2(signal_matrix: list, config: dict) -> dict:
@@ -36,7 +49,7 @@ def simulate_intraday_v2(signal_matrix: list, config: dict) -> dict:
 
     Returns:
         dict with: daily_returns, bench_returns, day_wise_log, trade_count,
-                   win_count, trade_log  (same structure as v1)
+                   win_count, trade_log
     """
     if not signal_matrix:
         return {
@@ -239,7 +252,7 @@ def _rank_entries(entries: list, ranking_type: str, symbol_scores: dict) -> list
     """Rank entry signals for position selection.
 
     Modes:
-        signal_strength: sort by signal_strength descending (default, v1 behavior)
+        signal_strength: sort by signal_strength descending (default)
         top_performer: positive-P&L symbols first, then by trailing score desc,
                        tiebreak by signal_strength
     """

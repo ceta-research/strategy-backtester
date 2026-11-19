@@ -1,7 +1,8 @@
 """SQL builders for intraday strategies.
 
-Each strategy has a build_*_sql() function that returns a complete SQL query
-to be executed on the CR compute engine. All signal logic lives in SQL CTEs.
+Each strategy has a build_*_signal_sql() function that returns the SQL query, run
+on the CR compute engine, of its signal matrix: entries with every bar from entry on.
+Exits are resolved in Python by engine/intraday_simulator_v2.py.
 
 Strategies:
     ORB (Opening Range Breakout): breakout above first N bars' high
@@ -97,64 +98,6 @@ first_entry AS (
       -- FMP minute data is NOT split-adjusted; EOD IS. Skip mismatches.
       AND entry_price BETWEEN eod_open * 0.8 AND eod_open * 1.2
 )"""
-
-
-def build_orb_sql(cfg: dict) -> str:
-    """Build Opening Range Breakout SQL query from config dict.
-
-    cfg keys: start_date, end_date, min_volume, min_price, min_range_pct,
-              or_window, max_entry_bar, target_pct, stop_pct, max_hold_bars
-
-    Returns: SQL string with CTEs + final SELECT producing columns:
-        symbol, trade_date, entry_bar, entry_price, exit_price,
-        exit_type, or_range_pct, signal_strength, bench_ret
-    """
-    target_factor = round(1.0 + cfg["target_pct"], 6)
-    stop_factor = round(1.0 - cfg["stop_pct"], 6)
-
-    shared = _orb_shared_ctes(cfg)
-
-    return f"""
-WITH
-{shared},
-
--- Step 2c: Exit -- target, stop-loss, or below OR low
-exit_candidates AS (
-    SELECT
-        b.symbol, b.trade_date, b.bar_num, b.close AS exit_price,
-        ROW_NUMBER() OVER (PARTITION BY b.symbol, b.trade_date ORDER BY b.bar_num) AS rn
-    FROM bars b
-    JOIN first_entry e USING (symbol, trade_date)
-    WHERE b.bar_num > e.entry_bar
-      AND b.bar_num <= e.entry_bar + {cfg["max_hold_bars"]}
-      AND (b.close >= e.entry_price * {target_factor}
-           OR b.close <= LEAST(e.entry_price * {stop_factor}, e.or_low))
-),
-
-first_exit AS (
-    SELECT symbol, trade_date, exit_price
-    FROM exit_candidates WHERE rn = 1
-),
-
-eod_exit AS (
-    SELECT symbol, trade_date,
-           FIRST(close ORDER BY bar_num DESC) AS eod_price
-    FROM bars GROUP BY symbol, trade_date
-)
-
-SELECT
-    e.symbol, e.trade_date, e.entry_bar, e.entry_price,
-    COALESCE(x.exit_price, eod.eod_price) AS exit_price,
-    CASE WHEN x.exit_price IS NOT NULL THEN 'signal' ELSE 'eod' END AS exit_type,
-    e.or_range / NULLIF(e.or_low, 0) AS or_range_pct,
-    e.or_range / NULLIF(e.or_low, 0) AS signal_strength,
-    b.bench_ret
-FROM first_entry e
-LEFT JOIN first_exit x USING (symbol, trade_date)
-JOIN eod_exit eod USING (symbol, trade_date)
-JOIN bench b USING (trade_date)
-ORDER BY e.trade_date, e.or_range DESC
-"""
 
 
 def build_orb_signal_sql(cfg: dict) -> str:

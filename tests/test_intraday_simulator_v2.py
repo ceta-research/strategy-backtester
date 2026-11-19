@@ -9,10 +9,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from engine.intraday_simulator_v2 import (
     simulate_intraday_v2, _build_entry_signals, _resolve_exit,
     _compute_order_value, _rank_entries, _compute_symbol_scores,
-    _compute_payout, run_parallel_sweep,
+    _compute_payout, run_parallel_sweep, _date_to_epoch, _get_charges_fn,
 )
-from engine.intraday_simulator import simulate_intraday
-from engine.charges import nse_intraday_charges
+from engine.charges import nse_intraday_charges, us_intraday_charges
 
 
 DEFAULT_CONFIG = {
@@ -114,6 +113,16 @@ def make_signal_matrix_from_bars(symbol, trade_date, entry_bar, entry_price,
     return rows
 
 
+def signal_rows(*entries):
+    """Signal matrix rows for (symbol, trade_date, entry_bar, closes, signal_strength, bench_ret) entries,
+    each entering at its first close."""
+    rows = []
+    for symbol, trade_date, entry_bar, closes, strength, bench in entries:
+        rows += make_signal_matrix_from_bars(symbol, trade_date, entry_bar, closes[0], make_bars(entry_bar, closes),
+                                             signal_strength=strength, bench_ret=bench)
+    return rows
+
+
 # ============================================================
 # A. Exit logic unit tests (_resolve_exit)
 # ============================================================
@@ -178,7 +187,7 @@ class TestResolveExit(unittest.TestCase):
         self.assertEqual(result["exit_price"], 100.2)
 
     def test_entry_bar_skipped(self):
-        """Target met on entry bar itself is NOT triggered (v1: bar_num > entry_bar)."""
+        """Target met on entry bar itself is NOT triggered (exits start at bar_num > entry_bar)."""
         entry_price = 100.0
         # Entry bar close = 102 (above target 101.5), but should be skipped
         bars = make_bars(16, [102, 100.5, 100.3])
@@ -389,115 +398,22 @@ class TestBuildEntrySignals(unittest.TestCase):
 
 
 # ============================================================
-# D. v1/v2 equivalence test
+# D. Helpers
 # ============================================================
 
-class TestV1V2Equivalence(unittest.TestCase):
+class TestHelpers(unittest.TestCase):
 
-    def test_v1_v2_equivalence(self):
-        """Same synthetic data through v1 and v2 must produce identical results."""
-        ov = 50000
-        charges = nse_intraday_charges(ov)
+    def test_date_to_epoch(self):
+        """_date_to_epoch('2024-01-15') -> correct Unix timestamp."""
+        # 2024-01-15 00:00:00 UTC = 1705276800
+        self.assertEqual(_date_to_epoch("2024-01-15"), 1705276800)
 
-        # Define 5 entries across 3 days with known exit outcomes
-        entries = [
-            # Day 1: Entry A - target hit at bar 20 (close=101.5)
-            {
-                "symbol": "A.NS", "trade_date": "2024-01-15",
-                "entry_bar": 16, "entry_price": 100.0,
-                "or_low": 90.0, "signal_strength": 0.05, "bench_ret": 0.001,
-                "bars": make_bars(16, [100, 100.3, 100.5, 100.8, 101.5, 102]),
-                # v1: exit at bar 20, price=101.5, type=signal
-            },
-            # Day 1: Entry B - stop hit at bar 18 (close=89)
-            {
-                "symbol": "B.NS", "trade_date": "2024-01-15",
-                "entry_bar": 16, "entry_price": 100.0,
-                "or_low": 90.0, "signal_strength": 0.04, "bench_ret": 0.001,
-                "bars": make_bars(16, [100, 95, 89]),
-                # v1: exit at bar 18, price=89, type=signal (89 <= min(99, 90)=90)
-            },
-            # Day 2: Entry C - EOD exit (no target/stop)
-            {
-                "symbol": "C.NS", "trade_date": "2024-01-16",
-                "entry_bar": 16, "entry_price": 100.0,
-                "or_low": 90.0, "signal_strength": 0.03, "bench_ret": 0.002,
-                "bars": make_bars(16, [100, 100.2, 100.1, 100.3, 100.2]),
-                # v1: exit at bar 20, price=100.2, type=eod
-            },
-            # Day 3: Entry D - target hit
-            {
-                "symbol": "D.NS", "trade_date": "2024-01-17",
-                "entry_bar": 16, "entry_price": 100.0,
-                "or_low": 90.0, "signal_strength": 0.06, "bench_ret": 0.0005,
-                "bars": make_bars(16, [100, 100.5, 101.5, 102]),
-                # v1: exit at bar 18, price=101.5, type=signal
-            },
-            # Day 3: Entry E - target hit
-            {
-                "symbol": "E.NS", "trade_date": "2024-01-17",
-                "entry_bar": 18, "entry_price": 200.0,
-                "or_low": 180.0, "signal_strength": 0.07, "bench_ret": 0.0005,
-                "bars": make_bars(18, [200, 201, 203, 204]),
-                # v1: exit at bar 20, price=203, type=signal
-            },
-        ]
-
-        # Build v2 signal matrix
-        signal_matrix = []
-        for e in entries:
-            signal_matrix.extend(make_signal_matrix_from_bars(
-                e["symbol"], e["trade_date"], e["entry_bar"], e["entry_price"],
-                e["bars"], or_low=e["or_low"],
-                signal_strength=e["signal_strength"], bench_ret=e["bench_ret"],
-            ))
-
-        # Run v2
-        v2_result = simulate_intraday_v2(signal_matrix, DEFAULT_CONFIG)
-
-        # Build v1 trades: pre-compute exits to match what v2 should produce
-        v1_trades = []
-        for e in entries:
-            exit_result = _resolve_exit(
-                e, {"target_pct": 0.015, "stop_pct": 0.01, "max_hold_bars": 60, "eod_buffer_bars": 0}
-            )
-            v1_trades.append({
-                "symbol": e["symbol"],
-                "trade_date": e["trade_date"],
-                "entry_bar": e["entry_bar"],
-                "entry_price": e["entry_price"],
-                "exit_price": exit_result["exit_price"],
-                "exit_type": exit_result["exit_type"],
-                "signal_strength": e["signal_strength"],
-                "bench_ret": e["bench_ret"],
-            })
-
-        v1_config = {
-            "initial_capital": DEFAULT_CONFIG["initial_capital"],
-            "max_positions": DEFAULT_CONFIG["max_positions"],
-            "order_value": DEFAULT_CONFIG["order_value"],
-        }
-        v1_result = simulate_intraday(v1_trades, v1_config)
-
-        # Compare
-        self.assertEqual(v2_result["trade_count"], v1_result["trade_count"])
-        self.assertEqual(v2_result["win_count"], v1_result["win_count"])
-
-        for i, (v2_ret, v1_ret) in enumerate(
-            zip(v2_result["daily_returns"], v1_result["daily_returns"])
-        ):
-            self.assertAlmostEqual(v2_ret, v1_ret, places=10,
-                                   msg=f"Daily return mismatch on day {i}")
-
-        for i, (v2_tl, v1_tl) in enumerate(
-            zip(v2_result["trade_log"], v1_result["trade_log"])
-        ):
-            self.assertEqual(v2_tl["symbol"], v1_tl["symbol"],
-                             msg=f"Trade {i} symbol mismatch")
-            self.assertAlmostEqual(v2_tl["pnl"], v1_tl["pnl"], places=2,
-                                   msg=f"Trade {i} PnL mismatch")
-            self.assertEqual(v2_tl["exit_type"], v1_tl["exit_type"],
-                             msg=f"Trade {i} exit_type mismatch")
+    def test_charges_dispatch_by_exchange(self):
+        """US exchanges use us_intraday_charges; NSE, BSE and anything unknown use nse_intraday_charges."""
+        for exchange in ("NASDAQ", "NYSE", "AMEX"):
+            self.assertIs(_get_charges_fn(exchange), us_intraday_charges, exchange)
+        for exchange in ("NSE", "BSE", "UNKNOWN"):
+            self.assertIs(_get_charges_fn(exchange), nse_intraday_charges, exchange)
 
 
 # ============================================================

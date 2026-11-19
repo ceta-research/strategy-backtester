@@ -1,6 +1,7 @@
 """Known-answer integration test for the full intraday stack.
 
-Hand-crafted scenario: 5 trades across 3 days.
+Hand-crafted scenario: 5 trades across 3 days, each held from its entry bar to the
+session's last bar (no target or stop in reach), so it exits at that bar's close.
 Verifies simulator + metrics + trade_log produce exact expected values.
 """
 
@@ -10,9 +11,13 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from engine.intraday_simulator import simulate_intraday
+from engine.intraday_simulator_v2 import simulate_intraday_v2
 from engine.charges import nse_intraday_charges
 from lib.metrics import compute_metrics
+from tests.test_intraday_simulator_v2 import signal_rows
+
+# Target and stop out of reach, exits resolved up to the last bar: every trade exits at its last close.
+HOLD_TO_CLOSE = {"target_pct": 1.0, "stop_pct": 0.9, "max_hold_bars": 60, "eod_buffer_bars": 0}
 
 
 class TestKnownAnswer(unittest.TestCase):
@@ -48,37 +53,23 @@ class TestKnownAnswer(unittest.TestCase):
         margin_after_day3 = margin_after_day2 + day3_pnl
         day3_ret = day3_pnl / margin_after_day2
 
-        # Build trades
-        trades = [
-            {"symbol": "A.NS", "trade_date": "2024-01-15",
-             "entry_price": 100.0, "exit_price": 103.0,
-             "exit_type": "signal", "signal_strength": 0.05,
-             "bench_ret": 0.001, "entry_bar": 16},
-            {"symbol": "B.NS", "trade_date": "2024-01-15",
-             "entry_price": 200.0, "exit_price": 196.0,
-             "exit_type": "eod", "signal_strength": 0.03,
-             "bench_ret": 0.001, "entry_bar": 18},
-            {"symbol": "C.NS", "trade_date": "2024-01-16",
-             "entry_price": 150.0, "exit_price": 156.0,
-             "exit_type": "signal", "signal_strength": 0.04,
-             "bench_ret": 0.002, "entry_bar": 17},
-            {"symbol": "D.NS", "trade_date": "2024-01-17",
-             "entry_price": 50.0, "exit_price": 52.0,
-             "exit_type": "signal", "signal_strength": 0.06,
-             "bench_ret": 0.0015, "entry_bar": 16},
-            {"symbol": "E.NS", "trade_date": "2024-01-17",
-             "entry_price": 300.0, "exit_price": 306.0,
-             "exit_type": "signal", "signal_strength": 0.02,
-             "bench_ret": 0.0015, "entry_bar": 20},
-        ]
+        # (symbol, trade_date, entry_bar, closes from entry to exit, signal_strength, bench_ret)
+        rows = signal_rows(
+            ("A.NS", "2024-01-15", 16, [100.0, 101.0, 103.0], 0.05, 0.001),
+            ("B.NS", "2024-01-15", 18, [200.0, 198.0, 196.0], 0.03, 0.001),
+            ("C.NS", "2024-01-16", 17, [150.0, 153.0, 156.0], 0.04, 0.002),
+            ("D.NS", "2024-01-17", 16, [50.0, 51.0, 52.0], 0.06, 0.0015),
+            ("E.NS", "2024-01-17", 20, [300.0, 303.0, 306.0], 0.02, 0.0015),
+        )
 
         config = {
             "initial_capital": initial_capital,
             "max_positions": 5,
             "order_value": order_value,
+            **HOLD_TO_CLOSE,
         }
 
-        result = simulate_intraday(trades, config)
+        result = simulate_intraday_v2(rows, config)
 
         # Verify counts
         self.assertEqual(result["trade_count"], 5)
@@ -137,25 +128,20 @@ class TestKnownAnswer(unittest.TestCase):
         from engine.charges import us_intraday_charges
         charges = us_intraday_charges(order_value)
 
-        trades = [
-            {"symbol": "AAPL", "trade_date": "2024-01-15",
-             "entry_price": 180.0, "exit_price": 183.0,
-             "exit_type": "signal", "signal_strength": 0.05,
-             "bench_ret": 0.001, "entry_bar": 16},
-            {"symbol": "MSFT", "trade_date": "2024-01-16",
-             "entry_price": 400.0, "exit_price": 404.0,
-             "exit_type": "signal", "signal_strength": 0.04,
-             "bench_ret": 0.002, "entry_bar": 17},
-        ]
+        rows = signal_rows(
+            ("AAPL", "2024-01-15", 16, [180.0, 181.0, 183.0], 0.05, 0.001),
+            ("MSFT", "2024-01-16", 17, [400.0, 402.0, 404.0], 0.04, 0.002),
+        )
 
         config = {
             "initial_capital": initial_capital,
             "max_positions": 5,
             "order_value": order_value,
             "exchange": "NASDAQ",
+            **HOLD_TO_CLOSE,
         }
 
-        result = simulate_intraday(trades, config)
+        result = simulate_intraday_v2(rows, config)
 
         # All trades should be winners (prices go up, charges are tiny)
         self.assertEqual(result["win_count"], 2)

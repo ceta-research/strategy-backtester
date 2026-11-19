@@ -1,7 +1,7 @@
 # Intraday strategy template
 #
 # strategy_type: must be "intraday" to route to the intraday pipeline
-# strategy_name: maps to a SQL builder (e.g. "orb" -> build_orb_sql)
+# strategy_name: maps to a signal SQL builder (e.g. "orb" -> build_orb_signal_sql)
 #
 # Sections: scanner, entry, exit control SQL query parameters.
 # Wrap values in lists for parameter sweeps (Cartesian product).

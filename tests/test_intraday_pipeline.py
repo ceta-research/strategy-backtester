@@ -8,10 +8,10 @@ from unittest.mock import patch, MagicMock
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from engine.intraday_pipeline import (
-    _cartesian, _make_config_id, SQL_KEYS, SIM_KEYS,
-    SQL_KEYS_V2, SIM_KEYS_V2,
+    _cartesian, _make_config_id, SQL_KEYS_V2, SIM_KEYS_V2,
     EXCHANGE_SQL_DEFAULTS, run_intraday_pipeline,
 )
+from tests.test_intraday_simulator_v2 import signal_rows
 
 
 class TestCartesian(unittest.TestCase):
@@ -56,23 +56,6 @@ class TestMakeConfigId(unittest.TestCase):
         self.assertIn("target=0.015", config_id)
 
 
-class TestKeyClassification(unittest.TestCase):
-
-    def test_no_overlap(self):
-        """SQL_KEYS and SIM_KEYS must be disjoint."""
-        overlap = SQL_KEYS & SIM_KEYS
-        self.assertEqual(overlap, set(), f"Keys in both sets: {overlap}")
-
-    def test_sql_keys_present(self):
-        expected = {"min_volume", "min_price", "min_range_pct", "or_window",
-                    "max_entry_bar", "target_pct", "stop_pct", "max_hold_bars"}
-        self.assertEqual(SQL_KEYS, expected)
-
-    def test_sim_keys_present(self):
-        expected = {"max_positions", "order_value"}
-        self.assertEqual(SIM_KEYS, expected)
-
-
 class TestExchangeSqlDefaults(unittest.TestCase):
 
     def test_nse_defaults(self):
@@ -90,74 +73,57 @@ class TestExchangeSqlDefaults(unittest.TestCase):
         self.assertIn("NYSE", d["exchange_filter"])
 
 
+def _make_config_file(exchange="NSE", pipeline_version=None):
+    """A minimal ORB config file (one SQL chunk, exits resolved over the given bars); returns its path."""
+    import tempfile
+    import yaml
+
+    config = {
+        "static": {
+            "strategy_name": "orb",
+            "start_date": "2024-01-01",
+            "end_date": "2024-03-31",
+            "initial_capital": 500000,
+            "risk_free_rate": 0.065,
+            "exchange": exchange,
+            "chunk_months": 12,
+        },
+        "scanner": {"min_volume": 5000000, "min_price": 100, "min_range_pct": 0.01},
+        "entry": {"or_window": 15, "max_entry_bar": 120},
+        "exit": {"target_pct": 0.015, "stop_pct": 0.01, "max_hold_bars": 60},
+        "simulation": {"max_positions": 5, "order_value": 50000, "eod_buffer_bars": 0},
+    }
+    if pipeline_version:
+        config["static"]["pipeline_version"] = pipeline_version
+    fd, path = tempfile.mkstemp(suffix=".yaml")
+    with os.fdopen(fd, "w") as f:
+        yaml.dump(config, f)
+    return path
+
+
+def _run_with_rows(MockCR, rows, **config):
+    """Run the pipeline on a mock client whose signal query returns rows and RVOL+ATR query nothing."""
+    mock_client = MagicMock()
+    mock_client.query.side_effect = [rows, []]
+    MockCR.return_value = mock_client
+    path = _make_config_file(**config)
+    try:
+        return run_intraday_pipeline(path), mock_client
+    finally:
+        os.unlink(path)
+
+
 class TestPipelineWithMockClient(unittest.TestCase):
-
-    def _make_config_file(self, tmp_path, exchange="NSE"):
-        """Create a minimal YAML config and return the path."""
-        import tempfile
-        import yaml
-
-        config = {
-            "static": {
-                "strategy_name": "orb",
-                "pipeline_version": "v1",
-                "start_date": "2024-01-01",
-                "end_date": "2024-03-31",
-                "initial_capital": 500000,
-                "risk_free_rate": 0.065,
-                "exchange": exchange,
-            },
-            "scanner": {
-                "min_volume": 5000000,
-                "min_price": 100,
-                "min_range_pct": 0.01,
-            },
-            "entry": {
-                "or_window": 15,
-                "max_entry_bar": 120,
-            },
-            "exit": {
-                "target_pct": 0.015,
-                "stop_pct": 0.01,
-                "max_hold_bars": 60,
-            },
-            "simulation": {
-                "max_positions": 5,
-                "order_value": 50000,
-            },
-        }
-
-        fd, path = tempfile.mkstemp(suffix=".yaml")
-        with os.fdopen(fd, "w") as f:
-            yaml.dump(config, f)
-        return path
 
     @patch("engine.intraday_pipeline.CetaResearch")
     def test_pipeline_produces_sorted_results(self, MockCR):
         """Mock CR query -> verify full pipeline produces SweepResult."""
-        mock_trades = [
-            {"symbol": "TEST.NS", "trade_date": "2024-01-15",
-             "entry_price": 100.0, "exit_price": 102.0,
-             "exit_type": "signal", "signal_strength": 0.05,
-             "bench_ret": 0.001, "entry_bar": 16},
-            {"symbol": "TEST2.NS", "trade_date": "2024-01-15",
-             "entry_price": 200.0, "exit_price": 196.0,
-             "exit_type": "eod", "signal_strength": 0.03,
-             "bench_ret": 0.001, "entry_bar": 18},
-            {"symbol": "TEST.NS", "trade_date": "2024-01-16",
-             "entry_price": 100.0, "exit_price": 103.0,
-             "exit_type": "signal", "signal_strength": 0.04,
-             "bench_ret": 0.002, "entry_bar": 17},
-        ]
-        mock_client = MagicMock()
-        mock_client.query.return_value = mock_trades
-        MockCR.return_value = mock_client
-
-        config_path = self._make_config_file(None)
-        try:
-            sweep = run_intraday_pipeline(config_path)
-        finally:
-            os.unlink(config_path)
+        rows = signal_rows(
+            ("TEST.NS", "2024-01-15", 16, [100, 101, 102], 0.05, 0.001),
+            ("TEST2.NS", "2024-01-15", 18, [200, 199, 198.5], 0.03, 0.001),
+            ("TEST.NS", "2024-01-16", 17, [100, 101.5, 103], 0.04, 0.002),
+        )
+        sweep, _ = _run_with_rows(MockCR, rows)
 
         from lib.backtest_result import SweepResult
         self.assertIsInstance(sweep, SweepResult)
@@ -170,37 +136,22 @@ class TestPipelineWithMockClient(unittest.TestCase):
 
     @patch("engine.intraday_pipeline.CetaResearch")
     def test_pipeline_us_exchange_passes_to_sim(self, MockCR):
-        """Pipeline with exchange=NASDAQ passes it through to simulator."""
-        mock_trades = [
-            {"symbol": "AAPL", "trade_date": "2024-01-15",
-             "entry_price": 180.0, "exit_price": 182.0,
-             "exit_type": "signal", "signal_strength": 0.05,
-             "bench_ret": 0.001, "entry_bar": 16},
-            {"symbol": "MSFT", "trade_date": "2024-01-16",
-             "entry_price": 400.0, "exit_price": 404.0,
-             "exit_type": "signal", "signal_strength": 0.04,
-             "bench_ret": 0.002, "entry_bar": 17},
-        ]
-        mock_client = MagicMock()
-        mock_client.query.return_value = mock_trades
-        MockCR.return_value = mock_client
-
-        config_path = self._make_config_file(None, exchange="NASDAQ")
-        try:
-            sweep = run_intraday_pipeline(config_path)
-        finally:
-            os.unlink(config_path)
+        """Pipeline with exchange=NASDAQ passes it through to the signal SQL and the simulator."""
+        rows = signal_rows(
+            ("AAPL", "2024-01-15", 16, [180, 181, 182], 0.05, 0.001),
+            ("MSFT", "2024-01-16", 17, [400, 402, 404], 0.04, 0.002),
+        )
+        sweep, mock_client = _run_with_rows(MockCR, rows, exchange="NASDAQ")
 
         self.assertEqual(len(sweep.configs), 1)
         params, result = sweep.configs[0]
         d = result.to_dict()
-        # US charges are much lower, so trade charges should be small
+        self.assertEqual(len(d["trades"]), 2)
         for t in d["trades"]:
             self.assertLess(t["charges"], 5.0, "US charges should be <$5")
 
-        # Verify SQL used NASDAQ exchange filter
-        call_args = mock_client.query.call_args
-        sql = call_args[0][0]
+        # The first query is the signal SQL; the second (RVOL+ATR) gets the same exchange filter.
+        sql = mock_client.query.call_args_list[0][0][0]
         self.assertIn("NASDAQ", sql)
         self.assertNotIn("%.NS", sql)
 
@@ -217,10 +168,6 @@ class TestV2KeyClassification(unittest.TestCase):
         for key in ("target_pct", "stop_pct", "max_hold_bars"):
             self.assertIn(key, SIM_KEYS_V2, f"{key} should be in SIM_KEYS_V2")
             self.assertNotIn(key, SQL_KEYS_V2, f"{key} should NOT be in SQL_KEYS_V2")
-
-    def test_v2_more_sim_keys(self):
-        """v2 has more SIM keys than v1 (exit params moved to sim)."""
-        self.assertGreater(len(SIM_KEYS_V2), len(SIM_KEYS))
 
     def test_v2_sql_keys_content(self):
         expected = {"min_volume", "min_price", "min_range_pct", "or_window", "max_entry_bar",
@@ -329,55 +276,15 @@ class TestV2PipelineWithMockClient(unittest.TestCase):
         self.assertGreater(len(d["trades"]), 0)
 
     @patch("engine.intraday_pipeline.CetaResearch")
-    def test_v1_dispatch(self, MockCR):
-        """pipeline_version=v1 dispatches to v1 pipeline."""
-        import tempfile
-        import yaml
-
-        config = {
-            "static": {
-                "strategy_name": "orb",
-                "pipeline_version": "v1",
-                "start_date": "2024-01-01",
-                "end_date": "2024-03-31",
-                "initial_capital": 500000,
-                "risk_free_rate": 0.065,
-                "exchange": "NSE",
-            },
-            "scanner": {"min_volume": 5000000, "min_price": 100, "min_range_pct": 0.01},
-            "entry": {"or_window": 15, "max_entry_bar": 120},
-            "exit": {"target_pct": 0.015, "stop_pct": 0.01, "max_hold_bars": 60},
-            "simulation": {"max_positions": 5, "order_value": 50000},
-        }
-
-        fd, path = tempfile.mkstemp(suffix=".yaml")
-        with os.fdopen(fd, "w") as f:
-            yaml.dump(config, f)
-
-        mock_trades = [
-            {"symbol": "TEST.NS", "trade_date": "2024-01-15",
-             "entry_price": 100.0, "exit_price": 102.0,
-             "exit_type": "signal", "signal_strength": 0.05,
-             "bench_ret": 0.001, "entry_bar": 16},
-            {"symbol": "TEST.NS", "trade_date": "2024-01-16",
-             "entry_price": 100.0, "exit_price": 103.0,
-             "exit_type": "signal", "signal_strength": 0.04,
-             "bench_ret": 0.002, "entry_bar": 17},
-        ]
-        mock_client = MagicMock()
-        mock_client.query.return_value = mock_trades
-        MockCR.return_value = mock_client
-
+    def test_v1_is_refused_before_any_query(self, MockCR):
+        """pipeline_version v1 was removed: such a config fails naming v2, and no query runs."""
+        path = _make_config_file(pipeline_version="v1")
         try:
-            sweep = run_intraday_pipeline(path)
+            with self.assertRaisesRegex(ValueError, "v2"):
+                run_intraday_pipeline(path)
         finally:
             os.unlink(path)
-
-        from lib.backtest_result import SweepResult
-        self.assertIsInstance(sweep, SweepResult)
-        self.assertEqual(len(sweep.configs), 1)
-        params, result = sweep.configs[0]
-        self.assertEqual(result.to_dict()["summary"]["total_trades"], 2)
+        MockCR.assert_not_called()
 
 
 class TestVwapMrRegistration(unittest.TestCase):
@@ -405,25 +312,11 @@ class TestSweepResultStructure(unittest.TestCase):
     @patch("engine.intraday_pipeline.CetaResearch")
     def test_sweep_result_has_meta_and_configs(self, MockCR):
         """SweepResult has .meta with strategy info and .configs with BacktestResults."""
-        mock_trades = [
-            {"symbol": "TEST.NS", "trade_date": "2024-01-15",
-             "entry_price": 100.0, "exit_price": 102.0,
-             "exit_type": "signal", "signal_strength": 0.05,
-             "bench_ret": 0.001, "entry_bar": 16},
-            {"symbol": "TEST.NS", "trade_date": "2024-01-16",
-             "entry_price": 101.0, "exit_price": 103.0,
-             "exit_type": "signal", "signal_strength": 0.04,
-             "bench_ret": 0.002, "entry_bar": 17},
-        ]
-        mock_client = MagicMock()
-        mock_client.query.return_value = mock_trades
-        MockCR.return_value = mock_client
-
-        config_path = TestPipelineWithMockClient._make_config_file(self, None)
-        try:
-            sweep = run_intraday_pipeline(config_path)
-        finally:
-            os.unlink(config_path)
+        rows = signal_rows(
+            ("TEST.NS", "2024-01-15", 16, [100, 101, 102], 0.05, 0.001),
+            ("TEST.NS", "2024-01-16", 17, [101, 102, 103], 0.04, 0.002),
+        )
+        sweep, _ = _run_with_rows(MockCR, rows)
 
         # Meta fields
         self.assertEqual(sweep.meta["strategy_name"], "orb")
@@ -450,27 +343,14 @@ class TestSweepResultStructure(unittest.TestCase):
         import json
         import tempfile
 
-        mock_trades = [
-            {"symbol": "TEST.NS", "trade_date": "2024-01-15",
-             "entry_price": 100.0, "exit_price": 102.0,
-             "exit_type": "signal", "signal_strength": 0.05,
-             "bench_ret": 0.001, "entry_bar": 16},
-        ]
-        mock_client = MagicMock()
-        mock_client.query.return_value = mock_trades
-        MockCR.return_value = mock_client
-
-        config_path = TestPipelineWithMockClient._make_config_file(self, None)
-        try:
-            sweep = run_intraday_pipeline(config_path)
-        finally:
-            os.unlink(config_path)
+        rows = signal_rows(("TEST.NS", "2024-01-15", 16, [100, 101, 102], 0.05, 0.001))
+        sweep, _ = _run_with_rows(MockCR, rows)
 
         with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
             out_path = f.name
 
         try:
-            sweep.save(out_path)
+            sweep.save(out_path, catalog=False)
             with open(out_path) as f:
                 data = json.load(f)
 

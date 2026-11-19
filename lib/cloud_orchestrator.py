@@ -40,7 +40,6 @@ INTRADAY_ENGINE_FILES = [
     "engine/__init__.py",
     "engine/intraday_pipeline.py",
     "engine/intraday_sql_builder.py",
-    "engine/intraday_simulator.py",
     "engine/intraday_simulator_v2.py",
     "engine/charges.py",
     "engine/constants.py",
